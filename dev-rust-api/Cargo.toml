@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "types",
+    "physics",
+    "layout",
+    "wire",
+    "config",
+    "vfs",
+    "ipc",
+    "compute-api",
+    "compute-cpu",
+    "compute",
+    "compute-cuda",
+    "compute-hip",
+    "test-harness",
+    "topology",
+    "baker",
+    "weaver-daemon",
+    "edge-model",
+    "baker-cli",
+    "boot",
+    "runtime",
+    "node",
+    "protocol",
+    "transport",
+    "net",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+
+[workspace.dependencies]
+# Standardized dependency versions across all crates (Layers 0-6)
+tracing = "0.1.44"
+rayon = "1.11.0"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "=0.8.23"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+crossbeam = "0.8.4"
+tokio = { version = "1.50.0", features = ["full"] }
+anyhow = "1.0.102"
+memmap2 = "=0.9.10"
+tempfile = "=3.10.1"
+libc = "=0.2.182"

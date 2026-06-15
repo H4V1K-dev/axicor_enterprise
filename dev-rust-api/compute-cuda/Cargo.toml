@@ -1,0 +1,13 @@
+[package]
+name = "compute-cuda"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+compute-api = { path = "../compute-api" }
+layout = { path = "../layout" }
+slotmap = "1.0.7"
+
+[build-dependencies]
+cc = "1.0"

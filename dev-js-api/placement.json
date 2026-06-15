@@ -1,0 +1,1378 @@
+{
+  "orbits": [
+    {
+      "index": 1,
+      "radius": 0.0,
+      "w": 289,
+      "d": 385,
+      "area": 111265,
+      "dept_count": 1
+    },
+    {
+      "index": 2,
+      "radius": 76.0,
+      "w": 129,
+      "d": 193,
+      "area": 24897,
+      "dept_count": 1
+    },
+    {
+      "index": 3,
+      "radius": 128.0,
+      "w": 321,
+      "d": 385,
+      "area": 123585,
+      "dept_count": 1
+    }
+  ],
+  "departments": [
+    {
+      "name": "MotorControl",
+      "orbit": 1,
+      "shard_count": 3
+    },
+    {
+      "name": "SensoryInput",
+      "orbit": 2,
+      "shard_count": 3
+    },
+    {
+      "name": "CentralProcessor",
+      "orbit": 3,
+      "shard_count": 4
+    }
+  ],
+  "shards": [
+    {
+      "key": "MotorControl.Cerebellum",
+      "dept": "MotorControl",
+      "shard": "Cerebellum",
+      "orbit": 1,
+      "radius": 0.0,
+      "position": {
+        "x": -16.5,
+        "y": 7.5,
+        "z": -64.5
+      },
+      "size": {
+        "w": 256,
+        "d": 256,
+        "h": 15
+      },
+      "flat_position": {
+        "u": 0,
+        "v": 0
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "plan_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -87.33,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "local_proprioception_in",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": -44.67,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "correction_out",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -2,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "proprioceptive_feedback",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 42.67,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "cerebellar_fb",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 87.33,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        }
+      ],
+      "input_ports": [],
+      "output_ports": [
+        {
+          "name": "muscle_LB",
+          "width": 4,
+          "height": 4
+        },
+        {
+          "name": "muscle_RB",
+          "width": 4,
+          "height": 4
+        }
+      ],
+      "layers": [
+        {
+          "name": "Purkinje_Layer",
+          "height_pct": 1,
+          "density": 0.9
+        }
+      ],
+      "populations": [
+        [
+          "Purkinje_Layer",
+          "bio/motor/purkinje"
+        ]
+      ]
+    },
+    {
+      "key": "MotorControl.MotorCortex",
+      "dept": "MotorControl",
+      "shard": "MotorCortex",
+      "orbit": 1,
+      "radius": 0.0,
+      "position": {
+        "x": -80.5,
+        "y": 15,
+        "z": 127.5
+      },
+      "size": {
+        "w": 128,
+        "d": 128,
+        "h": 30
+      },
+      "flat_position": {
+        "u": 0,
+        "v": 256
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "command_in",
+          "width": 12,
+          "height": 12,
+          "pitch": 1,
+          "offset": {
+            "x": -44,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "direct_motor_cmd_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -20,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "cerebellar_fb_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 2,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "cortex_to_spinal",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 24,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "cortex_to_cerebellum",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 46,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        }
+      ],
+      "input_ports": [],
+      "output_ports": [],
+      "layers": [
+        {
+          "name": "L5_Output",
+          "height_pct": 1,
+          "density": 0.6
+        }
+      ],
+      "populations": [
+        [
+          "L5_Output",
+          "bio/cortex/pyramidal_exc"
+        ]
+      ]
+    },
+    {
+      "key": "MotorControl.SpinalCord",
+      "dept": "MotorControl",
+      "shard": "SpinalCord",
+      "orbit": 1,
+      "radius": 0.0,
+      "position": {
+        "x": 128,
+        "y": 30,
+        "z": -176
+      },
+      "size": {
+        "w": 32,
+        "d": 32,
+        "h": 60
+      },
+      "flat_position": {
+        "u": 256,
+        "v": 0
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "descending_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -12,
+            "y": -12
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "coordination_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 2,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "local_proprioception_out",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": 11,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        }
+      ],
+      "input_ports": [],
+      "output_ports": [
+        {
+          "name": "muscle_LF",
+          "width": 4,
+          "height": 4
+        },
+        {
+          "name": "muscle_RF",
+          "width": 4,
+          "height": 4
+        }
+      ],
+      "layers": [
+        {
+          "name": "MotorPool",
+          "height_pct": 1,
+          "density": 0.4
+        }
+      ],
+      "populations": [
+        [
+          "MotorPool",
+          "bio/motor/spinal_motor"
+        ]
+      ]
+    },
+    {
+      "key": "SensoryInput.Retina",
+      "dept": "SensoryInput",
+      "shard": "Retina",
+      "orbit": 2,
+      "radius": 76.0,
+      "position": {
+        "x": -0.5,
+        "y": 81,
+        "z": -32.5
+      },
+      "size": {
+        "w": 128,
+        "d": 128,
+        "h": 10
+      },
+      "flat_position": {
+        "u": 0,
+        "v": 0
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "optic_nerve",
+          "width": 16,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": -36.8,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "sync_out",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": -7.6,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "sync_in",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": 15.6,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "fast_bypass",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 40.8,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        }
+      ],
+      "input_ports": [
+        {
+          "name": "camera_L",
+          "width": 32,
+          "height": 32
+        },
+        {
+          "name": "camera_R",
+          "width": 32,
+          "height": 32
+        }
+      ],
+      "output_ports": [],
+      "layers": [
+        {
+          "name": "L1_Sensory",
+          "height_pct": 1,
+          "density": 0.85
+        }
+      ],
+      "populations": [
+        [
+          "L1_Sensory",
+          "bio/sensory/photoreceptor"
+        ]
+      ]
+    },
+    {
+      "key": "SensoryInput.Cochlea",
+      "dept": "SensoryInput",
+      "shard": "Cochlea",
+      "orbit": 2,
+      "radius": 76.0,
+      "position": {
+        "x": -32.5,
+        "y": 78.5,
+        "z": 63.5
+      },
+      "size": {
+        "w": 64,
+        "d": 64,
+        "h": 5
+      },
+      "flat_position": {
+        "u": 0,
+        "v": 128
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "auditory_nerve",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -19.2,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "sync_out",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": -4.4,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "sync_in",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": 8.4,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "fast_bypass",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": 21.2,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        }
+      ],
+      "input_ports": [
+        {
+          "name": "mic_low",
+          "width": 8,
+          "height": 8
+        },
+        {
+          "name": "mic_mid",
+          "width": 8,
+          "height": 8
+        },
+        {
+          "name": "mic_high",
+          "width": 8,
+          "height": 8
+        }
+      ],
+      "output_ports": [],
+      "layers": [
+        {
+          "name": "L1_Sensory",
+          "height_pct": 1,
+          "density": 0.9
+        }
+      ],
+      "populations": [
+        [
+          "L1_Sensory",
+          "bio/sensory/hair_cell"
+        ]
+      ]
+    },
+    {
+      "key": "SensoryInput.Thalamus",
+      "dept": "SensoryInput",
+      "shard": "Thalamus",
+      "orbit": 2,
+      "radius": 76.0,
+      "position": {
+        "x": 31.5,
+        "y": 86,
+        "z": 63.5
+      },
+      "size": {
+        "w": 64,
+        "d": 64,
+        "h": 20
+      },
+      "flat_position": {
+        "u": 64,
+        "v": 128
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "visual_input",
+          "width": 16,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": -22,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "auditory_input",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -8,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "feedback_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": -1
+        },
+        {
+          "name": "top_down_gate",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "visual_thalamocortical",
+          "width": 16,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": 12,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "auditory_thalamocortical",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 26,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        }
+      ],
+      "input_ports": [],
+      "output_ports": [],
+      "layers": [
+        {
+          "name": "Relay",
+          "height_pct": 0.8,
+          "density": 0.6
+        },
+        {
+          "name": "Feedback_Gates",
+          "height_pct": 0.2,
+          "density": 0.5
+        }
+      ],
+      "populations": [
+        [
+          "Relay",
+          "bio/cortex/pyramidal_exc"
+        ],
+        [
+          "Feedback_Gates",
+          "bio/cortex/basket_inh"
+        ]
+      ]
+    },
+    {
+      "key": "CentralProcessor.VisualCortex",
+      "dept": "CentralProcessor",
+      "shard": "VisualCortex",
+      "orbit": 3,
+      "radius": 128.0,
+      "position": {
+        "x": -32,
+        "y": 148,
+        "z": -66.0
+      },
+      "size": {
+        "w": 256,
+        "d": 256,
+        "h": 40
+      },
+      "flat_position": {
+        "u": 0,
+        "v": 0
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "thalamic_in",
+          "width": 16,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": -42.67,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": -1
+        },
+        {
+          "name": "feedback_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -89.33,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "x_modal_in",
+          "width": 34,
+          "height": 76,
+          "pitch": 1,
+          "offset": {
+            "x": -46.67,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "assoc_fb_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -4,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "fast_bypass_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 46.67,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": -1
+        },
+        {
+          "name": "cortex_out",
+          "width": 16,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": 42.67,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "x_modal_out",
+          "width": 17,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": 88.5,
+            "y": -41
+          },
+          "rotation": 0,
+          "faceSign": 1
+        }
+      ],
+      "input_ports": [
+        {
+          "name": "camera_L_bypass",
+          "width": 16,
+          "height": 16
+        }
+      ],
+      "output_ports": [],
+      "layers": [
+        {
+          "name": "L4_Input",
+          "height_pct": 0.5,
+          "density": 0.7
+        },
+        {
+          "name": "L2_3_Feedback",
+          "height_pct": 0.5,
+          "density": 0.5
+        }
+      ],
+      "populations": [
+        [
+          "L4_Input",
+          "bio/cortex/pyramidal_exc"
+        ],
+        [
+          "L2_3_Feedback",
+          "bio/cortex/basket_inh"
+        ]
+      ]
+    },
+    {
+      "key": "CentralProcessor.AuditoryCortex",
+      "dept": "CentralProcessor",
+      "shard": "AuditoryCortex",
+      "orbit": 3,
+      "radius": 128.0,
+      "position": {
+        "x": -96.5,
+        "y": 148,
+        "z": 127.5
+      },
+      "size": {
+        "w": 128,
+        "d": 128,
+        "h": 40
+      },
+      "flat_position": {
+        "u": 0,
+        "v": 256
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "thalamic_in",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": -21.33,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": -1
+        },
+        {
+          "name": "x_modal_in",
+          "width": 17,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": -40.5,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "fast_bypass_in",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": 23.33,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": -1
+        },
+        {
+          "name": "cortex_out",
+          "width": 81,
+          "height": 50,
+          "pitch": 1,
+          "offset": {
+            "x": 23.5,
+            "y": 39
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "x_modal_out",
+          "width": 34,
+          "height": 76,
+          "pitch": 1,
+          "offset": {
+            "x": 0,
+            "y": -25
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "direct_aud_cmd",
+          "width": 26,
+          "height": 43,
+          "pitch": 1,
+          "offset": {
+            "x": 31,
+            "y": -42.5
+          },
+          "rotation": 0,
+          "faceSign": 1
+        }
+      ],
+      "input_ports": [
+        {
+          "name": "direct_high_freq",
+          "width": 8,
+          "height": 8
+        }
+      ],
+      "output_ports": [],
+      "layers": [
+        {
+          "name": "L4_Input",
+          "height_pct": 1,
+          "density": 0.7
+        }
+      ],
+      "populations": [
+        [
+          "L4_Input",
+          "bio/cortex/pyramidal_exc"
+        ]
+      ]
+    },
+    {
+      "key": "CentralProcessor.AssociationArea",
+      "dept": "CentralProcessor",
+      "shard": "AssociationArea",
+      "orbit": 3,
+      "radius": 128.0,
+      "position": {
+        "x": 110,
+        "y": 143,
+        "z": 128
+      },
+      "size": {
+        "w": 128,
+        "d": 128,
+        "h": 30
+      },
+      "flat_position": {
+        "u": 128,
+        "v": 256
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "visual_in",
+          "width": 16,
+          "height": 16,
+          "pitch": 3,
+          "offset": {
+            "x": -56,
+            "y": -56
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "auditory_in",
+          "width": 81,
+          "height": 50,
+          "pitch": 1,
+          "offset": {
+            "x": -12,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "integrated_out",
+          "width": 16,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": -2,
+            "y": -56
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "assoc_fb_out",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 44,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "direct_motor_cmd",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": -1
+        }
+      ],
+      "input_ports": [],
+      "output_ports": [],
+      "layers": [
+        {
+          "name": "Integration",
+          "height_pct": 1,
+          "density": 0.8
+        }
+      ],
+      "populations": [
+        [
+          "Integration",
+          "bio/cortex/pyramidal_exc"
+        ],
+        [
+          "Integration",
+          "bio/cortex/basket_inh"
+        ]
+      ]
+    },
+    {
+      "key": "CentralProcessor.Prefrontal",
+      "dept": "CentralProcessor",
+      "shard": "Prefrontal",
+      "orbit": 3,
+      "radius": 128.0,
+      "position": {
+        "x": 12,
+        "y": 153,
+        "z": 96
+      },
+      "size": {
+        "w": 64,
+        "d": 64,
+        "h": 50
+      },
+      "flat_position": {
+        "u": 256,
+        "v": 0
+      },
+      "quaternion": {
+        "x": -0.7071067811865475,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.7071067811865476
+      },
+      "sockets": [
+        {
+          "name": "sensory_in",
+          "width": 16,
+          "height": 16,
+          "pitch": 1,
+          "offset": {
+            "x": -24,
+            "y": 24
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "direct_aud_cmd_in",
+          "width": 26,
+          "height": 43,
+          "pitch": 1,
+          "offset": {
+            "x": 2,
+            "y": 10.5
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "attention_feedback",
+          "width": 8,
+          "height": 8,
+          "pitch": 1,
+          "offset": {
+            "x": 28,
+            "y": -28
+          },
+          "rotation": 0,
+          "faceSign": 1
+        },
+        {
+          "name": "motor_commands",
+          "width": 12,
+          "height": 12,
+          "pitch": 1,
+          "offset": {
+            "x": -10,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": -1
+        },
+        {
+          "name": "top_down_gate",
+          "width": 4,
+          "height": 4,
+          "pitch": 1,
+          "offset": {
+            "x": 14,
+            "y": 0
+          },
+          "rotation": 0,
+          "faceSign": -1
+        }
+      ],
+      "input_ports": [],
+      "output_ports": [
+        {
+          "name": "head_orient",
+          "width": 2,
+          "height": 2
+        }
+      ],
+      "layers": [
+        {
+          "name": "Decision",
+          "height_pct": 1,
+          "density": 0.9
+        }
+      ],
+      "populations": [
+        [
+          "Decision",
+          "bio/cortex/pyramidal_exc"
+        ]
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "SensoryInput.Retina",
+      "to": "SensoryInput.Thalamus",
+      "from_socket": "optic_nerve",
+      "to_socket": "visual_input",
+      "matrix_w": 16,
+      "matrix_h": 16
+    },
+    {
+      "from": "SensoryInput.Retina",
+      "to": "SensoryInput.Cochlea",
+      "from_socket": "sync_out",
+      "to_socket": "sync_in",
+      "matrix_w": 4,
+      "matrix_h": 4
+    },
+    {
+      "from": "SensoryInput.Retina",
+      "to": "CentralProcessor.VisualCortex",
+      "from_socket": "fast_bypass",
+      "to_socket": "fast_bypass_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "SensoryInput.Cochlea",
+      "to": "SensoryInput.Thalamus",
+      "from_socket": "auditory_nerve",
+      "to_socket": "auditory_input",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "SensoryInput.Cochlea",
+      "to": "SensoryInput.Retina",
+      "from_socket": "sync_out",
+      "to_socket": "sync_in",
+      "matrix_w": 4,
+      "matrix_h": 4
+    },
+    {
+      "from": "SensoryInput.Cochlea",
+      "to": "CentralProcessor.AuditoryCortex",
+      "from_socket": "fast_bypass",
+      "to_socket": "fast_bypass_in",
+      "matrix_w": 4,
+      "matrix_h": 4
+    },
+    {
+      "from": "SensoryInput.Thalamus",
+      "to": "CentralProcessor.VisualCortex",
+      "from_socket": "visual_thalamocortical",
+      "to_socket": "thalamic_in",
+      "matrix_w": 16,
+      "matrix_h": 16
+    },
+    {
+      "from": "SensoryInput.Thalamus",
+      "to": "CentralProcessor.AuditoryCortex",
+      "from_socket": "auditory_thalamocortical",
+      "to_socket": "thalamic_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "CentralProcessor.VisualCortex",
+      "to": "CentralProcessor.AssociationArea",
+      "from_socket": "cortex_out",
+      "to_socket": "visual_in",
+      "matrix_w": 16,
+      "matrix_h": 16
+    },
+    {
+      "from": "CentralProcessor.VisualCortex",
+      "to": "CentralProcessor.AuditoryCortex",
+      "from_socket": "x_modal_out",
+      "to_socket": "x_modal_in",
+      "matrix_w": 17,
+      "matrix_h": 16
+    },
+    {
+      "from": "CentralProcessor.AuditoryCortex",
+      "to": "CentralProcessor.AssociationArea",
+      "from_socket": "cortex_out",
+      "to_socket": "auditory_in",
+      "matrix_w": 81,
+      "matrix_h": 50
+    },
+    {
+      "from": "CentralProcessor.AuditoryCortex",
+      "to": "CentralProcessor.VisualCortex",
+      "from_socket": "x_modal_out",
+      "to_socket": "x_modal_in",
+      "matrix_w": 34,
+      "matrix_h": 76
+    },
+    {
+      "from": "CentralProcessor.AuditoryCortex",
+      "to": "CentralProcessor.Prefrontal",
+      "from_socket": "direct_aud_cmd",
+      "to_socket": "direct_aud_cmd_in",
+      "matrix_w": 26,
+      "matrix_h": 43
+    },
+    {
+      "from": "CentralProcessor.AssociationArea",
+      "to": "CentralProcessor.Prefrontal",
+      "from_socket": "integrated_out",
+      "to_socket": "sensory_in",
+      "matrix_w": 16,
+      "matrix_h": 16
+    },
+    {
+      "from": "CentralProcessor.AssociationArea",
+      "to": "CentralProcessor.VisualCortex",
+      "from_socket": "assoc_fb_out",
+      "to_socket": "assoc_fb_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "CentralProcessor.AssociationArea",
+      "to": "MotorControl.MotorCortex",
+      "from_socket": "direct_motor_cmd",
+      "to_socket": "direct_motor_cmd_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "CentralProcessor.Prefrontal",
+      "to": "CentralProcessor.VisualCortex",
+      "from_socket": "attention_feedback",
+      "to_socket": "feedback_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "CentralProcessor.Prefrontal",
+      "to": "MotorControl.MotorCortex",
+      "from_socket": "motor_commands",
+      "to_socket": "command_in",
+      "matrix_w": 12,
+      "matrix_h": 12
+    },
+    {
+      "from": "CentralProcessor.Prefrontal",
+      "to": "SensoryInput.Thalamus",
+      "from_socket": "top_down_gate",
+      "to_socket": "top_down_gate",
+      "matrix_w": 4,
+      "matrix_h": 4
+    },
+    {
+      "from": "MotorControl.MotorCortex",
+      "to": "MotorControl.SpinalCord",
+      "from_socket": "cortex_to_spinal",
+      "to_socket": "descending_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "MotorControl.MotorCortex",
+      "to": "MotorControl.Cerebellum",
+      "from_socket": "cortex_to_cerebellum",
+      "to_socket": "plan_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "MotorControl.Cerebellum",
+      "to": "MotorControl.SpinalCord",
+      "from_socket": "correction_out",
+      "to_socket": "coordination_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "MotorControl.Cerebellum",
+      "to": "SensoryInput.Thalamus",
+      "from_socket": "proprioceptive_feedback",
+      "to_socket": "feedback_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "MotorControl.Cerebellum",
+      "to": "MotorControl.MotorCortex",
+      "from_socket": "cerebellar_fb",
+      "to_socket": "cerebellar_fb_in",
+      "matrix_w": 8,
+      "matrix_h": 8
+    },
+    {
+      "from": "MotorControl.SpinalCord",
+      "to": "MotorControl.Cerebellum",
+      "from_socket": "local_proprioception_out",
+      "to_socket": "local_proprioception_in",
+      "matrix_w": 4,
+      "matrix_h": 4
+    }
+  ]
+}

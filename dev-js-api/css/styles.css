@@ -1,0 +1,22 @@
+/* ==========================================================================
+   Axicor Visualizer — Design System Imports (Barrel CSS)
+   ========================================================================== */
+
+@import url('tokens.css');
+@import url('base.css');
+
+/* === Components === */
+@import url('components/panel.css');
+@import url('components/button.css');
+@import url('components/input.css');
+@import url('components/drawer.css');
+@import url('components/section.css');
+@import url('components/badge.css');
+@import url('components/card.css');
+@import url('components/list.css');
+@import url('components/accordion.css');
+@import url('components/toast.css');
+
+/* === Layouts === */
+@import url('layouts/hub.css');
+@import url('layouts/editor.css');

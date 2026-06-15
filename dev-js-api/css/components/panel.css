@@ -1,0 +1,11 @@
+.ax-panel {
+  background: var(--ax-bg-surface);
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-radius-xl);
+  padding: var(--ax-space-5);
+  box-shadow: var(--ax-shadow-md);
+  color: var(--ax-text);
+  font-family: var(--ax-font-sans);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}

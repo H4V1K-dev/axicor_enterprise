@@ -1,0 +1,8 @@
+[package]
+name = "compute-hip"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+compute-api = { path = "../compute-api" }

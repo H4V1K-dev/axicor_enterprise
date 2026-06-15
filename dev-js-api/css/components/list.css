@@ -1,0 +1,33 @@
+.ax-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ax-space-1);
+}
+
+.ax-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ax-space-2);
+  padding: var(--ax-space-2) var(--ax-space-3);
+  border-radius: var(--ax-radius-md);
+  cursor: pointer;
+  font-size: var(--ax-text-base);
+  color: var(--ax-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all var(--ax-duration-normal) var(--ax-ease);
+}
+
+.ax-list-item:hover {
+  background: var(--ax-bg-hover);
+  color: var(--ax-text);
+  border-color: var(--ax-border);
+}
+
+.ax-list-item.active {
+  background: var(--ax-bg-active);
+  border-left: 3px solid var(--ax-accent);
+  border-radius: 0 var(--ax-radius-md) var(--ax-radius-md) 0;
+  color: var(--ax-accent);
+  font-weight: 600;
+}

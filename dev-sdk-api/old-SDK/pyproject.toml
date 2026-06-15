@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axicor-client"
+version = "0.1.0"
+description = "Python SDK for Axicor Spiking Neural Network Engine — Zero-Copy UDP Data Plane"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Axicor Engineering", email = "core@axicor.dev"}]
+license = {text = "MIT OR Apache-2.0"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "numpy==1.26.4",
+    "toml==0.10.2",
+    "opencv-python-headless==4.9.0.80",
+    "websockets==16.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["axicor*"]
+
+[tool.setuptools.package-data]
+axicor = ["py.typed"]

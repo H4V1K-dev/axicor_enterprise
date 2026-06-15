@@ -1,0 +1,67 @@
+# --- Axicor Custom Ignores ---
+.personal
+.context
+.local-storage
+.old-trash
+
+
+# --- Rust (Cargo) ---
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.pytest_cache/
+.mypy_cache/
+.tox/
+.coverage
+htmlcov/
+pip-log.txt
+pip-delete-this-directory.txt
+dist/
+build/
+*.egg-info/
+.ipynb_checkpoints
+
+# --- ASM / C / C# / C+ / C++ / CUDA / HIP ---
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.a
+*.lib
+*.out
+*.app
+*.exp
+*.pdb
+*.ilk
+/build/
+/cmake-build-debug/
+/cmake-build-release/
+/out/
+
+# --- IDEs & System ---
+.vscode/
+.idea/
+*.suo
+*.sln
+*.vcxproj
+*.user
+.DS_Store
+Thumbs.db
+.axiconsole/
+.AxiConsole/
+.AxiConsole/.chrome-profile/

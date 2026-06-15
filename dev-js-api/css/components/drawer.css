@@ -1,0 +1,22 @@
+.ax-drawer {
+  position: fixed;
+  bottom: -450px;
+  background: var(--ax-bg);
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-radius-xl);
+  padding: var(--ax-space-5);
+  box-shadow: var(--ax-shadow-lg);
+  color: var(--ax-text);
+  font-family: var(--ax-font-sans);
+  transition: bottom var(--ax-duration-slow) var(--ax-ease);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ax-space-3);
+  z-index: 99;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.ax-drawer.open {
+  bottom: 74px;
+}

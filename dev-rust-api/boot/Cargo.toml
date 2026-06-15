@@ -1,0 +1,22 @@
+[package]
+name = "boot"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+types = { path = "../types" }
+layout = { path = "../layout" }
+config = { path = "../config" }
+wire = { path = "../wire" }
+vfs = { path = "../vfs" }
+ipc = { path = "../ipc" }
+compute = { path = "../compute" }
+compute-api = { path = "../compute-api" }
+compute-cpu = { path = "../compute-cpu" }
+
+# External dependencies from workspace
+tempfile = { workspace = true }
+memmap2 = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }

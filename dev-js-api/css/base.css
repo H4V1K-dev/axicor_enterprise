@@ -1,0 +1,53 @@
+/* --- Reset & Base Styles --- */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--ax-bg);
+  color: var(--ax-text);
+  font-family: var(--ax-font-sans);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#canvas-container {
+  width: 100vw;
+  height: 100vh;
+}
+
+canvas {
+  display: block;
+}
+
+#loading {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--ax-accent);
+  font-size: var(--ax-text-xl);
+  z-index: 100;
+  font-weight: 500;
+}
+
+/* --- Global Scrollbar Styles --- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ax-scrollbar-thumb);
+  border-radius: var(--ax-radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ax-scrollbar-hover);
+}

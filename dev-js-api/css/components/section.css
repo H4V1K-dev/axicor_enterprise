@@ -1,0 +1,25 @@
+.ax-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ax-space-3);
+}
+
+.ax-section-title {
+  font-family: var(--ax-font-mono);
+  font-size: 11px;
+  font-weight: var(--ax-heading-weight);
+  text-transform: uppercase;
+  letter-spacing: var(--ax-heading-spacing);
+  color: var(--ax-text);
+  margin: 0;
+  border-bottom: 1px solid var(--ax-border-subtle);
+  padding-bottom: var(--ax-space-2);
+}
+
+.ax-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--ax-text-base);
+  gap: var(--ax-space-2);
+}

@@ -1,0 +1,18 @@
+[package]
+name = "compute"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+compute-api = { path = "../compute-api" }
+layout = { path = "../layout" }
+compute-cpu = { path = "../compute-cpu", optional = true }
+compute-cuda = { path = "../compute-cuda", optional = true }
+compute-hip = { path = "../compute-hip", optional = true }
+
+[features]
+default = ["cpu"]
+cpu = ["dep:compute-cpu"]
+cuda = ["dep:compute-cuda"]
+hip = ["dep:compute-hip"]

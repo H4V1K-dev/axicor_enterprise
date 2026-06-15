@@ -1,0 +1,16 @@
+[package]
+name = "runtime"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+compute = { path = "../compute" }
+compute-api = { path = "../compute-api" }
+types = { path = "../types" }
+layout = { path = "../layout" }
+config = { path = "../config" }
+
+crossbeam = "0.8"
+tracing = { workspace = true }
+anyhow = { workspace = true }

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <title>AxiCAD Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+  <div id="canvas-container"></div>
+  <div id="loading" style="display:none">Загрузка структуры placement.json...</div>
+
+  <!-- Modal for project selection -->
+  <div id="project-selector-modal" style="display: none;">
+    <div class="project-selector-container">
+      <div class="project-selector-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span class="brand-text">AxiCAD</span> <span class="title-text">PROJECT HUB</span>
+        </div>
+        <button id="theme-switch-btn" class="ax-btn ax-btn--secondary theme-switch-btn" title="Переключить тему">
+          <!-- Populated dynamically -->
+        </button>
+      </div>
+
+      <div class="project-hub-content">
+        <!-- Left Column: Sources -->
+        <div class="hub-sources-column">
+          <div>
+            <div class="column-header">
+              <h3>Sources</h3>
+            </div>
+
+            <div class="sources-tree">
+              <!-- Python Scripts Group -->
+              <details open class="sources-group ax-accordion">
+                <summary>
+                  <span class="group-title">Python Scripts</span>
+                  <span class="group-count-circle" id="scripts-count">0</span>
+                </summary>
+                <div id="scripts-list" class="project-list ax-list"></div>
+              </details>
+
+              <!-- TOML Models Group -->
+              <details open class="sources-group ax-accordion">
+                <summary>
+                  <span class="group-title">TOML Models</span>
+                  <span class="group-count-circle" id="models-count">0</span>
+                </summary>
+                <div id="models-list" class="project-list ax-list"></div>
+              </details>
+            </div>
+          </div>
+
+          <!-- Import actions pushed to bottom -->
+          <div class="import-action-container">
+            <button id="create-project-btn" class="ax-btn ax-btn--primary" title="Создать новый проект">
+              <span>Создать проект</span>
+            </button>
+            <button id="import-project-btn" class="ax-btn ax-btn--secondary btn-import-link"
+              title="Выбрать файл через менеджер">
+              <span>Импортировать</span>
+            </button>
+            <input type="file" id="import-file-input" accept=".py,.toml" style="display: none;">
+          </div>
+        </div>
+
+        <!-- Right Column: Projects -->
+        <div class="hub-projects-column">
+          <h3>Current Projects</h3>
+
+          <!-- Last Work (Featured Card) -->
+          <div id="featured-project-container">
+            <!-- Populated dynamically via JS -->
+          </div>
+
+          <h3 class="section-title">Other Projects</h3>
+          <div id="local-list" class="local-projects-grid">
+            <!-- Populated dynamically via JS -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Left CAD Header Panels Container -->
+  <div id="top-left-container">
+    <div id="cad-title-panel" class="ax-panel floating-header-panel">
+      <span class="cad-logo">AxiCAD</span>
+      <span class="cad-model" id="cad-model-name">OCTOPUS</span>
+    </div>
+
+    <button id="summon-hub-flat-btn" class="ax-panel floating-header-panel interactive-panel"
+      title="Открыть Project Hub">
+      <span class="explorer-text">EXPLORER</span>
+    </button>
+
+    <button id="stats-trigger-btn" class="ax-panel floating-header-panel interactive-panel">
+      Статистика
+    </button>
+  </div>
+
+  <!-- Floating stats overlay -->
+  <div id="stats-overlay" class="ax-panel floating-overlay">
+    <div id="orbit-legends"></div>
+    <hr style="border:none;border-top:1px solid var(--ax-border-subtle);margin:10px 0">
+    <div class="stat">Департаментов: <span id="stat-depts">0</span></div>
+    <div class="stat">Шардов: <span id="stat-shards">0</span></div>
+    <div class="stat">Связей: <span id="stat-conns">0</span></div>
+  </div>
+
+  <!-- ViewCube Camera Gizmo -->
+  <div id="viewcube-container">
+    <canvas id="viewcube-canvas"></canvas>
+  </div>
+
+  <!-- Left center floating tools sidebar -->
+  <div id="tools-sidebar" class="ax-panel closed">
+    <div class="panel-content" id="tools-content">
+      <div class="ax-list">
+        <!-- Tools header toggle button integrated as a list item -->
+        <button class="ax-btn ax-btn--secondary header-item" id="tools-toggle-btn" title="Свернуть/Развернуть">
+          <span class="tool-label">Инструменты</span>
+          <span class="tool-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+              class="lucide lucide-menu">
+              <line x1="4" x2="20" y1="12" y2="12" />
+              <line x1="4" x2="20" y1="6" y2="6" />
+              <line x1="4" x2="20" y1="18" y2="18" />
+            </svg>
+          </span>
+        </button>
+
+        <button class="ax-btn ax-btn--secondary active" id="tool-inspect" title="Осмотр">
+          <span class="tool-label">Осмотр</span>
+          <span class="tool-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+              class="lucide lucide-mouse-pointer">
+              <path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+              <path d="m13 13 6 6" />
+            </svg>
+          </span>
+        </button>
+        <button class="ax-btn ax-btn--secondary" id="tool-select" title="Выделить">
+          <span class="tool-label">Выделить</span>
+          <span class="tool-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M12 2a2 2 0 0 0-2 2v7.5L7.5 9.1a1.5 1.5 0 0 0-2.1.2 1.5 1.5 0 0 0 .2 2.1l5.4 4.1c1.2.9 2 2.2 2 3.7V22h6v-4.5c0-1.7-1-3.2-2.5-3.9L14 12V4a2 2 0 0 0-2-2z" />
+            </svg>
+          </span>
+        </button>
+        <button class="ax-btn ax-btn--secondary" id="tool-translate" title="Переместить">
+          <span class="tool-label">Переместить</span>
+          <span class="tool-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+              class="lucide lucide-move">
+              <polyline points="5 9 2 12 5 15" />
+              <polyline points="9 5 12 2 15 5" />
+              <polyline points="15 19 12 22 9 19" />
+              <polyline points="19 9 22 12 19 15" />
+              <line x1="2" x2="22" y1="12" y2="12" />
+              <line x1="12" x2="12" y1="2" y2="22" />
+            </svg>
+          </span>
+        </button>
+        <button class="ax-btn ax-btn--secondary" id="tool-resize" title="Размер (T)">
+          <span class="tool-label">Размер</span>
+          <span class="tool-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+              class="lucide lucide-maximize-2">
+              <polyline points="15 3 21 3 21 9" />
+              <polyline points="9 21 3 21 3 15" />
+              <line x1="21" x2="14" y1="3" y2="10" />
+              <line x1="3" x2="10" y1="21" y2="14" />
+            </svg>
+          </span>
+        </button>
+        <button class="ax-btn ax-btn--secondary" id="tool-add-socket-btn" title="Создать сокет">
+          <span class="tool-label">+ Сокет</span>
+          <span class="tool-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="6" cy="6" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="6" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="18" cy="6" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="6" cy="12" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="18" cy="12" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="6" cy="18" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="18" r="1.5" fill="currentColor" stroke="none" />
+              <line x1="18" y1="15" x2="18" y2="21" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+              <line x1="15" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+            </svg>
+          </span>
+        </button>
+        <button class="ax-btn ax-btn--secondary" id="tool-add-route-btn" title="Создать связь">
+          <span class="tool-label">+ Связь</span>
+          <span class="tool-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="6" r="3" />
+              <path d="M8.5 15.5 15.5 8.5" />
+            </svg>
+          </span>
+        </button>
+        <button class="ax-btn ax-btn--secondary" id="add-shard-btn" title="Создать шард">
+          <span class="tool-label">+ Шард</span>
+          <span class="tool-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+              class="lucide lucide-box-plus">
+              <path
+                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+              <line x1="12" x2="12" y1="22.08" y2="12" />
+              <path d="M12 5.5v5" />
+              <path d="M9.5 8h5" />
+            </svg>
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right center folding inspector sidebar -->
+  <div id="sidebar" class="ax-panel">
+    <button id="sidebar-toggle-btn" class="ax-btn ax-btn--secondary" title="Свернуть/Развернуть инспектор">▶</button>
+    <div id="sidebar-inner"></div>
+  </div>
+
+  <div id="tooltip">
+    <div class="tt-title" id="tt-title"></div>
+    <div class="tt-row">Департамент: <span id="tt-dept"></span></div>
+    <div class="tt-row">Орбита: <span id="tt-orbit"></span></div>
+    <div class="tt-row">Высота (Y): <span id="tt-radius"></span></div>
+    <div class="tt-row">Размер: <span id="tt-size"></span></div>
+    <div class="tt-row">Сокетов: <span id="tt-sockets"></span></div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/",
+      "smol-toml": "https://esm.sh/smol-toml@1.2.1"
+    }
+  }
+  </script>
+
+  <script type="module" src="./js/main.js?v=16"></script>
+</body>
+
+</html>

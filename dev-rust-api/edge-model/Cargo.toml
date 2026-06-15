@@ -1,0 +1,22 @@
+[package]
+name = "edge-model"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+# Internal crates
+types = { path = "../types" }
+layout = { path = "../layout" }
+config = { path = "../config" }
+wire = { path = "../wire" }
+vfs = { path = "../vfs" }
+
+# External crates
+bytemuck = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+baker = { path = "../baker" }
+tempfile = "=3.10.1"
