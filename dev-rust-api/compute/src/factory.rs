@@ -10,12 +10,26 @@ pub enum BackendType {
 /// Detects available compute backends on the host system in order of preference.
 pub fn detect_available_backends() -> Vec<BackendType> {
     let mut backends = Vec::new();
-    // For now, Cuda and Hip backends are not available.
-    // Return Cpu backend if compiled with the cpu feature flag enabled.
+
+    #[cfg(feature = "cuda")]
+    {
+        if compute_cuda::CudaBackend::new(0).is_ok() {
+            backends.push(BackendType::Cuda);
+        }
+    }
+
+    #[cfg(feature = "hip")]
+    {
+        if compute_hip::HipBackend::new(0).is_ok() {
+            backends.push(BackendType::Hip);
+        }
+    }
+
     #[cfg(feature = "cpu")]
     {
         backends.push(BackendType::Cpu);
     }
+
     backends
 }
 
@@ -31,6 +45,8 @@ pub fn instantiate_backend(
         }
     }
 
+    let dev_id = device_id.unwrap_or(0);
+
     match backend {
         BackendType::Cpu => {
             #[cfg(feature = "cpu")]
@@ -44,12 +60,26 @@ pub fn instantiate_backend(
             }
         }
         BackendType::Cuda => {
-            // CUDA backend is not implemented yet
-            Err(ComputeApiError::DeviceLost)
+            #[cfg(feature = "cuda")]
+            {
+                let cuda_backend = compute_cuda::CudaBackend::new(dev_id)?;
+                Ok(Box::new(cuda_backend))
+            }
+            #[cfg(not(feature = "cuda"))]
+            {
+                Err(ComputeApiError::DeviceLost)
+            }
         }
         BackendType::Hip => {
-            // HIP backend is not implemented yet
-            Err(ComputeApiError::DeviceLost)
+            #[cfg(feature = "hip")]
+            {
+                let hip_backend = compute_hip::HipBackend::new(dev_id)?;
+                Ok(Box::new(hip_backend))
+            }
+            #[cfg(not(feature = "hip"))]
+            {
+                Err(ComputeApiError::DeviceLost)
+            }
         }
     }
 }

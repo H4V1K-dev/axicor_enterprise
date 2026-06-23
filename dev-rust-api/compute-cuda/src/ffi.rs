@@ -25,7 +25,7 @@ unsafe extern "C" {
         stream: *mut std::ffi::c_void,
     ) -> i32;
     
-    pub fn launch_update_neurons(
+    pub fn cuda_launch_update_neurons(
         vram: layout::ShardVramPtrs,
         padded_n: u32,
         current_tick: u32,
@@ -33,14 +33,14 @@ unsafe extern "C" {
         stream: *mut std::ffi::c_void,
     ) -> i32;
     
-    pub fn launch_propagate_axons(
+    pub fn cuda_launch_propagate_axons(
         vram: layout::ShardVramPtrs,
         padded_n: u32,
         v_seg: u32,
         stream: *mut std::ffi::c_void,
     ) -> i32;
     
-    pub fn launch_apply_gsop(
+    pub fn cuda_launch_apply_gsop(
         vram: layout::ShardVramPtrs,
         padded_n: u32,
         v_seg: u32,

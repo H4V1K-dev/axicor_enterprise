@@ -7,7 +7,7 @@ use slotmap::{SlotMap, Key};
 use std::sync::atomic::{AtomicU32, Ordering};
 use crate::ffi::*;
 
-fn check_cuda(code: i32) -> Result<(), ComputeApiError> {
+fn check_hip(code: i32) -> Result<(), ComputeApiError> {
     match code {
         0 => Ok(()),
         2 => Err(ComputeApiError::OutOfMemory),
@@ -18,7 +18,7 @@ fn check_cuda(code: i32) -> Result<(), ComputeApiError> {
     }
 }
 
-pub(crate) struct ShardCudaResources {
+pub(crate) struct ShardHipResources {
     pub raw_state_ptr: *mut std::ffi::c_void,
     pub raw_axons_ptr: *mut std::ffi::c_void,
     pub raw_variants_ptr: *mut std::ffi::c_void,
@@ -37,82 +37,83 @@ pub(crate) struct ShardCudaResources {
     pub last_sync_batch_ticks: AtomicU32,
 }
 
-unsafe impl Send for ShardCudaResources {}
-unsafe impl Sync for ShardCudaResources {}
+unsafe impl Send for ShardHipResources {}
+unsafe impl Sync for ShardHipResources {}
 
-impl Drop for ShardCudaResources {
+impl Drop for ShardHipResources {
     fn drop(&mut self) {
         unsafe {
             if !self.raw_state_ptr.is_null() {
-                let _ = cudaFree(self.raw_state_ptr);
+                let _ = hipFree(self.raw_state_ptr);
             }
             if !self.raw_axons_ptr.is_null() {
-                let _ = cudaFree(self.raw_axons_ptr);
+                let _ = hipFree(self.raw_axons_ptr);
             }
             if !self.raw_variants_ptr.is_null() {
-                let _ = cudaFree(self.raw_variants_ptr);
+                let _ = hipFree(self.raw_variants_ptr);
             }
             if !self.pinned_output_ptr.is_null() {
-                let _ = cudaFreeHost(self.pinned_output_ptr);
+                let _ = hipHostFree(self.pinned_output_ptr);
             }
             if !self.pinned_telemetry_ids_ptr.is_null() {
-                let _ = cudaFreeHost(self.pinned_telemetry_ids_ptr);
+                let _ = hipHostFree(self.pinned_telemetry_ids_ptr);
             }
             if !self.pinned_telemetry_count_ptr.is_null() {
-                let _ = cudaFreeHost(self.pinned_telemetry_count_ptr);
+                let _ = hipHostFree(self.pinned_telemetry_count_ptr);
             }
             if !self.stream.is_null() {
-                let _ = cudaStreamDestroy(self.stream);
+                let _ = hipStreamDestroy(self.stream);
             }
         }
     }
 }
 
-/// CudaBackend manages CUDA resources and execution for the node.
-pub struct CudaBackend {
+/// HipBackend manages HIP resources and execution for the node.
+pub struct HipBackend {
     pub device_id: i32,
-    pub(crate) resources: std::sync::RwLock<SlotMap<slotmap::DefaultKey, ShardCudaResources>>,
+    pub(crate) resources: std::sync::RwLock<SlotMap<slotmap::DefaultKey, ShardHipResources>>,
 }
 
-impl CudaBackend {
-    /// Initializes a new CUDA backend for the specified device ID.
+impl HipBackend {
+    /// Initializes a new HIP backend for the specified device ID.
     pub fn new(device_id: i32) -> Result<Self, ComputeApiError> {
-        let code = unsafe { cudaSetDevice(device_id) };
-        check_cuda(code)?;
+        let code = unsafe { hipSetDevice(device_id) };
+        check_hip(code)?;
 
         let mut major = 0;
         let mut minor = 0;
         let mut warp_size = 0;
 
         let code = unsafe {
-            cudaDeviceGetAttribute(
+            hipDeviceGetAttribute(
                 &mut major,
-                CUDA_DEV_ATTR_COMPUTE_CAPABILITY_MAJOR,
+                HIP_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
                 device_id,
             )
         };
-        check_cuda(code)?;
+        check_hip(code)?;
         
         let code = unsafe {
-            cudaDeviceGetAttribute(
+            hipDeviceGetAttribute(
                 &mut minor,
-                CUDA_DEV_ATTR_COMPUTE_CAPABILITY_MINOR,
+                HIP_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
                 device_id,
             )
         };
-        check_cuda(code)?;
+        check_hip(code)?;
         
         let code = unsafe {
-            cudaDeviceGetAttribute(&mut warp_size, CUDA_DEV_ATTR_WARP_SIZE, device_id)
+            hipDeviceGetAttribute(&mut warp_size, HIP_DEVICE_ATTRIBUTE_WARP_SIZE, device_id)
         };
-        check_cuda(code)?;
+        check_hip(code)?;
 
-        if major < 6 || (major == 6 && minor < 1) {
-            // E-053: Compute capability less than Pascal (6.1)
-            return Err(ComputeApiError::VendorError(801)); // cudaErrorNotSupported
+        if major < 9 {
+            // E-057: GFX90A or newer required (Compute major >= 9)
+            return Err(ComputeApiError::VendorError(801)); // hipErrorNotSupported
         }
 
-        if warp_size != 32 {
+        if warp_size != 64 {
+            // INV-COMPUTE-HIP-008: wavefront size must be 64
             return Err(ComputeApiError::VendorError(999));
         }
 
@@ -123,7 +124,7 @@ impl CudaBackend {
     }
 }
 
-impl GpuBackend for CudaBackend {
+impl GpuBackend for HipBackend {
     fn alloc_shard(&self, layout: &ShardLayout) -> Result<VramHandle, ComputeApiError> {
         if layout.padded_n % 64 != 0 {
             return Err(ComputeApiError::InvalidLayout);
@@ -133,21 +134,21 @@ impl GpuBackend for CudaBackend {
 
         // 1. Allocate state blob in VRAM
         let mut raw_state_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-        let code = unsafe { cudaMalloc(&mut raw_state_ptr, offsets.total_size) };
-        check_cuda(code)?;
+        let code = unsafe { hipMalloc(&mut raw_state_ptr, offsets.total_size) };
+        check_hip(code)?;
 
         // Zero-fill state blob
         let code = unsafe {
-            cudaMemsetAsync(
+            hipMemsetAsync(
                 raw_state_ptr,
                 0,
                 offsets.total_size,
                 std::ptr::null_mut(),
             )
         };
-        if let Err(e) = check_cuda(code) {
+        if let Err(e) = check_hip(code) {
             unsafe {
-                let _ = cudaFree(raw_state_ptr);
+                let _ = hipFree(raw_state_ptr);
             }
             return Err(e);
         }
@@ -156,10 +157,10 @@ impl GpuBackend for CudaBackend {
         let mut raw_axons_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
         let axons_size =
             layout.total_axons as usize * std::mem::size_of::<layout::BurstHeads8>();
-        let code = unsafe { cudaMalloc(&mut raw_axons_ptr, axons_size) };
-        if let Err(e) = check_cuda(code) {
+        let code = unsafe { hipMalloc(&mut raw_axons_ptr, axons_size) };
+        if let Err(e) = check_hip(code) {
             unsafe {
-                let _ = cudaFree(raw_state_ptr);
+                let _ = hipFree(raw_state_ptr);
             }
             return Err(e);
         }
@@ -167,18 +168,18 @@ impl GpuBackend for CudaBackend {
         // Initialize axon heads with AXON_SENTINEL (0x80000000)
         let host_axons = vec![0x80000000u32; layout.total_axons as usize * 8];
         let code = unsafe {
-            cudaMemcpyAsync(
+            hipMemcpyAsync(
                 raw_axons_ptr,
                 host_axons.as_ptr() as *const std::ffi::c_void,
                 axons_size,
-                CUDA_MEMCPY_HOST_TO_DEVICE,
+                HIP_MEMCPY_HOST_TO_DEVICE,
                 std::ptr::null_mut(),
             )
         };
-        if let Err(e) = check_cuda(code) {
+        if let Err(e) = check_hip(code) {
             unsafe {
-                let _ = cudaFree(raw_state_ptr);
-                let _ = cudaFree(raw_axons_ptr);
+                let _ = hipFree(raw_state_ptr);
+                let _ = hipFree(raw_axons_ptr);
             }
             return Err(e);
         }
@@ -186,23 +187,23 @@ impl GpuBackend for CudaBackend {
         // 3. Allocate variant params in VRAM (16 variants x 64 bytes)
         let mut raw_variants_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
         let variants_size = 16 * std::mem::size_of::<VariantParameters>();
-        let code = unsafe { cudaMalloc(&mut raw_variants_ptr, variants_size) };
-        if let Err(e) = check_cuda(code) {
+        let code = unsafe { hipMalloc(&mut raw_variants_ptr, variants_size) };
+        if let Err(e) = check_hip(code) {
             unsafe {
-                let _ = cudaFree(raw_state_ptr);
-                let _ = cudaFree(raw_axons_ptr);
+                let _ = hipFree(raw_state_ptr);
+                let _ = hipFree(raw_axons_ptr);
             }
             return Err(e);
         }
 
         // 4. Create non-blocking stream
         let mut stream: *mut std::ffi::c_void = std::ptr::null_mut();
-        let code = unsafe { cudaStreamCreate(&mut stream) };
-        if let Err(e) = check_cuda(code) {
+        let code = unsafe { hipStreamCreate(&mut stream) };
+        if let Err(e) = check_hip(code) {
             unsafe {
-                let _ = cudaFree(raw_state_ptr);
-                let _ = cudaFree(raw_axons_ptr);
-                let _ = cudaFree(raw_variants_ptr);
+                let _ = hipFree(raw_state_ptr);
+                let _ = hipFree(raw_axons_ptr);
+                let _ = hipFree(raw_variants_ptr);
             }
             return Err(e);
         }
@@ -210,13 +211,13 @@ impl GpuBackend for CudaBackend {
         // 5. Allocate Pinned RAM host buffers
         let pinned_output_size = layout.padded_n as usize * 1024;
         let mut pinned_output_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-        let code = unsafe { cudaMallocHost(&mut pinned_output_ptr, pinned_output_size) };
-        if let Err(e) = check_cuda(code) {
+        let code = unsafe { hipHostMalloc(&mut pinned_output_ptr, pinned_output_size, HIP_HOST_MALLOC_DEFAULT) };
+        if let Err(e) = check_hip(code) {
             unsafe {
-                let _ = cudaFree(raw_state_ptr);
-                let _ = cudaFree(raw_axons_ptr);
-                let _ = cudaFree(raw_variants_ptr);
-                let _ = cudaStreamDestroy(stream);
+                let _ = hipFree(raw_state_ptr);
+                let _ = hipFree(raw_axons_ptr);
+                let _ = hipFree(raw_variants_ptr);
+                let _ = hipStreamDestroy(stream);
             }
             return Err(e);
         }
@@ -224,31 +225,31 @@ impl GpuBackend for CudaBackend {
         let mut pinned_telemetry_ids_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
         let telemetry_ids_size = layout.padded_n as usize * std::mem::size_of::<u32>();
         let code = unsafe {
-            cudaMallocHost(&mut pinned_telemetry_ids_ptr, telemetry_ids_size)
+            hipHostMalloc(&mut pinned_telemetry_ids_ptr, telemetry_ids_size, HIP_HOST_MALLOC_DEFAULT)
         };
-        if let Err(e) = check_cuda(code) {
+        if let Err(e) = check_hip(code) {
             unsafe {
-                let _ = cudaFree(raw_state_ptr);
-                let _ = cudaFree(raw_axons_ptr);
-                let _ = cudaFree(raw_variants_ptr);
-                let _ = cudaStreamDestroy(stream);
-                let _ = cudaFreeHost(pinned_output_ptr);
+                let _ = hipFree(raw_state_ptr);
+                let _ = hipFree(raw_axons_ptr);
+                let _ = hipFree(raw_variants_ptr);
+                let _ = hipStreamDestroy(stream);
+                let _ = hipHostFree(pinned_output_ptr);
             }
             return Err(e);
         }
 
         let mut pinned_telemetry_count_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
         let code = unsafe {
-            cudaMallocHost(&mut pinned_telemetry_count_ptr, std::mem::size_of::<u32>())
+            hipHostMalloc(&mut pinned_telemetry_count_ptr, std::mem::size_of::<u32>(), HIP_HOST_MALLOC_DEFAULT)
         };
-        if let Err(e) = check_cuda(code) {
+        if let Err(e) = check_hip(code) {
             unsafe {
-                let _ = cudaFree(raw_state_ptr);
-                let _ = cudaFree(raw_axons_ptr);
-                let _ = cudaFree(raw_variants_ptr);
-                let _ = cudaStreamDestroy(stream);
-                let _ = cudaFreeHost(pinned_output_ptr);
-                let _ = cudaFreeHost(pinned_telemetry_ids_ptr);
+                let _ = hipFree(raw_state_ptr);
+                let _ = hipFree(raw_axons_ptr);
+                let _ = hipFree(raw_variants_ptr);
+                let _ = hipStreamDestroy(stream);
+                let _ = hipHostFree(pinned_output_ptr);
+                let _ = hipHostFree(pinned_telemetry_ids_ptr);
             }
             return Err(e);
         }
@@ -270,7 +271,7 @@ impl GpuBackend for CudaBackend {
             }
         };
 
-        let res = ShardCudaResources {
+        let res = ShardHipResources {
             raw_state_ptr,
             raw_axons_ptr,
             raw_variants_ptr,
@@ -299,18 +300,18 @@ impl GpuBackend for CudaBackend {
         let upload_size = state.len().min(offsets.total_size);
 
         let code = unsafe {
-            cudaMemcpyAsync(
+            hipMemcpyAsync(
                 res.raw_state_ptr,
                 state.as_ptr() as *const std::ffi::c_void,
                 upload_size,
-                CUDA_MEMCPY_HOST_TO_DEVICE,
+                HIP_MEMCPY_HOST_TO_DEVICE,
                 res.stream,
             )
         };
-        check_cuda(code)?;
+        check_hip(code)?;
 
-        let code = unsafe { cudaStreamSynchronize(res.stream) };
-        check_cuda(code)?;
+        let code = unsafe { hipStreamSynchronize(res.stream) };
+        check_hip(code)?;
 
         Ok(())
     }
@@ -327,18 +328,18 @@ impl GpuBackend for CudaBackend {
         let upload_size =
             variants.len().min(16) * std::mem::size_of::<VariantParameters>();
         let code = unsafe {
-            cudaMemcpyAsync(
+            hipMemcpyAsync(
                 res.raw_variants_ptr,
                 variants.as_ptr() as *const std::ffi::c_void,
                 upload_size,
-                CUDA_MEMCPY_HOST_TO_DEVICE,
+                HIP_MEMCPY_HOST_TO_DEVICE,
                 res.stream,
             )
         };
-        check_cuda(code)?;
+        check_hip(code)?;
 
-        let code = unsafe { cudaStreamSynchronize(res.stream) };
-        check_cuda(code)?;
+        let code = unsafe { hipStreamSynchronize(res.stream) };
+        check_hip(code)?;
 
         Ok(())
     }
@@ -381,7 +382,7 @@ impl GpuBackend for CudaBackend {
             let current_tick = cmd.tick_base + tick_idx;
 
             let code = unsafe {
-                cuda_launch_update_neurons(
+                hip_launch_update_neurons(
                     res.vram_ptrs,
                     res.layout.padded_n,
                     current_tick,
@@ -389,31 +390,31 @@ impl GpuBackend for CudaBackend {
                     res.stream,
                 )
             };
-            check_cuda(code)?;
+            check_hip(code)?;
 
             let code = unsafe {
-                cuda_launch_propagate_axons(
+                hip_launch_propagate_axons(
                     res.vram_ptrs,
                     res.layout.padded_n,
                     cmd.v_seg,
                     res.stream,
                 )
             };
-            check_cuda(code)?;
+            check_hip(code)?;
 
             let code = unsafe {
-                cuda_launch_apply_gsop(
+                hip_launch_apply_gsop(
                     res.vram_ptrs,
                     res.layout.padded_n,
                     cmd.v_seg,
                     res.stream,
                 )
             };
-            check_cuda(code)?;
+            check_hip(code)?;
         }
 
-        let code = unsafe { cudaStreamSynchronize(res.stream) };
-        check_cuda(code)?;
+        let code = unsafe { hipStreamSynchronize(res.stream) };
+        check_hip(code)?;
 
         Ok(BatchResult {
             ticks_processed: cmd.sync_batch_ticks,
@@ -442,22 +443,22 @@ impl GpuBackend for CudaBackend {
             return Err(ComputeApiError::OutOfMemory);
         }
 
-        // DMA D2H Copy using Pinned RAM (INV-COMPUTE-CUDA-006)
+        // DMA D2H Copy using Pinned RAM (INV-COMPUTE-HIP-006)
         let copy_size = total_bytes.min(res.layout.padded_n as usize);
         if copy_size > 0 {
             let code = unsafe {
-                cudaMemcpyAsync(
+                hipMemcpyAsync(
                     res.pinned_output_ptr,
                     res.vram_ptrs.flags as *const std::ffi::c_void,
                     copy_size,
-                    CUDA_MEMCPY_DEVICE_TO_HOST,
+                    HIP_MEMCPY_DEVICE_TO_HOST,
                     res.stream,
                 )
             };
-            check_cuda(code)?;
+            check_hip(code)?;
             
-            let code = unsafe { cudaStreamSynchronize(res.stream) };
-            check_cuda(code)?;
+            let code = unsafe { hipStreamSynchronize(res.stream) };
+            check_hip(code)?;
         }
 
         let mut data = vec![0u8; total_bytes];
@@ -483,18 +484,18 @@ impl GpuBackend for CudaBackend {
 
         // Download flags array to count spikes
         let code = unsafe {
-            cudaMemcpyAsync(
+            hipMemcpyAsync(
                 res.pinned_telemetry_ids_ptr,
                 res.vram_ptrs.flags as *const std::ffi::c_void,
                 res.layout.padded_n as usize,
-                CUDA_MEMCPY_DEVICE_TO_HOST,
+                HIP_MEMCPY_DEVICE_TO_HOST,
                 res.stream,
             )
         };
-        check_cuda(code)?;
+        check_hip(code)?;
 
-        let code = unsafe { cudaStreamSynchronize(res.stream) };
-        check_cuda(code)?;
+        let code = unsafe { hipStreamSynchronize(res.stream) };
+        check_hip(code)?;
 
         let flags_slice = unsafe {
             std::slice::from_raw_parts(

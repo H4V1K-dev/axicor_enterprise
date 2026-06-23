@@ -1,8 +1,8 @@
 #include "core_math.h"
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 extern "C" {
-    struct __align__(64) VariantParameters {
+    struct __attribute__((aligned(64))) VariantParameters {
         int32_t threshold;
         int32_t rest_potential;
         uint32_t leak_shift;
@@ -28,7 +28,7 @@ extern "C" {
         uint32_t heartbeat_m;
     };
 
-    struct __align__(32) BurstHeads8 {
+    struct __attribute__((aligned(32))) BurstHeads8 {
         uint32_t h0;
         uint32_t h1;
         uint32_t h2;
@@ -53,9 +53,8 @@ extern "C" {
     };
 }
 
-// INV-PHYS-002: Hardware VRAM Protection
 __global__ void kernel_update_neurons(ShardVramPtrs vram, uint32_t padded_n, uint32_t current_tick, uint32_t v_seg) {
-    uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t tid = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
     if (tid >= padded_n) return;
 
     uint8_t flags = vram.flags[tid];
@@ -134,10 +133,8 @@ __global__ void kernel_update_neurons(ShardVramPtrs vram, uint32_t padded_n, uin
     vram.threshold_offset[tid] = thresh_offset + (final_spike * P.homeostasis_penalty);
 }
 
-// INV-PHYS-002: Hardware VRAM Protection
-// INV-PHYS-006: Magnetic Sentinel Trap
 __global__ void kernel_propagate_axons(ShardVramPtrs vram, uint32_t padded_n, uint32_t v_seg) {
-    uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t tid = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
     if (tid >= padded_n) return;
 
     uint32_t* heads = (uint32_t*)vram.axon_heads;
@@ -151,29 +148,28 @@ __global__ void kernel_propagate_axons(ShardVramPtrs vram, uint32_t padded_n, ui
     }
 }
 
-// INV-PHYS-002: Hardware VRAM Protection
 __global__ void kernel_apply_gsop(ShardVramPtrs vram, uint32_t padded_n, uint32_t v_seg) {
-    uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t tid = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
     if (tid >= padded_n) return;
 }
 
-extern "C" cudaError_t cuda_launch_update_neurons(ShardVramPtrs vram, uint32_t padded_n, uint32_t current_tick, uint32_t v_seg, cudaStream_t stream) {
+extern "C" hipError_t hip_launch_update_neurons(ShardVramPtrs vram, uint32_t padded_n, uint32_t current_tick, uint32_t v_seg, hipStream_t stream) {
     uint32_t threads = 256;
     uint32_t blocks = (padded_n + threads - 1) / threads;
-    kernel_update_neurons<<<blocks, threads, 0, stream>>>(vram, padded_n, current_tick, v_seg);
-    return cudaGetLastError();
+    hipLaunchKernelGGL(kernel_update_neurons, dim3(blocks), dim3(threads), 0, stream, vram, padded_n, current_tick, v_seg);
+    return hipGetLastError();
 }
 
-extern "C" cudaError_t cuda_launch_propagate_axons(ShardVramPtrs vram, uint32_t padded_n, uint32_t v_seg, cudaStream_t stream) {
+extern "C" hipError_t hip_launch_propagate_axons(ShardVramPtrs vram, uint32_t padded_n, uint32_t v_seg, hipStream_t stream) {
     uint32_t threads = 256;
     uint32_t blocks = (padded_n + threads - 1) / threads;
-    kernel_propagate_axons<<<blocks, threads, 0, stream>>>(vram, padded_n, v_seg);
-    return cudaGetLastError();
+    hipLaunchKernelGGL(kernel_propagate_axons, dim3(blocks), dim3(threads), 0, stream, vram, padded_n, v_seg);
+    return hipGetLastError();
 }
 
-extern "C" cudaError_t cuda_launch_apply_gsop(ShardVramPtrs vram, uint32_t padded_n, uint32_t v_seg, cudaStream_t stream) {
+extern "C" hipError_t hip_launch_apply_gsop(ShardVramPtrs vram, uint32_t padded_n, uint32_t v_seg, hipStream_t stream) {
     uint32_t threads = 256;
     uint32_t blocks = (padded_n + threads - 1) / threads;
-    kernel_apply_gsop<<<blocks, threads, 0, stream>>>(vram, padded_n, v_seg);
-    return cudaGetLastError();
+    hipLaunchKernelGGL(kernel_apply_gsop, dim3(blocks), dim3(threads), 0, stream, vram, padded_n, v_seg);
+    return hipGetLastError();
 }

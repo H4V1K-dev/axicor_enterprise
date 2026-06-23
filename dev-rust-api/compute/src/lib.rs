@@ -13,9 +13,24 @@ mod tests {
     fn test_backend_auto_selection() {
         // INV-COMPUTE-002: auto-selection validation
         let backends = detect_available_backends();
+        
         #[cfg(feature = "cpu")]
         {
             assert!(backends.contains(&BackendType::Cpu));
+        }
+
+        #[cfg(feature = "cuda")]
+        {
+            assert_eq!(backends[0], BackendType::Cuda);
+        }
+
+        #[cfg(all(not(feature = "cuda"), feature = "hip"))]
+        {
+            assert_eq!(backends[0], BackendType::Hip);
+        }
+
+        #[cfg(all(not(feature = "cuda"), not(feature = "hip"), feature = "cpu"))]
+        {
             assert_eq!(backends[0], BackendType::Cpu);
         }
     }

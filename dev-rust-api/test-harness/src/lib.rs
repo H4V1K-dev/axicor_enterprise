@@ -32,8 +32,18 @@ mod tests {
             total_axons: 10,
             total_ghosts: 2,
         };
-        let res = run_differential_suite(layout, 42, &[], BackendType::Cuda);
-        assert!(matches!(res, Err(DifferentialTestError::BackendInitFailed(_))));
+        
+        #[cfg(not(feature = "cuda"))]
+        {
+            let res = run_differential_suite(layout, 42, &[], BackendType::Cuda);
+            assert!(matches!(res, Err(DifferentialTestError::BackendInitFailed(_))), "Expected Cuda backend initialization to fail when disabled");
+        }
+
+        #[cfg(not(feature = "hip"))]
+        {
+            let res = run_differential_suite(layout, 42, &[], BackendType::Hip);
+            assert!(matches!(res, Err(DifferentialTestError::BackendInitFailed(_))), "Expected Hip backend initialization to fail when disabled");
+        }
     }
 
     #[test]
