@@ -45,25 +45,25 @@ fn main() {
         "weaver-daemon starting"
     );
 
-    // ── Phase 3: Load blueprints configuration ────────────────────────────────
-    let blueprints_path = cli.config_dir.join("blueprints.toml");
-    let blueprints_content = match std::fs::read_to_string(&blueprints_path) {
+    // ── Phase 3: Load shard configuration ────────────────────────────────
+    let shard_path = cli.config_dir.join("shard.toml");
+    let shard_content = match std::fs::read_to_string(&shard_path) {
         Ok(s) => s,
         Err(e) => {
-            tracing::error!(path = %blueprints_path.display(), error = %e, "Failed to read blueprints.toml");
+            tracing::error!(path = %shard_path.display(), error = %e, "Failed to read shard.toml");
             std::process::exit(1);
         }
     };
-    let blueprints = match config::parse_blueprints_config(&blueprints_content) {
-        Ok(b) => b,
+    let shard = match config::parse_shard_config(&shard_content) {
+        Ok(s) => s,
         Err(e) => {
-            tracing::error!(error = %e, "Failed to parse blueprints.toml");
+            tracing::error!(error = %e, "Failed to parse shard.toml");
             std::process::exit(1);
         }
     };
     tracing::info!(
-        neuron_types = blueprints.neuron_types.len(),
-        "Blueprints loaded"
+        neuron_types = shard.neuron_types.len(),
+        "Shard configuration loaded"
     );
 
     // ── Phase 4: Mock path — autonomous CI smoke test ─────────────────────────
@@ -93,7 +93,7 @@ fn main() {
             &mut ctx,
             shm_ptr,
             hdr,
-            &blueprints,
+            &shard.neuron_types,
             (1000, 1000, 255),
             10,    // prune_threshold placeholder
             1000,  // max_sprouts placeholder
@@ -251,7 +251,7 @@ fn main() {
             &mut ctx,
             shm_ptr,
             hdr,
-            &blueprints,
+            &shard.neuron_types,
             bounds,
             req.prune_threshold,
             req.max_sprouts as u32,

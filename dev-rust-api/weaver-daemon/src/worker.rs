@@ -29,7 +29,7 @@ pub fn process_night(
     ctx: &mut DaemonContext,
     shm_ptr: *mut u8,
     hdr: &layout::ShmHeader,
-    blueprints: &config::BlueprintsConfig,
+    neuron_types: &[config::NeuronType],
     bounds: (u32, u32, u32),
     prune_threshold: i16,
     max_sprouts: u32,
@@ -91,7 +91,7 @@ pub fn process_night(
         targets,
         padded_n,
         &grid,
-        blueprints,
+        neuron_types,
         prune_threshold,
         soma_positions,
     );
@@ -134,8 +134,8 @@ mod tests {
     use super::*;
     use types::{PackedPosition, PackedTarget};
     use config::{
-        BlueprintsConfig, NeuronType, GsopParams, MembraneParams, TimingParams,
-        SignalParams, HomeostasisParams, AdaptiveLeakParams, DopamineParams, SpontaneousParams,
+        NeuronType, GsopParams, MembraneParams, TimingParams,
+        SignalParams, HomeostasisParams, AdaptiveLeakParams, DopamineParams, SpontaneousParams, GrowthParams
     };
 
     #[repr(C, align(64))]
@@ -150,6 +150,7 @@ mod tests {
                 threshold: 10,
                 rest_potential: 0,
                 leak_shift: 1,
+                ahp_amplitude: 0,
             },
             timings: TimingParams {
                 refractory_period: 2,
@@ -175,7 +176,22 @@ mod tests {
                 gsop_potentiation,
                 gsop_depression: 0,
                 is_inhibitory,
-                inertia_curve: vec![0],
+                inertia_curve: vec![0; 8],
+            },
+            growth: GrowthParams {
+                steering_fov_deg: 60.0,
+                steering_radius_um: 100.0,
+                steering_weight_inertia: 0.6,
+                steering_weight_sensor: 0.3,
+                steering_weight_jitter: 0.1,
+                dendrite_radius_um: 150.0,
+                growth_vertical_bias: 0.7,
+                type_affinity: 0.5,
+                dendrite_whitelist: Vec::new(),
+                sprouting_weight_distance: 0.4,
+                sprouting_weight_power: 0.4,
+                sprouting_weight_explore: 0.1,
+                sprouting_weight_type: 0.1,
             },
             spontaneous: SpontaneousParams {
                 spontaneous_firing_period_ticks: 0,
@@ -185,11 +201,9 @@ mod tests {
 
     #[test]
     fn test_process_night_full_cycle() {
-        let blueprints = BlueprintsConfig {
-            neuron_types: vec![
-                mock_neuron_type("Exc", false, 15),
-            ],
-        };
+        let neuron_types = vec![
+            mock_neuron_type("Exc", false, 15),
+        ];
 
         let soma_positions = vec![
             PackedPosition::pack_raw(10, 10, 10, 0), // soma 0
@@ -235,7 +249,7 @@ mod tests {
             &mut ctx,
             shm_ptr,
             unsafe { &*(shm_ptr as *const layout::ShmHeader) },
-            &blueprints,
+            &neuron_types,
             (100, 100, 100),
             10, // prune_threshold
             10, // max_sprouts
@@ -261,4 +275,6 @@ mod tests {
         assert_eq!(weights[0], 15 << 16);
     }
 }
+
+
 

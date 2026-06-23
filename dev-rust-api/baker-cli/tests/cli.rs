@@ -55,7 +55,7 @@ fn test_cli_parse_invalid_args() {
 }
 
 fn write_mock_configs(config_dir: &std::path::Path) {
-    let sim_toml = r#"
+    let model_toml = r#"
         [world]
         width_um = 100.0
         depth_um = 100.0
@@ -77,17 +77,16 @@ fn write_mock_configs(config_dir: &std::path::Path) {
         config = "brain_cortex.toml"
 
         [[connections]]
-        from = "cortex"
-        to = "cortex"
-        output_matrix = "relay"
-        width = 4
-        height = 4
-        entry_z = "Bottom"
-        target_type = "Excitatory"
-        growth_steps = 10
+        from = "cortex.relay"
+        to = "cortex.relay"
     "#;
 
-    let anatomy_toml = r#"
+    let shard_toml = r#"
+        [dimensions]
+        w = 10
+        d = 10
+        h = 10
+
         [[layers]]
         name = "L1"
         height_pct = 1.0
@@ -95,52 +94,80 @@ fn write_mock_configs(config_dir: &std::path::Path) {
         composition = [
             { type_name = "Excitatory", share = 1.0 }
         ]
-    "#;
 
-    let blueprints_toml = r#"
         [[neuron_types]]
         name = "Excitatory"
         
-        [neuron_types.membrane]
-        threshold = 20000
-        rest_potential = -70000
-        leak_shift = 4
-        
-        [neuron_types.timings]
-        refractory_period = 5
-        synapse_refractory_period = 10
-        
-        [neuron_types.signal]
-        signal_propagation_length = 8
-        
-        [neuron_types.homeostasis]
-        homeostasis_penalty = 1500
-        homeostasis_decay = 990
-        
-        [neuron_types.adaptive_leak]
-        adaptive_leak_min_shift = -5
-        adaptive_leak_gain = 2
-        adaptive_mode = 1
-        
-        [neuron_types.dopamine]
-        d1_affinity = 80
-        d2_affinity = 20
-        
-        [neuron_types.gsop]
-        gsop_potentiation = 15
-        gsop_depression = 5
-        is_inhibitory = false
-        inertia_curve = [10, 20, 30, 40, 50, 60, 70, 80]
-        
-        [neuron_types.spontaneous]
-        spontaneous_firing_period_ticks = 10000
+          [neuron_types.membrane]
+          threshold = 20000
+          rest_potential = -70000
+          leak_shift = 4
+          ahp_amplitude = 0
+          
+          [neuron_types.timings]
+          refractory_period = 5
+          synapse_refractory_period = 10
+          
+          [neuron_types.signal]
+          signal_propagation_length = 8
+          
+          [neuron_types.homeostasis]
+          homeostasis_penalty = 1500
+          homeostasis_decay = 990
+          
+          [neuron_types.adaptive_leak]
+          adaptive_leak_min_shift = -5
+          adaptive_leak_gain = 2
+          adaptive_mode = 1
+          
+          [neuron_types.dopamine]
+          d1_affinity = 80
+          d2_affinity = 20
+          
+          [neuron_types.gsop]
+          gsop_potentiation = 15
+          gsop_depression = 5
+          is_inhibitory = false
+          inertia_curve = [10, 20, 30, 40, 50, 60, 70, 80]
+
+          [neuron_types.growth]
+          steering_fov_deg = 60.0
+          steering_radius_um = 100.0
+          steering_weight_inertia = 0.6
+          steering_weight_sensor = 0.3
+          steering_weight_jitter = 0.1
+          dendrite_radius_um = 150.0
+          growth_vertical_bias = 0.7
+          type_affinity = 0.5
+          dendrite_whitelist = []
+          sprouting_weight_distance = 0.4
+          sprouting_weight_power = 0.4
+          sprouting_weight_explore = 0.1
+          sprouting_weight_type = 0.1
+          
+          [neuron_types.spontaneous]
+          spontaneous_firing_period_ticks = 10000
+
+        [settings]
+        ghost_capacity = 1000
+        prune_threshold = 10
+        max_sprouts = 4
+        night_interval_ticks = 1000
+        save_checkpoints_interval_ticks = 10000
+
+        [[sockets]]
+        name = "relay"
+        direction = "in"
+        width = 4
+        height = 4
+        entry_z = "Bottom"
+        target_type = "Excitatory"
+        growth_steps = 10
     "#;
 
-    fs::write(config_dir.join("simulation.toml"), sim_toml).unwrap();
-    fs::write(config_dir.join("anatomy.toml"), anatomy_toml).unwrap();
-    fs::write(config_dir.join("blueprints.toml"), blueprints_toml).unwrap();
+    fs::write(config_dir.join("model.toml"), model_toml).unwrap();
+    fs::write(config_dir.join("shard.toml"), shard_toml).unwrap();
 }
-
 #[test]
 fn test_cli_bake_and_distill_integration() -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempdir().unwrap();

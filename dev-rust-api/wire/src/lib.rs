@@ -207,4 +207,20 @@ mod tests {
         let slice_err = SpikeEventV2::slice_from_bytes(&bytes);
         assert!(matches!(slice_err, Err(WireError::BufferTooSmall { expected: 8, actual: 7 })));
     }
+
+    #[test]
+    fn test_wire_alignment_mismatch() {
+        // Create an aligned buffer (e.g. aligned to 8 bytes, since it is a u64 array)
+        let aligned_buf: [u64; 4] = [0; 4];
+        let bytes: &[u8] = bytemuck::cast_slice(&aligned_buf);
+
+        // A slice starting at odd offset (1) will definitely not be 4-byte or 8-byte aligned
+        let unaligned_slice = &bytes[1..9]; // size is 8 bytes
+        
+        let cast_err = SpikeEventV2::from_bytes(unaligned_slice);
+        assert!(matches!(cast_err, Err(WireError::AlignmentMismatch)));
+
+        let slice_err = SpikeEventV2::slice_from_bytes(unaligned_slice);
+        assert!(matches!(slice_err, Err(WireError::AlignmentMismatch)));
+    }
 }

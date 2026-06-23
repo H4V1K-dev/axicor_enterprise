@@ -108,7 +108,7 @@ pub fn sprout_connections(
     existing_targets: &[u32],
     padded_n: usize,
     grid: &SpatialGrid,
-    blueprints: &config::BlueprintsConfig,
+    neuron_types: &[config::NeuronType],
     prune_threshold: i16,
     soma_positions: &[types::PackedPosition],
 ) -> Vec<NewSynapse> {
@@ -154,10 +154,10 @@ pub fn sprout_connections(
         });
 
         if let Some(candidate) = best_candidate {
-            if candidate.type_idx >= blueprints.neuron_types.len() {
+            if candidate.type_idx >= neuron_types.len() {
                 continue;
             }
-            let target_type_cfg = &blueprints.neuron_types[candidate.type_idx];
+            let target_type_cfg = &neuron_types[candidate.type_idx];
 
             // INV-TOPO-005: DoA (Dead on Arrival) Protection
             // Read initial synapse weight (derived from gsop_potentiation) and shift by 16 bits
@@ -190,7 +190,7 @@ pub fn sprout_connections(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::{BlueprintsConfig, NeuronType, GsopParams};
+    use config::{NeuronType, GsopParams};
     
     // Minimal mock for GsopParams
     fn mock_gsop(is_inhibitory: bool, potentiation: u16) -> GsopParams {
@@ -203,11 +203,11 @@ mod tests {
     }
 
     fn mock_neuron_type(name: &str, is_inhibitory: bool, potentiation: u16) -> NeuronType {
-        // We use dummy values for unrelated fields
         let membrane = config::MembraneParams {
             threshold: 20000,
             rest_potential: -70000,
             leak_shift: 4,
+            ahp_amplitude: 0,
         };
         let timings = config::TimingParams {
             refractory_period: 5,
@@ -229,6 +229,21 @@ mod tests {
             d1_affinity: 80,
             d2_affinity: 20,
         };
+        let growth = config::GrowthParams {
+            steering_fov_deg: 60.0,
+            steering_radius_um: 100.0,
+            steering_weight_inertia: 0.6,
+            steering_weight_sensor: 0.3,
+            steering_weight_jitter: 0.1,
+            dendrite_radius_um: 150.0,
+            growth_vertical_bias: 0.7,
+            type_affinity: 0.5,
+            dendrite_whitelist: Vec::new(),
+            sprouting_weight_distance: 0.4,
+            sprouting_weight_power: 0.4,
+            sprouting_weight_explore: 0.1,
+            sprouting_weight_type: 0.1,
+        };
         let spontaneous = config::SpontaneousParams {
             spontaneous_firing_period_ticks: 10000,
         };
@@ -242,6 +257,7 @@ mod tests {
             adaptive_leak,
             dopamine,
             gsop: mock_gsop(is_inhibitory, potentiation),
+            growth,
             spontaneous,
         }
     }
@@ -294,12 +310,10 @@ mod tests {
 
     #[test]
     fn test_sprout_connections_full() {
-        let blueprints = BlueprintsConfig {
-            neuron_types: vec![
-                mock_neuron_type("Exc", false, 15), // 15 potentiation
-                mock_neuron_type("Inh", true, 5),  // 5 potentiation (will trigger DoA protection)
-            ],
-        };
+        let neuron_types = vec![
+            mock_neuron_type("Exc", false, 15), // 15 potentiation
+            mock_neuron_type("Inh", true, 5),  // 5 potentiation (will trigger DoA protection)
+        ];
 
         let soma_positions = vec![
             PackedPosition::pack_raw(10, 10, 10, 0), // soma 0
@@ -324,7 +338,7 @@ mod tests {
             &existing_targets,
             padded_n,
             &grid,
-            &blueprints,
+            &neuron_types,
             10, // prune_threshold
             &soma_positions,
         );

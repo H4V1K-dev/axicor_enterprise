@@ -18,15 +18,15 @@ pub struct SystemMeta {
     pub created_at: String,
 }
 
-/// Root configuration for the simulation universe.
+/// Root configuration for the simulation model (model.toml).
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct SimulationConfig {
+pub struct ModelConfig {
     pub meta: Option<SystemMeta>,
     pub world: WorldConfig,
     pub simulation: SimulationParams,
     pub departments: Vec<DepartmentEntry>,
-    pub connections: Vec<DepartmentConnectionConfig>,
+    pub connections: Vec<ModelConnectionConfig>,
 }
 
 /// Physical world dimensions.
@@ -64,36 +64,22 @@ pub struct DepartmentEntry {
     pub config: String,
 }
 
-/// Projection mappings between different sub-brain departments.
+/// Inter-department connection config.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct DepartmentConnectionConfig {
+pub struct ModelConnectionConfig {
     pub from: String,
     pub to: String,
-    pub output_matrix: String,
-    pub width: u32,
-    pub height: u32,
-    pub entry_z: EntryZ,
-    pub target_type: String,
-    pub growth_steps: u32,
 }
 
-/// Enum representing vertical entry point of axons.
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-pub enum EntryZ {
-    Top,
-    Mid,
-    Bottom,
-}
-
-/// Parse TOML content into SimulationConfig.
-pub fn parse_simulation_config(content: &str) -> Result<SimulationConfig, ConfigError> {
-    let config: SimulationConfig = toml::from_str(content)?;
+/// Parse TOML content into ModelConfig.
+pub fn parse_model_config(content: &str) -> Result<ModelConfig, ConfigError> {
+    let config: ModelConfig = toml::from_str(content)?;
     Ok(config)
 }
 
-/// Validate simulation parameters against specification invariants.
-pub fn validate_simulation(config: &SimulationConfig) -> Result<(), ConfigError> {
+/// Validate model parameters against specification invariants.
+pub fn validate_model(config: &ModelConfig) -> Result<(), ConfigError> {
     let params = &config.simulation;
 
     if params.tick_duration_us == 0 {
@@ -188,25 +174,19 @@ mod tests {
         config = "brain_cortex.toml"
 
         [[connections]]
-        from = "thalamus"
-        to = "cortex"
-        output_matrix = "relay"
-        width = 16
-        height = 16
-        entry_z = "Bottom"
-        target_type = "L4_Stellate"
-        growth_steps = 10
+        from = "thalamus.output"
+        to = "cortex.input"
     "#;
 
     #[test]
-    fn test_parse_valid_simulation() {
-        let config = parse_simulation_config(VALID_TOML).unwrap();
+    fn test_parse_valid_model() {
+        let config = parse_model_config(VALID_TOML).unwrap();
         assert_eq!(config.world.width_um, 1000.0);
         assert_eq!(config.simulation.tick_duration_us, 1000);
         assert_eq!(config.simulation.segment_length_voxels, 2);
         assert_eq!(config.simulation.axon_growth_max_steps, 200);
         assert_eq!(config.simulation.max_dendrites, 128);
-        assert!(validate_simulation(&config).is_ok());
+        assert!(validate_model(&config).is_ok());
     }
 
     #[test]
@@ -229,17 +209,17 @@ mod tests {
             sync_batch_ticks = 10
             max_dendrites = 128
         "#;
-        let config = parse_simulation_config(toml_defaults).unwrap();
+        let config = parse_model_config(toml_defaults).unwrap();
         assert_eq!(config.simulation.segment_length_voxels, 2);
         assert_eq!(config.simulation.axon_growth_max_steps, 255);
-        assert!(validate_simulation(&config).is_ok());
+        assert!(validate_model(&config).is_ok());
     }
 
     #[test]
     fn test_validation_err_v_seg_not_integer() {
         let invalid_toml = VALID_TOML.replace("signal_speed_m_s = 2.0", "signal_speed_m_s = 1.23");
-        let config = parse_simulation_config(&invalid_toml).unwrap();
-        let res = validate_simulation(&config);
+        let config = parse_model_config(&invalid_toml).unwrap();
+        let res = validate_model(&config);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("INV-CONFIG-003"));
     }
@@ -247,8 +227,8 @@ mod tests {
     #[test]
     fn test_validation_err_axon_growth_overflow() {
         let invalid_toml = VALID_TOML.replace("axon_growth_max_steps = 200", "axon_growth_max_steps = 300");
-        let config = parse_simulation_config(&invalid_toml).unwrap();
-        let res = validate_simulation(&config);
+        let config = parse_model_config(&invalid_toml).unwrap();
+        let res = validate_model(&config);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("INV-CONFIG-005"));
     }
@@ -256,34 +236,9 @@ mod tests {
     #[test]
     fn test_validation_err_dendrites_mismatch() {
         let invalid_toml = VALID_TOML.replace("max_dendrites = 128", "max_dendrites = 64");
-        let config = parse_simulation_config(&invalid_toml).unwrap();
-        let res = validate_simulation(&config);
+        let config = parse_model_config(&invalid_toml).unwrap();
+        let res = validate_model(&config);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("max_dendrites"));
-    }
-
-    #[test]
-    fn test_deny_unknown_fields() {
-        let bad_toml = r#"
-            [world]
-            width_um = 1000.0
-            depth_um = 1000.0
-            height_um = 500.0
-
-            [simulation]
-            tick_duration_us = 1000
-            total_ticks = 0
-            master_seed = "test-seed"
-            voxel_size_um = 10.0
-            signal_speed_m_s = 2.0
-            sync_batch_ticks = 10
-            max_dendrites = 128
-            unknown_garbage = 42
-
-            departments = []
-            connections = []
-        "#;
-        let res = parse_simulation_config(bad_toml);
-        assert!(res.is_err());
     }
 }

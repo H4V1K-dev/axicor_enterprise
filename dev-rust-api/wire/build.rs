@@ -222,9 +222,15 @@ fn main() {
 
     let python_code = String::from_utf8(output.stdout).expect("Invalid UTF-8 from dumper stdout");
 
-    // Write to axipy/contract/contract_generated.py
-    let dest_dir = Path::new("..").join("axipy").join("contract");
-    fs::create_dir_all(&dest_dir).expect("Failed to create destination directory");
-    let dest_file = dest_dir.join("contract_generated.py");
-    fs::write(&dest_file, python_code).expect("Failed to write contract_generated.py");
+    // Write to axipy/contract/contract_generated.py in both dev-rust-api and dev-sdk-api
+    let paths = [
+        Path::new("..").join("axipy").join("contract"),
+        Path::new("..").join("..").join("dev-sdk-api").join("axipy").join("contract"),
+    ];
+
+    for dest_dir in &paths {
+        fs::create_dir_all(dest_dir).expect("Failed to create destination directory");
+        let dest_file = dest_dir.join("contract_generated.py");
+        fs::write(&dest_file, &python_code).expect("Failed to write contract_generated.py");
+    }
 }

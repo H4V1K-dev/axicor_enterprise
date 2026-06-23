@@ -50,14 +50,14 @@ fn build_type_pool(composition: &[config::NeuronTypeDistribution], layer_budget:
 /// the physical volume (number of voxels) of that layer.
 pub fn place_somas(
     bounds: (u32, u32, u32),
-    anatomy: &config::AnatomyConfig,
+    layers: &[config::LayerConfig],
     rng: &mut rand_chacha::ChaCha8Rng,
 ) -> Result<Vec<types::PackedPosition>, crate::error::TopologyError> {
     let (max_x, max_y, max_z) = bounds;
     let mut positions = Vec::new();
     let mut current_z_pct = 0.0;
 
-    for layer in &anatomy.layers {
+    for layer in layers {
         // Calculate physical layer boundaries along the Z axis avoiding floating-point accumulation drift
         let z_start = (current_z_pct * max_z as f32).floor() as u32;
         let z_end = ((current_z_pct + layer.height_pct) * max_z as f32).floor() as u32;
@@ -106,41 +106,39 @@ pub fn place_somas(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::{AnatomyConfig, LayerConfig, NeuronTypeDistribution};
+    use config::{LayerConfig, NeuronTypeDistribution};
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
-    fn make_test_anatomy() -> AnatomyConfig {
-        AnatomyConfig {
-            layers: vec![
-                LayerConfig {
-                    name: "L1".to_string(),
-                    height_pct: 0.2,
-                    density: 0.1,
-                    composition: vec![
-                        NeuronTypeDistribution {
-                            type_name: "L1_Exc".to_string(),
-                            share: 0.8,
-                        },
-                        NeuronTypeDistribution {
-                            type_name: "L1_Inh".to_string(),
-                            share: 0.2,
-                        },
-                    ],
-                },
-                LayerConfig {
-                    name: "L2".to_string(),
-                    height_pct: 0.8,
-                    density: 0.05,
-                    composition: vec![
-                        NeuronTypeDistribution {
-                            type_name: "L2_Exc".to_string(),
-                            share: 1.0,
-                        },
-                    ],
-                },
-            ],
-        }
+    fn make_test_layers() -> Vec<LayerConfig> {
+        vec![
+            LayerConfig {
+                name: "L1".to_string(),
+                height_pct: 0.2,
+                density: 0.1,
+                composition: vec![
+                    NeuronTypeDistribution {
+                        type_name: "L1_Exc".to_string(),
+                        share: 0.8,
+                    },
+                    NeuronTypeDistribution {
+                        type_name: "L1_Inh".to_string(),
+                        share: 0.2,
+                    },
+                ],
+            },
+            LayerConfig {
+                name: "L2".to_string(),
+                height_pct: 0.8,
+                density: 0.05,
+                composition: vec![
+                    NeuronTypeDistribution {
+                        type_name: "L2_Exc".to_string(),
+                        share: 1.0,
+                    },
+                ],
+            },
+        ]
     }
 
     #[test]
@@ -167,12 +165,12 @@ mod tests {
 
     #[test]
     fn test_stochastic_placement_density_and_z_sort() {
-        let anatomy = make_test_anatomy();
+        let layers = make_test_layers();
         let mut rng = ChaCha8Rng::seed_from_u64(42);
         
         // Bounds of grid (x, y, z)
         let bounds = (10, 10, 100);
-        let positions = place_somas(bounds, &anatomy, &mut rng).unwrap();
+        let positions = place_somas(bounds, &layers, &mut rng).unwrap();
         
         // Verify Z-sorting
         for i in 1..positions.len() {
@@ -193,23 +191,21 @@ mod tests {
         let bounds = (10, 10, 10);
         
         // High density that will exceed volume
-        let anatomy = AnatomyConfig {
-            layers: vec![
-                LayerConfig {
-                    name: "Overdense".to_string(),
-                    height_pct: 1.0,
-                    density: 1.5, // 150% density is impossible
-                    composition: vec![
-                        NeuronTypeDistribution {
-                            type_name: "Exc".to_string(),
-                            share: 1.0,
-                        },
-                    ],
-                },
-            ],
-        };
+        let layers = vec![
+            LayerConfig {
+                name: "Overdense".to_string(),
+                height_pct: 1.0,
+                density: 1.5, // 150% density is impossible
+                composition: vec![
+                    NeuronTypeDistribution {
+                        type_name: "Exc".to_string(),
+                        share: 1.0,
+                    },
+                ],
+            },
+        ];
 
-        let result = place_somas(bounds, &anatomy, &mut rng);
+        let result = place_somas(bounds, &layers, &mut rng);
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::error::TopologyError::PlacementCollision { density, layer } => {

@@ -30,6 +30,7 @@ use rand::SeedableRng;
 ///
 /// # Errors
 /// Returns [`BakerError`] at the first failing phase (Fail-Fast).
+
 pub fn bake(
     config_dir: &std::path::Path,
     output_path: &std::path::Path,
@@ -37,58 +38,47 @@ pub fn bake(
     tracing::info!("Baker: starting bake pipeline for '{}'", config_dir.display());
 
     // ── Load configurations ──────────────────────────────────────────────────
-    let sim_path = config_dir.join("simulation.toml");
-    let sim_content = std::fs::read_to_string(&sim_path)
-        .map_err(|_| BakerError::ConfigNotFound(sim_path.clone()))?;
-    let sim = config::parse_simulation_config(&sim_content)
+    let model_path = config_dir.join("model.toml");
+    let model_content = std::fs::read_to_string(&model_path)
+        .map_err(|_| BakerError::ConfigNotFound(model_path.clone()))?;
+    let model = config::parse_model_config(&model_content)
         .map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
 
-    let anatomy_path = config_dir.join("anatomy.toml");
-    let anatomy_content = std::fs::read_to_string(&anatomy_path)
-        .map_err(|_| BakerError::ConfigNotFound(anatomy_path.clone()))?;
-    let anatomy = config::parse_anatomy_config(&anatomy_content)
-        .map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
-
-    let blueprints_path = config_dir.join("blueprints.toml");
-    let blueprints_content = std::fs::read_to_string(&blueprints_path)
-        .map_err(|_| BakerError::ConfigNotFound(blueprints_path.clone()))?;
-    let blueprints = config::parse_blueprints_config(&blueprints_content)
+    let shard_path = config_dir.join("shard.toml");
+    let shard_content = std::fs::read_to_string(&shard_path)
+        .map_err(|_| BakerError::ConfigNotFound(shard_path.clone()))?;
+    let shard = config::parse_shard_config(&shard_content)
         .map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
 
     // ── Phase A: Pre-Bake Validation (INV-BAKER-002, INV-BAKER-004) ──────────
-    validate_physics_and_anatomy(&sim.simulation, &anatomy)?;
-    config::validate_blueprints(&blueprints)
+    validate_physics_and_anatomy(&model.simulation, &shard.layers)?;
+    config::validate_model(&model)
+        .map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
+    config::validate_shard(&shard)
         .map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
 
     let _v_seg = physics::compute_v_seg(
-        sim.simulation.signal_speed_m_s,
-        sim.simulation.tick_duration_us,
-        sim.simulation.voxel_size_um,
-        sim.simulation.segment_length_voxels,
+        model.simulation.signal_speed_m_s,
+        model.simulation.tick_duration_us,
+        model.simulation.voxel_size_um,
+        model.simulation.segment_length_voxels,
     )
     .map_err(|e| BakerError::InvalidSignalSpeed(e.to_string()))?;
     tracing::debug!("Baker Phase A: validation passed");
 
     // ── Phase B: Config Loading & Spatial Generation ────────────────────────
-    let voxel_size = sim.simulation.voxel_size_um as f64;
-    let max_x = (sim.world.width_um / voxel_size).round() as u32;
-    let max_y = (sim.world.depth_um / voxel_size).round() as u32;
-    let max_z = (sim.world.height_um / voxel_size).round() as u32;
-    let bounds = (max_x, max_y, max_z);
+    let bounds = (shard.dimensions.w, shard.dimensions.d, shard.dimensions.h);
 
-    let seed_u64 = types::MasterSeed::from_str(&sim.simulation.master_seed).raw();
+    let seed_u64 = types::MasterSeed::from_str(&model.simulation.master_seed).raw();
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed_u64);
 
     let mut somas = Vec::new();
     let mut current_z_pct = 0.0;
-    for layer in &anatomy.layers {
-        let temp_anatomy = config::AnatomyConfig {
-            layers: vec![layer.clone()],
-        };
-        let z_offset = (current_z_pct * max_z as f32).floor() as u32;
+    for layer in &shard.layers {
+        let z_offset = (current_z_pct * bounds.2 as f32).floor() as u32;
         current_z_pct += layer.height_pct;
 
-        let mut layer_somas = topology::placement::place_somas(bounds, &temp_anatomy, &mut rng)
+        let mut layer_somas = topology::placement::place_somas(bounds, std::slice::from_ref(layer), &mut rng)
             .map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
         
         for pos in &mut layer_somas {
@@ -102,29 +92,31 @@ pub fn bake(
 
     // ── Phase C: Macro-Routing (INV-BAKER-002) ───────────────────────────────
     let mut ghost_cursor = 0;
-    let ghost_capacity = 1000; // default VRAM capacity limit for ghosts
-    for conn in &sim.connections {
-        let target_type_idx = blueprints.neuron_types.iter()
-            .position(|nt| nt.name == conn.target_type)
-            .unwrap_or(0) as u8;
+    let ghost_capacity = shard.settings.ghost_capacity;
+    if let Some(ref sockets) = shard.sockets {
+        for conn in sockets {
+            if conn.direction != config::SocketDirection::In {
+                continue;
+            }
+            let target_type_name = conn.target_type.as_deref().unwrap_or("");
+            let target_type_idx = shard.neuron_types.iter()
+                .position(|nt| nt.name == target_type_name)
+                .unwrap_or(0) as u8;
 
-        let source_gxo_somas: Vec<u32> = (0..(conn.width * conn.height)).collect();
+            let source_gxo_somas: Vec<u32> = (0..(conn.width * conn.height)).collect();
 
-        let ghost_conns = topology::routing::route_ghost_atlas(
-            &source_gxo_somas,
-            conn.width,
-            conn.height,
-            bounds,
-            match conn.entry_z {
-                config::EntryZ::Top => config::EntryZ::Top,
-                config::EntryZ::Mid => config::EntryZ::Mid,
-                config::EntryZ::Bottom => config::EntryZ::Bottom,
-            },
-            target_type_idx,
-            &somas,
-        ).map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
+            let ghost_conns = topology::routing::route_ghost_atlas(
+                &source_gxo_somas,
+                conn.width,
+                conn.height,
+                bounds,
+                conn.entry_z.unwrap_or(config::EntryZ::Bottom),
+                target_type_idx,
+                &somas,
+            ).map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
 
-        ghost_cursor += ghost_conns.len() as u32;
+            ghost_cursor += ghost_conns.len() as u32;
+        }
     }
     assert!(ghost_cursor <= ghost_capacity, "Ghost capacity exceeded");
     tracing::debug!("Baker Phase C: routed {} ghost connections", ghost_cursor);
@@ -222,7 +214,7 @@ mod tests {
         num_connections: usize,
         conn_size: u32,
     ) {
-        let sim_toml = format!(
+        let model_toml = format!(
             r#"
             [world]
             width_um = 100.0
@@ -244,26 +236,11 @@ mod tests {
             name = "cortex"
             config = "brain_cortex.toml"
 
-            {}
+            [[connections]]
+            from = "cortex.relay"
+            to = "cortex.relay"
             "#,
-            signal_speed,
-            (0..num_connections)
-                .map(|i| format!(
-                    r#"
-                    [[connections]]
-                    from = "cortex"
-                    to = "cortex"
-                    output_matrix = "relay_{}"
-                    width = {}
-                    height = {}
-                    entry_z = "Bottom"
-                    target_type = "Excitatory"
-                    growth_steps = 10
-                    "#,
-                    i, conn_size, conn_size
-                ))
-                .collect::<Vec<_>>()
-                .join("\n")
+            signal_speed
         );
 
         let h1 = height_pct_sum / 2.0;
@@ -272,8 +249,30 @@ mod tests {
         let s1 = share_sum / 2.0;
         let s2 = share_sum - s1;
 
-        let anatomy_toml = format!(
+        let sockets_toml = (0..num_connections)
+            .map(|i| format!(
+                r#"
+                [[sockets]]
+                name = "relay_{}"
+                direction = "in"
+                width = {}
+                height = {}
+                entry_z = "Bottom"
+                target_type = "Excitatory"
+                growth_steps = 10
+                "#,
+                i, conn_size, conn_size
+            ))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let shard_toml = format!(
             r#"
+            [dimensions]
+            w = 10
+            d = 10
+            h = 10
+
             [[layers]]
             name = "L1"
             height_pct = {}
@@ -290,89 +289,127 @@ mod tests {
             composition = [
                 {{ type_name = "Excitatory", share = 1.0 }}
             ]
-            "#,
-            h1, s1, s2, h2
-        );
 
-        let blueprints_toml = r#"
             [[neuron_types]]
             name = "Excitatory"
             
-            [neuron_types.membrane]
-            threshold = 20000
-            rest_potential = -70000
-            leak_shift = 4
-            
-            [neuron_types.timings]
-            refractory_period = 5
-            synapse_refractory_period = 10
-            
-            [neuron_types.signal]
-            signal_propagation_length = 8
-            
-            [neuron_types.homeostasis]
-            homeostasis_penalty = 1500
-            homeostasis_decay = 990
-            
-            [neuron_types.adaptive_leak]
-            adaptive_leak_min_shift = -5
-            adaptive_leak_gain = 2
-            adaptive_mode = 1
-            
-            [neuron_types.dopamine]
-            d1_affinity = 80
-            d2_affinity = 20
-            
-            [neuron_types.gsop]
-            gsop_potentiation = 15
-            gsop_depression = 5
-            is_inhibitory = false
-            inertia_curve = [10, 20, 30, 40, 50, 60, 70, 80]
-            
-            [neuron_types.spontaneous]
-            spontaneous_firing_period_ticks = 10000
+              [neuron_types.membrane]
+              threshold = 20000
+              rest_potential = -70000
+              leak_shift = 4
+              ahp_amplitude = 0
+              
+              [neuron_types.timings]
+              refractory_period = 5
+              synapse_refractory_period = 10
+              
+              [neuron_types.signal]
+              signal_propagation_length = 8
+              
+              [neuron_types.homeostasis]
+              homeostasis_penalty = 1500
+              homeostasis_decay = 990
+              
+              [neuron_types.adaptive_leak]
+              adaptive_leak_min_shift = -5
+              adaptive_leak_gain = 2
+              adaptive_mode = 1
+              
+              [neuron_types.dopamine]
+              d1_affinity = 80
+              d2_affinity = 20
+              
+              [neuron_types.gsop]
+              gsop_potentiation = 15
+              gsop_depression = 5
+              is_inhibitory = false
+              inertia_curve = [10, 20, 30, 40, 50, 60, 70, 80]
+
+              [neuron_types.growth]
+              steering_fov_deg = 60.0
+              steering_radius_um = 100.0
+              steering_weight_inertia = 0.6
+              steering_weight_sensor = 0.3
+              steering_weight_jitter = 0.1
+              dendrite_radius_um = 150.0
+              growth_vertical_bias = 0.7
+              type_affinity = 0.5
+              dendrite_whitelist = []
+              sprouting_weight_distance = 0.4
+              sprouting_weight_power = 0.4
+              sprouting_weight_explore = 0.1
+              sprouting_weight_type = 0.1
+              
+              [neuron_types.spontaneous]
+              spontaneous_firing_period_ticks = 10000
 
             [[neuron_types]]
             name = "Inhibitory"
             
-            [neuron_types.membrane]
-            threshold = 20000
-            rest_potential = -70000
-            leak_shift = 4
-            
-            [neuron_types.timings]
-            refractory_period = 5
-            synapse_refractory_period = 10
-            
-            [neuron_types.signal]
-            signal_propagation_length = 8
-            
-            [neuron_types.homeostasis]
-            homeostasis_penalty = 1500
-            homeostasis_decay = 990
-            
-            [neuron_types.adaptive_leak]
-            adaptive_leak_min_shift = -5
-            adaptive_leak_gain = 2
-            adaptive_mode = 1
-            
-            [neuron_types.dopamine]
-            d1_affinity = 80
-            d2_affinity = 20
-            
-            [neuron_types.gsop]
-            gsop_potentiation = 15
-            gsop_depression = 5
-            is_inhibitory = true
-            inertia_curve = [10, 20, 30, 40, 50, 60, 70, 80]
-            
-            [neuron_types.spontaneous]
-            spontaneous_firing_period_ticks = 10000
-        "#;
+              [neuron_types.membrane]
+              threshold = 20000
+              rest_potential = -70000
+              leak_shift = 4
+              ahp_amplitude = 0
+              
+              [neuron_types.timings]
+              refractory_period = 5
+              synapse_refractory_period = 10
+              
+              [neuron_types.signal]
+              signal_propagation_length = 8
+              
+              [neuron_types.homeostasis]
+              homeostasis_penalty = 1500
+              homeostasis_decay = 990
+              
+              [neuron_types.adaptive_leak]
+              adaptive_leak_min_shift = -5
+              adaptive_leak_gain = 2
+              adaptive_mode = 1
+              
+              [neuron_types.dopamine]
+              d1_affinity = 80
+              d2_affinity = 20
+              
+              [neuron_types.gsop]
+              gsop_potentiation = 15
+              gsop_depression = 5
+              is_inhibitory = true
+              inertia_curve = [10, 20, 30, 40, 50, 60, 70, 80]
 
-        fs::write(config_dir.join("simulation.toml"), sim_toml).unwrap();
-        fs::write(config_dir.join("anatomy.toml"), anatomy_toml).unwrap();
-        fs::write(config_dir.join("blueprints.toml"), blueprints_toml).unwrap();
+              [neuron_types.growth]
+              steering_fov_deg = 60.0
+              steering_radius_um = 100.0
+              steering_weight_inertia = 0.6
+              steering_weight_sensor = 0.3
+              steering_weight_jitter = 0.1
+              dendrite_radius_um = 150.0
+              growth_vertical_bias = 0.7
+              type_affinity = 0.5
+              dendrite_whitelist = []
+              sprouting_weight_distance = 0.4
+              sprouting_weight_power = 0.4
+              sprouting_weight_explore = 0.1
+              sprouting_weight_type = 0.1
+              
+              [neuron_types.spontaneous]
+              spontaneous_firing_period_ticks = 10000
+
+            [settings]
+            ghost_capacity = 1000
+            prune_threshold = 10
+            max_sprouts = 4
+            night_interval_ticks = 1000
+            save_checkpoints_interval_ticks = 10000
+
+            {}
+            "#,
+            h1, s1, s2, h2, sockets_toml
+        );
+
+        fs::write(config_dir.join("model.toml"), model_toml).unwrap();
+        fs::write(config_dir.join("shard.toml"), shard_toml).unwrap();
     }
 
     #[test]
