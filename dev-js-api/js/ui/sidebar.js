@@ -73,12 +73,16 @@ export function renderLayersListItems(data) {
 }
 
 function renderShardSidebar(data) {
-  const el = getSidebarElement();
   const mesh = shardMeshes[data.key];
   if (!mesh) return;
-  const px = Math.round(mesh.position.x / VIS_SCALE);
-  const py = Math.round(mesh.position.y / VIS_SCALE);
-  const pz = Math.round(mesh.position.z / VIS_SCALE);
+
+  const px = data.position.x;
+  const py = data.position.y; // Rust Y (depth)
+  const pz = data.position.z; // Rust Z (height)
+
+  const placementData = store.get('placementData');
+  const deptObj = placementData ? placementData.departments.find(d => d.name === data.dept) : null;
+  const deptPos = deptObj && deptObj.position ? deptObj.position : { x: 0, y: 0 };
 
   // Group sockets for the list
   const topSocks = [];
@@ -120,18 +124,27 @@ function renderShardSidebar(data) {
     <h3 class="ax-section-title">${data.shard}</h3>
     <div class="sb-section">
       <div class="sb-row"><label>Департамент:</label> <span>${data.dept}</span></div>
-      <div class="sb-row"><label>Орбита/Слой:</label> <span>L${data.orbit}</span></div>
       <div class="sb-row"><label>Толщина:</label> <span>${data.size.h} vx</span></div>
       <div class="sb-row"><label>Размеры:</label> <span>${data.size.w} × ${data.size.d}</span></div>
     </div>
     
     <div class="sb-section">
       <div class="sb-input-group">
-        <label>Координаты (X, Z плоскость слоя, Y высота):</label>
+        <label>Координаты Шарда (X, Y глубина, Z высота):</label>
         <div class="sb-inputs-row">
           <input type="number" id="shard-px" class="ax-input" value="${px}" step="1">
-          <input type="number" id="shard-py" class="ax-input" value="${py}" disabled title="Высота слоя зафиксирована">
+          <input type="number" id="shard-py" class="ax-input" value="${py}" step="1">
           <input type="number" id="shard-pz" class="ax-input" value="${pz}" step="1">
+        </div>
+      </div>
+    </div>
+
+    <div class="sb-section" style="border-top: 1px solid var(--ax-border-muted); padding-top: 12px; margin-top: 12px;">
+      <div class="sb-input-group">
+        <label>Положение Департамента (${data.dept}) X, Y:</label>
+        <div class="sb-inputs-row">
+          <input type="number" id="dept-px" class="ax-input" value="${Math.round(deptPos.x)}" step="1">
+          <input type="number" id="dept-py" class="ax-input" value="${Math.round(deptPos.y)}" step="1">
         </div>
       </div>
     </div>
@@ -156,42 +169,76 @@ function renderShardSidebar(data) {
 
   // Bind coord changes
   const ix = document.getElementById('shard-px');
+  const iy = document.getElementById('shard-py');
   const iz = document.getElementById('shard-pz');
 
   const updateCoords = () => {
-    mesh.position.x = parseFloat(ix.value) * VIS_SCALE;
-    mesh.position.z = parseFloat(iz.value) * VIS_SCALE;
+    const valX = parseFloat(ix.value);
+    const valY = parseFloat(iy.value); // Rust Y (depth, Three Z)
+    const valZ = parseFloat(iz.value); // Rust Z (height, Three Y)
+
+    const w = data.size.w;
+    const d = data.size.d;
+    const h = data.size.h;
+
+    // Convert AABB min coordinates to Three.js center position
+    mesh.position.x = (valX + w / 2) * VIS_SCALE;
+    mesh.position.z = (valY + d / 2) * VIS_SCALE;
+    mesh.position.y = (valZ + h / 2) * VIS_SCALE;
     
     // Collision check: check overlap and revert if necessary
     if (checkShardCollision(data.key, mesh.position)) {
       mesh.position.copy(mesh.userData.lastValidPosition);
-      ix.value = Math.round(mesh.position.x / VIS_SCALE);
-      iz.value = Math.round(mesh.position.z / VIS_SCALE);
+      ix.value = Math.round(mesh.position.x / VIS_SCALE - w / 2);
+      iy.value = Math.round(mesh.position.z / VIS_SCALE - d / 2);
+      iz.value = Math.round(mesh.position.y / VIS_SCALE - h / 2);
     } else {
       mesh.userData.lastValidPosition.copy(mesh.position);
     }
 
     // Immediately update placementData so history and visualizer stay in sync
-    const placementData = store.get('placementData');
-    if (placementData) {
-      const shard = placementData.shards.find(s => s.key === data.key);
+    const pData = store.get('placementData');
+    if (pData) {
+      const shard = pData.shards.find(s => s.key === data.key);
       if (shard) {
-        shard.position.x = Math.round(mesh.position.x / VIS_SCALE);
-        shard.position.z = Math.round(mesh.position.z / VIS_SCALE);
-        store.set('placementData', placementData);
+        shard.position.x = Math.round(mesh.position.x / VIS_SCALE - w / 2);
+        shard.position.y = Math.round(mesh.position.z / VIS_SCALE - d / 2);
+        shard.position.z = Math.round(mesh.position.y / VIS_SCALE - h / 2);
+        
+        // Recalculate department position in UI
+        const dObj = pData.departments.find(d => d.name === data.dept);
+        if (dObj) {
+          const deptShards = pData.shards.filter(s => s.dept === data.dept);
+          const xMin = Math.min(...deptShards.map(s => s.position.x));
+          const yMin = Math.min(...deptShards.map(s => s.position.y));
+          dObj.position.x = xMin;
+          dObj.position.y = yMin;
+          
+          const idx_d = document.getElementById('dept-px');
+          const idy_d = document.getElementById('dept-py');
+          if (idx_d) idx_d.value = xMin;
+          if (idy_d) idy_d.value = yMin;
+        }
+
+        store.set('placementData', pData);
       }
     }
 
+    import('../scene_builder.js').then(({ updateContainerWires }) => {
+      updateContainerWires();
+    });
     emit(EVENTS.VALIDATION_REQ);
   };
 
   const commitCoordChange = () => {
-    const placementData = store.get('placementData');
-    if (!placementData) return;
-    const shard = placementData.shards.find(s => s.key === data.key);
+    const pData = store.get('placementData');
+    if (!pData) return;
+    const shard = pData.shards.find(s => s.key === data.key);
     if (!shard) return;
 
-    if (initialShardState.position.x !== shard.position.x || initialShardState.position.z !== shard.position.z) {
+    if (initialShardState.position.x !== shard.position.x || 
+        initialShardState.position.y !== shard.position.y || 
+        initialShardState.position.z !== shard.position.z) {
       const undoState = JSON.parse(JSON.stringify(initialShardState));
       const redoState = JSON.parse(JSON.stringify(shard));
 
@@ -203,7 +250,70 @@ function renderShardSidebar(data) {
   };
 
   ix.addEventListener('change', () => { updateCoords(); commitCoordChange(); });
+  iy.addEventListener('change', () => { updateCoords(); commitCoordChange(); });
   iz.addEventListener('change', () => { updateCoords(); commitCoordChange(); });
+
+  // Bind department coord changes
+  const idx_d = document.getElementById('dept-px');
+  const idy_d = document.getElementById('dept-py');
+  if (idx_d && idy_d) {
+    let lastDeptX = parseFloat(idx_d.value);
+    let lastDeptY = parseFloat(idy_d.value);
+
+    const updateDeptCoords = () => {
+      const valX = parseFloat(idx_d.value);
+      const valY = parseFloat(idy_d.value);
+      
+      const deltaX = valX - lastDeptX;
+      const deltaY = valY - lastDeptY;
+      
+      if (deltaX === 0 && deltaY === 0) return;
+
+      const pData = store.get('placementData');
+      if (!pData) return;
+
+      pData.shards.forEach(s => {
+        if (s.dept === data.dept) {
+          s.position.x += deltaX;
+          s.position.y += deltaY;
+          
+          const m = shardMeshes[s.key];
+          if (m) {
+            m.position.x += deltaX * VIS_SCALE;
+            m.position.z += deltaY * VIS_SCALE;
+            m.userData.lastValidPosition.copy(m.position);
+          }
+        }
+      });
+
+      const dObj = pData.departments.find(d => d.name === data.dept);
+      if (dObj) {
+        dObj.position.x = valX;
+        dObj.position.y = valY;
+      }
+
+      store.set('placementData', pData);
+
+      lastDeptX = valX;
+      lastDeptY = valY;
+
+      // Update current shard coordinates in inputs
+      const currentShard = pData.shards.find(s => s.key === data.key);
+      if (currentShard) {
+        ix.value = currentShard.position.x;
+        iy.value = currentShard.position.y;
+      }
+
+      import('../scene_builder.js').then(({ updateContainerWires }) => {
+        updateContainerWires();
+      });
+      emit(EVENTS.VALIDATION_REQ);
+    };
+
+    idx_d.addEventListener('change', () => { updateDeptCoords(); saveAllLayoutChanges(); });
+    idy_d.addEventListener('change', () => { updateDeptCoords(); saveAllLayoutChanges(); });
+  }
+
   document.getElementById('deselect-btn').addEventListener('click', deselectAll);
 
   // Bind click listeners to socket list items
@@ -463,6 +573,7 @@ export async function saveAllLayoutChanges() {
   const placementData = store.get('placementData');
   const payload = {
     project: store.get('projectName') || 'octopus',
+    levels: placementData ? placementData.levels || [] : [],
     shards: {},
     sockets: {},
     connections: placementData ? placementData.connections || [] : [],
@@ -481,23 +592,17 @@ export async function saveAllLayoutChanges() {
 
   // 1. Gather all shard position, size and layer overrides
   for (const [key, mesh] of Object.entries(shardMeshes)) {
-    const worldPos = new THREE.Vector3();
-    mesh.getWorldPosition(worldPos);
-    
     // Retrieve current size from the modified mesh geometry parameters
     const currentW = Math.round(mesh.geometry.parameters.width / VIS_SCALE);
-    const currentD = Math.round(mesh.geometry.parameters.height / VIS_SCALE);
-    const currentH = Math.round(mesh.geometry.parameters.depth / VIS_SCALE);
+    const currentH = Math.round(mesh.geometry.parameters.height / VIS_SCALE); // height is now h (Three Y)
+    const currentD = Math.round(mesh.geometry.parameters.depth / VIS_SCALE);  // depth is now d (Three Z)
 
     const sd = shardDataMap[mesh.uuid];
-    const orb = store.get('placementData').orbits.find(o => o.index === sd.orbit);
-    const radius = orb ? orb.radius : 0.0;
-
     payload.shards[key] = {
       position: {
-        x: Number((worldPos.x / VIS_SCALE).toFixed(2)),
-        y: Number(((worldPos.y / VIS_SCALE) - radius).toFixed(2)),
-        z: Number((worldPos.z / VIS_SCALE).toFixed(2))
+        x: Math.round(mesh.position.x / VIS_SCALE - currentW / 2),
+        y: Math.round(mesh.position.z / VIS_SCALE - currentD / 2), // Rust Y (depth)
+        z: Math.round(mesh.position.y / VIS_SCALE - currentH / 2) // Rust Z (height)
       },
       size: {
         w: currentW,
@@ -508,7 +613,7 @@ export async function saveAllLayoutChanges() {
       dept: sd ? sd.dept : undefined,
       shard: sd ? sd.shard : undefined,
       layers: sd ? sd.layers : undefined,
-      sockets: sd ? sd.sockets : undefined
+      sockets: []
     };
     if (sd && sd.layers && sd.layers.length > 0) {
       const layerProps = {};
@@ -519,20 +624,8 @@ export async function saveAllLayoutChanges() {
     }
   }
 
-  // 2. Gather all socket overrides
-  for (const [key, group] of Object.entries(socketMeshes)) {
-    payload.sockets[key] = {
-      width: group.userData.width,
-      height: group.userData.height,
-      pitch: group.userData.pitch,
-      rotation: group.userData.rotation || 0,
-      faceSign: group.userData.faceSign,
-      offset: {
-        x: Number(group.userData.originalOffset.x.toFixed(2)),
-        y: Number(group.userData.originalOffset.y.toFixed(2))
-      }
-    };
-  }
+  // 2. Sockets are disabled in Composition mode
+  payload.sockets = {};
 
   showToast('Сохранение топологии...', 'info');
 

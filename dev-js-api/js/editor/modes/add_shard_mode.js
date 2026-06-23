@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { camera, scene, controls } from '../../viewer.js';
-import { shardMeshes, VIS_SCALE, shardDataMap, buildSceneData, ORBIT_LABELS } from '../../scene_builder.js';
+import { shardMeshes, VIS_SCALE, shardDataMap, buildSceneData } from '../../scene_builder.js';
 import { deselectAll, selectShard } from '../selection.js';
 import { store } from '../../store/store.js';
 import { showToast } from '../../ui/toast.js';
@@ -55,13 +55,12 @@ export class AddShardMode {
 
     const geo = new THREE.BoxGeometry(
       advancedObjPropConfig.w * VIS_SCALE,
-      advancedObjPropConfig.d * VIS_SCALE,
-      advancedObjPropConfig.h * VIS_SCALE
+      advancedObjPropConfig.h * VIS_SCALE, // height
+      advancedObjPropConfig.d * VIS_SCALE  // depth
     );
 
     this.ghostMesh = new THREE.Mesh(geo, ghostMat);
     this.ghostMesh.visible = false;
-    this.ghostMesh.quaternion.set(-0.7071067811865475, 0.0, 0.0, 0.7071067811865476);
 
     const edges = new THREE.EdgesGeometry(geo);
     this.ghostWire = new THREE.LineSegments(edges, wireMat);
@@ -185,8 +184,8 @@ export class AddShardMode {
     // Rebuild BoxGeometry
     this.ghostMesh.geometry = new THREE.BoxGeometry(
       advancedObjPropConfig.w * VIS_SCALE,
-      advancedObjPropConfig.d * VIS_SCALE,
-      advancedObjPropConfig.h * VIS_SCALE
+      advancedObjPropConfig.h * VIS_SCALE, // height
+      advancedObjPropConfig.d * VIS_SCALE  // depth
     );
 
     // Rebuild EdgesGeometry
@@ -194,9 +193,6 @@ export class AddShardMode {
 
     // Position adjustments (bottom of ghost lies flush on floor)
     this.ghostMesh.position.y = (advancedObjPropConfig.h * VIS_SCALE) / 2;
-    
-    // Ensure quaternion is set
-    this.ghostMesh.quaternion.set(-0.7071067811865475, 0.0, 0.0, 0.7071067811865476);
   }
 
   onUpdate(dt) {
@@ -212,29 +208,12 @@ export class AddShardMode {
   onPointerMove(event, raycaster) {
     if (!this.ghostMesh) return;
 
-    // Find level plane group under the cursor
-    const hits = raycaster.intersectObjects(scene.children, true);
-    let hitPlane = null;
-    let hitPoint = null;
-    let orbitIndex = null;
-    let levelGroup = null;
+    // Raycast against a virtual horizontal ground plane (Y=0)
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hitPoint = new THREE.Vector3();
+    const hitSuccess = raycaster.ray.intersectPlane(groundPlane, hitPoint);
 
-    for (const hit of hits) {
-      let obj = hit.object;
-      while (obj) {
-        if (obj.userData && obj.userData.orbitIndex !== undefined) {
-          hitPlane = obj;
-          hitPoint = hit.point;
-          orbitIndex = obj.userData.orbitIndex;
-          levelGroup = obj;
-          break;
-        }
-        obj = obj.parent;
-      }
-      if (hitPlane) break;
-    }
-
-    if (!hitPlane) {
+    if (!hitSuccess) {
       this.ghostMesh.visible = false;
       document.body.style.cursor = 'not-allowed';
       this.isValidPosition = false;
@@ -243,30 +222,23 @@ export class AddShardMode {
 
     this.ghostMesh.visible = true;
     document.body.style.cursor = 'cell';
-    this.currentOrbitIndex = orbitIndex;
+    this.currentOrbitIndex = 0;
 
-    // Update config panel orbit select element if changed via cursor hover
-    if (advancedObjPropConfig.orbit !== orbitIndex) {
-      advancedObjPropConfig.orbit = orbitIndex;
-      const select = document.getElementById('ghost-orbit-select');
-      if (select) select.value = orbitIndex;
-      updateAdvancedPanelHeight();
+    // Attach ghost directly to scene
+    if (this.ghostMesh.parent !== scene) {
+      scene.add(this.ghostMesh);
     }
 
-    // Attach ghost to active level group to share local coordinate systems
-    if (this.ghostMesh.parent !== levelGroup) {
-      levelGroup.add(this.ghostMesh);
-    }
-
-    // Convert mouse world hit point to local coordinate space of active level plane
     const localPoint = new THREE.Vector3().copy(hitPoint);
-    levelGroup.worldToLocal(localPoint);
 
     // Grid details
     const gW = advancedObjPropConfig.w;
     const gD = advancedObjPropConfig.d;
-    const localVoxX = localPoint.x / VIS_SCALE;
-    const localVoxZ = localPoint.z / VIS_SCALE;
+    const gH = advancedObjPropConfig.h;
+    
+    // Calculate local voxels target as AABB min of the ghostMesh
+    const localVoxX = localPoint.x / VIS_SCALE - gW / 2;
+    const localVoxZ = localPoint.z / VIS_SCALE - gD / 2;
 
     // Snap to neighbor math
     const snapThreshold = 20.0; // snap trigger distance in voxels
@@ -277,45 +249,41 @@ export class AddShardMode {
 
     for (const [key, mesh] of Object.entries(shardMeshes)) {
       const sd = shardDataMap[mesh.uuid];
-      if (!sd || sd.orbit !== orbitIndex) continue;
+      if (!sd) continue;
 
-      // Other mesh local bounds in levelGroup space (voxels)
-      const otherX = mesh.position.x / VIS_SCALE;
-      const otherZ = mesh.position.z / VIS_SCALE;
-      const otherW = sd.size.w;
-      const otherD = sd.size.d;
-
-      const otherMinX = otherX - otherW / 2;
-      const otherMaxX = otherX + otherW / 2;
-      const otherMinZ = otherZ - otherD / 2;
-      const otherMaxZ = otherZ + otherD / 2;
+      // Other mesh bounds in AABB min coordinates
+      const otherMinX = sd.position.x;
+      const otherMaxX = sd.position.x + sd.size.w;
+      const otherMinZ = sd.position.y; // Rust Y (depth)
+      const otherMaxZ = sd.position.y + sd.size.d;
 
       // check boundaries alignment distances
-      const dist1 = Math.abs((localVoxX + gW / 2) - otherMinX);
+      const dist1 = Math.abs(localVoxX - otherMinX);
       if (dist1 < minSnapDistX) {
         minSnapDistX = dist1;
-        bestSnapX = otherMinX - gW / 2;
+        bestSnapX = otherMinX;
       }
-      const dist2 = Math.abs((localVoxX - gW / 2) - otherMaxX);
+      const dist2 = Math.abs(localVoxX - otherMaxX);
       if (dist2 < minSnapDistX) {
         minSnapDistX = dist2;
-        bestSnapX = otherMaxX + gW / 2;
+        bestSnapX = otherMaxX;
       }
-      const dist3 = Math.abs((localVoxZ + gD / 2) - otherMinZ);
+      const dist3 = Math.abs(localVoxZ - otherMinZ);
       if (dist3 < minSnapDistZ) {
         minSnapDistZ = dist3;
-        bestSnapZ = otherMinZ - gD / 2;
+        bestSnapZ = otherMinZ;
       }
-      const dist4 = Math.abs((localVoxZ - gD / 2) - otherMaxZ);
+      const dist4 = Math.abs(localVoxZ - otherMaxZ);
       if (dist4 < minSnapDistZ) {
         minSnapDistZ = dist4;
-        bestSnapZ = otherMaxZ + gD / 2;
+        bestSnapZ = otherMaxZ;
       }
     }
 
     const editorSettings = store.get('editorSettings') || {};
     const snapStep = editorSettings.snap_step || 1;
 
+    let finalVoxX, finalVoxZ;
     if (bestSnapX !== null) {
       finalVoxX = bestSnapX;
     } else {
@@ -328,11 +296,11 @@ export class AddShardMode {
       finalVoxZ = Math.round(localVoxZ / snapStep) * snapStep;
     }
 
-    // Set position local to level floor
+    // Set position local to level floor (Three.js center coordinates)
     this.ghostMesh.position.set(
-      finalVoxX * VIS_SCALE,
-      (advancedObjPropConfig.h * VIS_SCALE) / 2, // flush with floor plane
-      finalVoxZ * VIS_SCALE
+      (finalVoxX + gW / 2) * VIS_SCALE,
+      (gH * VIS_SCALE) / 2, // flush with floor plane
+      (finalVoxZ + gD / 2) * VIS_SCALE
     );
 
     // Collision checking: retrieve absolute position to feed the collision_adapter
@@ -342,7 +310,7 @@ export class AddShardMode {
     const isColliding = checkShardCollision(
       null,
       absoluteWorldPos,
-      { w: gW, d: gD, orbit: orbitIndex }
+      { w: gW, d: gD, h: gH, orbit: orbitIndex }
     );
 
     if (isColliding) {
@@ -375,12 +343,10 @@ export class AddShardMode {
     const placementData = store.get('placementData');
     if (!placementData) return false;
 
-    const orbitIndex = this.currentOrbitIndex;
-    const orb = placementData.orbits.find(o => o.index === orbitIndex);
-    const radius = orb ? orb.radius : 0.0;
+    const orbitIndex = 0;
 
     const deptName = advancedObjPropConfig.dept;
-    const orbitLabel = (ORBIT_LABELS[orbitIndex] || `L${orbitIndex}`).toLowerCase().replace(/\s+/g, '_');
+    const orbitLabel = 'l0';
     const deptClean = deptName.toLowerCase().replace(/[^a-z0-9]/g, '_');
 
     let index = 0;
@@ -409,20 +375,14 @@ export class AddShardMode {
       shard: finalShardName,
       orbit: orbitIndex,
       position: {
-        x: Math.round(this.ghostMesh.position.x / VIS_SCALE),
-        y: Math.round((this.ghostMesh.position.y / VIS_SCALE) + radius),
-        z: Math.round(this.ghostMesh.position.z / VIS_SCALE)
+        x: Math.round(this.ghostMesh.position.x / VIS_SCALE - advancedObjPropConfig.w / 2),
+        y: Math.round(this.ghostMesh.position.z / VIS_SCALE - advancedObjPropConfig.d / 2), // Rust Y (depth)
+        z: Math.round(this.ghostMesh.position.y / VIS_SCALE - advancedObjPropConfig.h / 2) // Rust Z (height)
       },
       size: {
         w: advancedObjPropConfig.w,
         d: advancedObjPropConfig.d,
         h: advancedObjPropConfig.h
-      },
-      quaternion: {
-        x: -0.7071067811865475,
-        y: 0.0,
-        z: 0.0,
-        w: 0.7071067811865476
       },
       layers: layers,
       sockets: []

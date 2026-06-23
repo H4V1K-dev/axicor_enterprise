@@ -142,7 +142,7 @@ def compute_placement(model, overrides_path=None):
         except Exception as e:
             print(f"Warning: Failed to load layout_overrides.json: {e}")
 
-    # 0. Filter out deleted shards and sockets
+    # Filter out deleted shards and sockets
     deleted_shards = set(overrides.get("deleted_shards", []))
     deleted_sockets = set(overrides.get("deleted_sockets", []))
 
@@ -158,7 +158,10 @@ def compute_placement(model, overrides_path=None):
         for s in dept.shards:
             existing_keys.add(f"{dept.name}.{s.name}")
 
-    for key, shard_override in overrides.get("shards", {}).items():
+    overrides_shards = overrides.get("shards", {})
+    overrides_levels = overrides.get("levels", [])
+
+    for key, shard_override in overrides_shards.items():
         if key not in existing_keys:
             dept_name = shard_override.get("dept")
             shard_name = shard_override.get("shard")
@@ -177,21 +180,8 @@ def compute_placement(model, overrides_path=None):
             sh = shard_override.get("size", {}).get("h", 16)
 
             new_s = Shard(shard_name, x=sw, y=sd_d, z=sh)
+            new_s.add_layer("default", height_pct=1.0, density=1.0)
 
-            # Reconstruct layers from overrides
-            layers_data = shard_override.get("layers", [])
-            if layers_data:
-                for l in layers_data:
-                    new_s.add_layer(l["name"], height_pct=l["height_pct"], density=l.get("density", 1.0))
-            else:
-                new_s.add_layer("default", height_pct=1.0, density=1.0)
-
-            # Reconstruct sockets from overrides
-            sockets_data = shard_override.get("sockets", [])
-            for sock in sockets_data:
-                new_s.add_socket(sock["name"], width=sock.get("width", 1), height=sock.get("height", 1))
-
-            # Find or create department mock
             target_dept = None
             for dept in model.departments:
                 if dept.name == dept_name:
@@ -204,185 +194,140 @@ def compute_placement(model, overrides_path=None):
 
             target_dept.add_shard(new_s)
 
-    # 1. Group departments by orbit
-    orbit_buckets = {}  # orbit_idx -> [dept, ...]
+    # 1. Resolve level ordering from overrides.levels list
+    levels_list = []
+    if isinstance(overrides_levels, list):
+        levels_list = json.loads(json.dumps(overrides_levels))
+
+    # Find all unique level IDs used by shards
+    active_level_ids = set()
     for dept in model.departments:
-        orbit_buckets.setdefault(dept.orbit, []).append(dept)
+        active_level_ids.add(dept.orbit)
+    for key, shard_override in overrides_shards.items():
+        if "orbit" in shard_override:
+            active_level_ids.add(int(shard_override["orbit"]))
 
-    sorted_orbits = sorted(orbit_buckets.keys())
+    # Ensure all active levels are registered in levels_list
+    for lvl_id in active_level_ids:
+        if not any(l.get("id") == lvl_id for l in levels_list):
+            default_name = f"Level {lvl_id}"
+            for dept in model.departments:
+                if dept.orbit == lvl_id:
+                    default_name = dept.name
+                    break
+            colors = ["#34d399", "#38bdf8", "#f472b6"]
+            levels_list.append({
+                "id": lvl_id,
+                "name": default_name,
+                "color": colors[len(levels_list) % len(colors)]
+            })
 
-    # 2. Pack each orbit flat (shards inside dept, then depts inside orbit)
-    packed_orbits = {}  # orbit_idx -> {w, d, shard_positions}
-    orbit_max_h = {}    # orbit_idx -> max shard thickness (height)
+    # 2. Calculate dynamic heights and z_start for levels in order
+    levels_map = {}
+    current_z = 0
+    gap_between_levels = 20
 
+    for lvl in levels_list:
+        lvl_id = lvl["id"]
+        lvl["z_start"] = current_z
+
+        # Gather shards on this level to compute height
+        max_lvl_h = 40
+        for dept in model.departments:
+            for s in dept.shards:
+                key = f"{dept.name}.{s.name}"
+                shard_override = overrides_shards.get(key, {})
+                orbit = shard_override.get("orbit", dept.orbit)
+                if orbit == lvl_id:
+                    h = shard_override.get("size", {}).get("h", s.z)
+                    if "position" in shard_override and "z" in shard_override["position"]:
+                        local_z = shard_override["position"]["z"] - lvl["z_start"]
+                        if local_z + h > max_lvl_h:
+                            max_lvl_h = local_z + h
+                    else:
+                        if h > max_lvl_h:
+                            max_lvl_h = h
+        
+        lvl["height"] = max_lvl_h
+        levels_map[lvl_id] = lvl
+        current_z = lvl["z_start"] + lvl["height"] + gap_between_levels
+
+    # 3. Perform default packing for shards and departments if no overrides exist
     gap_shards = 0
     gap_depts = 1
+    default_positions = {}
 
-    for orbit_idx in sorted_orbits:
-        depts = orbit_buckets[orbit_idx]
-        
-        # Pack shards of each department
+    for lvl in levels_list:
+        lvl_id = lvl["id"]
+        depts_on_level = [d for d in model.departments if d.orbit == lvl_id]
+        if not depts_on_level:
+            continue
+
         dept_rects = []
-        dept_packings = {}  # dept_name -> (w, d, shard_positions)
-        max_h = 0
+        dept_packings = {}
 
-        for dept in depts:
+        # Step A: Pack shards within each department locally
+        for dept in depts_on_level:
             shards_list = []
             for s in dept.shards:
                 key = f"{dept.name}.{s.name}"
-                shard_override = overrides.get("shards", {}).get(key, {})
+                shard_override = overrides_shards.get(key, {})
                 sw = shard_override.get("size", {}).get("w", s.x)
                 sd_d = shard_override.get("size", {}).get("d", s.y)
                 shards_list.append({"id": s.name, "w": sw, "d": sd_d})
 
             w_dept, d_dept, shard_positions = pack_rectangles(shards_list, gap_shards)
-            dept_packings[dept.name] = (w_dept, d_dept, shard_positions)
-            
-            # Track max thickness (height, z in octopus.py)
-            for s in dept.shards:
-                key = f"{dept.name}.{s.name}"
-                shard_override = overrides.get("shards", {}).get(key, {})
-                sh = shard_override.get("size", {}).get("h", s.z)
-                max_h = max(max_h, sh)
-
+            dept_packings[dept.name] = {"w": w_dept, "d": d_dept, "positions": shard_positions}
             dept_rects.append({"id": dept.name, "w": w_dept, "d": d_dept})
 
-        # Pack departments inside this orbit
+        # Step B: Pack departments within this level
         w_orbit, d_orbit, dept_positions = pack_rectangles(dept_rects, gap_depts)
-        
-        # Combine flat positions for shards in this orbit
-        orbit_shards = {}
-        for dept in depts:
-            w_dept, d_dept, shard_pos = dept_packings[dept.name]
-            du, dv = dept_positions[dept.name]
-            for sname, (su, sv) in shard_pos.items():
-                # Store absolute center of the shard and its size
-                shard_obj = next(s for s in dept.shards if s.name == sname)
-                key = f"{dept.name}.{sname}"
-                shard_override = overrides.get("shards", {}).get(key, {})
-                sw = shard_override.get("size", {}).get("w", shard_obj.x)
-                sd_d = shard_override.get("size", {}).get("d", shard_obj.y)
-                sh = shard_override.get("size", {}).get("h", shard_obj.z)
 
-                orbit_shards[key] = {
-                    "dept": dept.name,
-                    "shard": sname,
-                    "u": du + su,
-                    "v": dv + sv,
-                    "w": sw,
-                    "d": sd_d,
-                    "h": sh,
-                    "raw_shard": shard_obj
+        # Step C: Assign default packed coordinates relative to level origin
+        for dept in depts_on_level:
+            du, dv = dept_positions.get(dept.name, (0, 0))
+            shard_pos = dept_packings[dept.name]["positions"]
+
+            for s in dept.shards:
+                key = f"{dept.name}.{s.name}"
+                su, sv = shard_pos.get(s.name, (0, 0))
+                default_positions[key] = {
+                    "x": du + su,
+                    "y": dv + sv,
+                    "z": levels_map[lvl_id]["z_start"]
                 }
 
-        packed_orbits[orbit_idx] = {
-            "w": w_orbit,
-            "d": d_orbit,
-            "shards": orbit_shards
-        }
-        orbit_max_h[orbit_idx] = max_h
-
-    # 3. Compute layer heights dynamically stacked along Y
-    heights = {}
-    for i, orb in enumerate(sorted_orbits):
-        if i == 0:
-            heights[orb] = 0.0
-        else:
-            prev_orb = sorted_orbits[i - 1]
-            prev_max_h = orbit_max_h[prev_orb]
-            
-            # Floor of current layer = floor of prev + max thickness of prev
-            heights[orb] = heights[prev_orb] + prev_max_h
-
-    # 4. Lay out coordinates flat per layer and compute orientations
+    # 4. Construct final shard list with absolute positions
     shards_out = []
-    departments_out = []
-    
-    # Store position dictionary for connections
-    shard_positions_3d = {}
-    
-    # Store overridden socket dimensions for connection lookup
-    overridden_sockets = {} # "shard_key.socket_name" -> (w, h)
+    for dept in model.departments:
+        for s in dept.shards:
+            key = f"{dept.name}.{s.name}"
+            shard_override = overrides_shards.get(key, {})
+            orbit = shard_override.get("orbit", dept.orbit)
+            level = levels_map.get(orbit)
 
-    for orbit_idx in sorted_orbits:
-        packed = packed_orbits[orbit_idx]
-        w_orb, d_orb = packed["w"], packed["d"]
-        radius = heights[orbit_idx]  # We keep 'radius' variable name to map to height
+            px, py, pz = 0, 0, 0
+            def_pos = default_positions.get(key, {"x": 0, "y": 0, "z": level["z_start"] if level else 0})
 
-        # Register departments for this orbit
-        for dept in orbit_buckets[orbit_idx]:
-            departments_out.append({
-                "name": dept.name,
-                "orbit": orbit_idx,
-                "shard_count": len(dept.shards),
-            })
-
-        for key, sd in packed["shards"].items():
-            # Get center of the shard in flat coordinate space
-            u_c = sd["u"] + sd["w"] / 2.0
-            v_c = sd["v"] + sd["d"] / 2.0
-
-            # Flat layered layout mapping (stacked along Y)
-            px = u_c - w_orb / 2.0
-            py = radius + sd["h"] / 2.0  # Shift up by half of the thickness so the bottom lies on the layer grid
-            pz = v_c - d_orb / 2.0
-
-            # Apply manual position overrides
-            shard_override = overrides.get("shards", {}).get(key, {})
             if "position" in shard_override:
-                px = shard_override["position"]["x"]
-                py = radius + shard_override["position"]["y"]
-                pz = shard_override["position"]["z"]
+                px = int(round(shard_override["position"]["x"]))
+                py = int(round(shard_override["position"]["y"]))
+                pz = int(round(shard_override["position"]["z"]))
+            else:
+                px = def_pos["x"]
+                py = def_pos["y"]
+                pz = def_pos["z"]
 
-            # Store for connection routing
-            shard_positions_3d[key] = {"x": px, "y": py, "z": pz}
-
-            # Generate orientation quaternion:
-            # We want local Z (thickness h) to align with world Y (up).
-            # local X (width w) -> world X
-            # local Y (depth d) -> world -Z
-            # This is a 90 degree rotation around X axis
-            rot_matrix = [
-                [1.0, 0.0, 0.0],
-                [0.0, 0.0, -1.0],
-                [0.0, 1.0, 0.0]
-            ]
-            quat = matrix_to_quaternion(rot_matrix)
-
-            # Sockets metadata
-            raw_shard = sd["raw_shard"]
-            sockets_data = []
-            for sname, sock in raw_shard.sockets.items():
-                sock_key = f"{key}.{sname}"
-                sock_override = overrides.get("sockets", {}).get(sock_key, {})
-                
-                # Retrieve overridden values
-                sw = sock_override.get("width", sock.width)
-                sh = sock_override.get("height", sock.height)
-                pitch = sock_override.get("pitch", 1)
-                offset = sock_override.get("offset", None)
-                rotation = sock_override.get("rotation", 0)
-                face_sign = sock_override.get("faceSign", None)
-                
-                overridden_sockets[sock_key] = (sw, sh)
-
-                sockets_data.append({
-                    "name": sname,
-                    "width": sw,
-                    "height": sh,
-                    "pitch": pitch,
-                    "offset": offset,
-                    "rotation": rotation,
-                    "faceSign": face_sign
-                })
+            w = shard_override.get("size", {}).get("w", s.x)
+            d = shard_override.get("size", {}).get("d", s.y)
+            h = shard_override.get("size", {}).get("h", s.z)
 
             # Layers metadata
             layers_data = []
-            shard_override = overrides.get("shards", {}).get(key, {})
             overridden_layers = shard_override.get("layer_proportions", {})
             layer_order = shard_override.get("layer_order", [])
             
-            raw_layers = raw_shard.layers
+            raw_layers = s.layers
             if layer_order:
                 layer_map = {l["name"]: l for l in raw_layers}
                 sorted_layers = []
@@ -400,149 +345,63 @@ def compute_placement(model, overrides_path=None):
                 layers_data.append({
                     "name": lname,
                     "height_pct": lpct,
-                    "density": l["density"]
+                    "density": l.get("density", 1.0)
                 })
 
             shards_out.append({
                 "key": key,
-                "dept": sd["dept"],
-                "shard": sd["shard"],
-                "orbit": orbit_idx,
-                "radius": round(radius, 2),
-                "position": {"x": round(px, 2), "y": round(py, 2), "z": round(pz, 2)},
-                # Raw voxel dimensions: w (width, X), d (depth, Y), h (height, Z)
-                "size": {"w": sd["w"], "d": sd["d"], "h": sd["h"]},
-                "flat_position": {"u": sd["u"], "v": sd["v"]},
-                "quaternion": quat,
-                "sockets": sockets_data,
-                "input_ports": raw_shard.input_ports,
-                "output_ports": raw_shard.output_ports,
-                "layers": layers_data,
-                "populations": raw_shard.populations,
+                "dept": dept.name,
+                "shard": s.name,
+                "orbit": orbit,
+                "position": {"x": px, "y": py, "z": pz},
+                "size": {"w": w, "d": d, "h": h},
+                "layers": layers_data
             })
 
-    # 5. Extract connections
-    connections_out = []
-    for dept in model.departments:
-        for shard in dept.shards:
-            for sname, sock in shard.sockets.items():
-                targets = sock.targets if hasattr(sock, "targets") and sock.targets else ([sock.target] if sock.target is not None else [])
-                for t in targets:
-                    if t is None:
-                        continue
+    # 5. Calculate actual dynamic heights for levels and AABB bounds for departments
+    departments_out = []
+    resolved_depts = {} # dept_name -> { orbit, x_min, x_max, y_min, y_max }
 
-                    from_key = f"{dept.name}.{shard.name}"
-                    parts = t.split(".")
-                    if len(parts) == 2:
-                        target_shard_name, target_socket = parts
-                        to_key = f"{dept.name}.{target_shard_name}"
-                    elif len(parts) == 3:
-                        target_dept, target_shard_name, target_socket = parts
-                        to_key = f"{target_dept}.{target_shard_name}"
-                    else:
-                        continue
+    for s in shards_out:
+        lvl_id = s["orbit"]
 
-                    from_sock_key = f"{from_key}.{sname}"
-                    to_sock_key = f"{to_key}.{target_socket}"
-                    
-                    # Filter out deleted connections
-                    deleted_conns = set(overrides.get("deleted_connections", []))
-                    conn_key = f"{from_sock_key} -> {to_sock_key}"
-                    conn_key_rev = f"{to_sock_key} -> {from_sock_key}"
-                    if conn_key in deleted_conns or conn_key_rev in deleted_conns:
-                        continue
-                    
-                    # Fetch socket dimensions (prefer overridden values)
-                    matrix_w = overridden_sockets.get(from_sock_key, (sock.width, sock.height))[0]
-                    matrix_h = overridden_sockets.get(from_sock_key, (sock.width, sock.height))[1]
-
-                    # Check if this connection has an override
-                    matched_override = None
-                    for conn_override in overrides.get("connections", []):
-                        o_from = conn_override.get("from")
-                        o_to = conn_override.get("to")
-                        o_from_sock = conn_override.get("from_socket")
-                        o_to_sock = conn_override.get("to_socket")
-                        if ((o_from == from_key and o_from_sock == sname and o_to == to_key and o_to_sock == target_socket) or
-                            (o_from == to_key and o_from_sock == target_socket and o_to == from_key and o_to_sock == sname)):
-                            matched_override = conn_override
-                            break
-
-                    conn_obj = {
-                        "from": from_key,
-                        "to": to_key,
-                        "from_socket": sname,
-                        "to_socket": target_socket,
-                        "matrix_w": matrix_w,
-                        "matrix_h": matrix_h,
-                    }
-                    if matched_override:
-                        if "manual" in matched_override:
-                            conn_obj["manual"] = matched_override["manual"]
-                        if "control_points" in matched_override:
-                            conn_obj["control_points"] = matched_override["control_points"]
-                    
-                    connections_out.append(conn_obj)
-
-    # Append any manual/custom connections from overrides that were not in the model
-    for conn_override in overrides.get("connections", []):
-        o_from = conn_override.get("from")
-        o_to = conn_override.get("to")
-        o_from_sock = conn_override.get("from_socket")
-        o_to_sock = conn_override.get("to_socket")
-        
-        # Check if already added
-        already_added = False
-        for c in connections_out:
-            if ((c["from"] == o_from and c["from_socket"] == o_from_sock and c["to"] == o_to and c["to_socket"] == o_to_sock) or
-                (c["from"] == o_to and c["from_socket"] == o_to_sock and c["to"] == o_from and c["to_socket"] == o_from_sock)):
-                already_added = True
-                break
-        
-        if not already_added:
-            # Check if this connection was deleted
-            deleted_conns = set(overrides.get("deleted_connections", []))
-            conn_key = f"{o_from}.{o_from_sock} -> {o_to}.{o_to_sock}"
-            conn_key_rev = f"{o_to}.{o_to_sock} -> {o_from}.{o_from_sock}"
-            if conn_key in deleted_conns or conn_key_rev in deleted_conns:
-                continue
-                
-            # Add to output
-            conn_obj = {
-                "from": o_from,
-                "to": o_to,
-                "from_socket": o_from_sock,
-                "to_socket": o_to_sock,
-                "matrix_w": conn_override.get("matrix_w", 1),
-                "matrix_h": conn_override.get("matrix_h", 1),
+        # Accumulate AABB for department
+        dname = s["dept"]
+        if dname not in resolved_depts:
+            resolved_depts[dname] = {
+                "name": dname,
+                "orbit": lvl_id,
+                "x_min": s["position"]["x"],
+                "x_max": s["position"]["x"] + s["size"]["w"],
+                "y_min": s["position"]["y"],
+                "y_max": s["position"]["y"] + s["size"]["d"]
             }
-            if "manual" in conn_override:
-                conn_obj["manual"] = conn_override["manual"]
-            if "control_points" in conn_override:
-                conn_obj["control_points"] = conn_override["control_points"]
-            connections_out.append(conn_obj)
+        else:
+            d_obj = resolved_depts[dname]
+            d_obj["x_min"] = min(d_obj["x_min"], s["position"]["x"])
+            d_obj["x_max"] = max(d_obj["x_max"], s["position"]["x"] + s["size"]["w"])
+            d_obj["y_min"] = min(d_obj["y_min"], s["position"]["y"])
+            d_obj["y_max"] = max(d_obj["y_max"], s["position"]["y"] + s["size"]["d"])
 
-    # 6. Build orbit metadata
-    orbits_out = []
-    for orb in sorted_orbits:
-        orbits_out.append({
-            "index": orb,
-            "radius": round(heights[orb], 2),
-            "w": packed_orbits[orb]["w"],
-            "d": packed_orbits[orb]["d"],
-            "area": round(packed_orbits[orb]["w"] * packed_orbits[orb]["d"], 1),
-            "dept_count": len(orbit_buckets[orb]),
+    # Convert resolved departments to output structure
+    for d in resolved_depts.values():
+        departments_out.append({
+            "name": d["name"],
+            "orbit": d["orbit"],
+            "position": {"x": d["x_min"], "y": d["y_min"]},
+            "size": {"w": d["x_max"] - d["x_min"], "d": d["y_max"] - d["y_min"]}
         })
 
     return {
-        "orbits": orbits_out,
+        "levels": levels_list,
         "departments": departments_out,
         "shards": shards_out,
-        "connections": connections_out,
+        "connections": [],
         "seed": overrides.get("seed", 42),
         "simulation": overrides.get("simulation", {}),
         "world": overrides.get("world", {})
     }
+
 
 
 
@@ -584,9 +443,9 @@ def main():
     print("Computing orbital placement...")
     result = compute_placement(model, overrides_path)
 
-    print(f"  Orbits: {len(result['orbits'])}")
-    for o in result['orbits']:
-      print(f"    L{o['index']}: height={o['radius']:.2f}, area={o['area']:.0f}, depts={o['dept_count']}")
+    print(f"  Levels: {len(result['levels'])}")
+    for lvl in result['levels']:
+      print(f"    L{lvl['id']}: name={lvl['name']}, z_start={lvl['z_start']}, height={lvl['height']}")
     print(f"  Connections: {len(result['connections'])}")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

@@ -65,7 +65,7 @@ export function spawnSomasForShard(shardKey) {
   const somaSize = 0.22 * VIS_SCALE;
   const somaGeo = new THREE.BoxGeometry(somaSize, somaSize, somaSize);
 
-  let currentZ = -h / 2;
+  let currentY = -h / 2;
   layerMeshes.forEach((layerMesh) => {
     const layer_vis_h = h * layerMesh.userData.height_pct;
     const layerName = layerMesh.userData.layerName;
@@ -100,8 +100,8 @@ export function spawnSomasForShard(shardKey) {
       for (let i = 0; i < count; i++) {
         // Generate within layer bounds with margin
         const localX = (seededRandom(seed++) - 0.5) * (w - 1.5 * VIS_SCALE);
-        const localY = (seededRandom(seed++) - 0.5) * (d - 1.5 * VIS_SCALE);
-        const localZ = currentZ + 0.1 * layer_vis_h + seededRandom(seed++) * (layer_vis_h * 0.8);
+        const localZ = (seededRandom(seed++) - 0.5) * (d - 1.5 * VIS_SCALE);
+        const localY = currentY + 0.1 * layer_vis_h + seededRandom(seed++) * (layer_vis_h * 0.8);
 
         dummy.position.set(localX, localY, localZ);
         dummy.updateMatrix();
@@ -111,7 +111,7 @@ export function spawnSomasForShard(shardKey) {
       somaGroup.add(instancedMesh);
     });
 
-    currentZ += layer_vis_h;
+    currentY += layer_vis_h;
   });
 }
 

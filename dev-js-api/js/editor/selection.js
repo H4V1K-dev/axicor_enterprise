@@ -14,7 +14,7 @@ let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
 
 // Soma functions will be imported from coordinate re-exporter or direct modules
-import { spawnSomasForShard, clearSomas } from '../editor.js';
+import { spawnSomasForShard, clearSomas } from '../rendering/soma_renderer.js';
 
 export function selectShard(key) {
   // Clean up previous selection artifacts directly
@@ -36,7 +36,7 @@ export function selectShard(key) {
     transformControls.attach(mesh);
     transformControls.space = 'world';
     transformControls.showX = true;
-    transformControls.showY = false; // Locked to horizontal Y height
+    transformControls.showY = true;
     transformControls.showZ = true;
     const editorSettings = store.get('editorSettings') || {};
     const snapStep = editorSettings.snap_step || 1;
@@ -107,11 +107,6 @@ export function deselectAll() {
   if (transformControls) transformControls.detach();
   updateFocusVisuals();
 
-  // Hide route editor
-  import('./route_editor.js').then(({ hideRouteEditor }) => {
-    hideRouteEditor();
-  });
-
   // Redraw routes to clear highlight
   const routes = store.get('routesData');
   if (routes) drawRoutes(routes);
@@ -122,38 +117,6 @@ export function deselectAll() {
   // Emit selection changed event
   emit(EVENTS.SELECTION_CHANGED, { type: null, data: null });
   document.body.style.cursor = 'auto';
-}
-
-export function selectRoute(routeKey) {
-  updateSocketHandlesVisibility();
-  if (transformControls) transformControls.detach();
-  clearSomas();
-
-  store.set('selectedRouteKey', routeKey);
-  store.set('selectedShardKey', null);
-  store.set('selectedSocketKey', null);
-
-  updateFocusVisuals();
-
-  // Highlight and show route editor handles
-  const placementData = store.get('placementData');
-  if (placementData && placementData.connections) {
-    const conn = placementData.connections.find(c => 
-      `${c.from}.${c.from_socket}→${c.to}.${c.to_socket}` === routeKey ||
-      `${c.to}.${c.to_socket}→${c.from}.${c.from_socket}` === routeKey
-    );
-    if (conn) {
-      import('./route_editor.js').then(({ showRouteEditor }) => {
-        showRouteEditor(conn);
-      });
-      // Emit selection changed
-      emit(EVENTS.SELECTION_CHANGED, { type: 'connection', data: conn });
-    }
-  }
-
-  // Redraw routes to highlight active ones
-  const routes = store.get('routesData');
-  if (routes) drawRoutes(routes);
 }
 
 export function updateSocketHandlesVisibility() {

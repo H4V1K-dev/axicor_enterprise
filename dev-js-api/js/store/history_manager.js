@@ -3,8 +3,7 @@
  */
 
 import { store } from './store.js';
-import { buildSceneData } from '../scene_builder.js';
-import { drawRoutes } from '../rendering/route_renderer.js';
+import { buildSceneData, drawRoutes } from '../scene_builder.js';
 import { deselectAll } from '../editor/selection.js';
 
 class HistoryManager {

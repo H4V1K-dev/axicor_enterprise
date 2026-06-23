@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initViewer, animateViewer, scene, getActiveCamera, renderer, controls } from './viewer.js';
-import { buildSceneData, drawRoutes, shardMeshes, socketMeshes, ORBIT_COLORS, ORBIT_LABELS } from './scene_builder.js';
+import { buildSceneData, drawRoutes, shardMeshes, socketMeshes } from './scene_builder.js';
 import { initEditor, deselectAll, transformControls, updateHandlesScale, modeManager } from './editor.js';
 import { initUI } from './ui.js';
 import { store } from './store/store.js';
@@ -29,15 +29,7 @@ async function loadData() {
 
 function updateHUD(data) {
   const legendsDiv = document.getElementById('orbit-legends');
-  legendsDiv.innerHTML = '';
-  data.orbits.forEach(orb => {
-    const color = '#' + new THREE.Color(ORBIT_COLORS[orb.index] || 0x888888).getHexString();
-    const label = ORBIT_LABELS[orb.index] || `L${orb.index}`;
-    const div = document.createElement('div');
-    div.className = 'orbit-legend';
-    div.innerHTML = `<div class="orbit-dot" style="background:${color}"></div> L${orb.index} — ${label} (y=${orb.radius})`;
-    legendsDiv.appendChild(div);
-  });
+  legendsDiv.innerHTML = ''; // Legends cleared since orbits/levels are disabled
 
   document.getElementById('stat-depts').textContent = data.departments.length;
   document.getElementById('stat-shards').textContent = data.shards.length;
@@ -91,8 +83,8 @@ function setupHoverTooltip() {
         tooltip.style.top = (e.clientY + 16) + 'px';
         document.getElementById('tt-title').textContent = data.key;
         document.getElementById('tt-dept').textContent = data.dept;
-        document.getElementById('tt-orbit').textContent = `L${data.orbit}`;
-        document.getElementById('tt-radius').textContent = data.radius + ' vx';
+        document.getElementById('tt-orbit').textContent = 'Global';
+        document.getElementById('tt-radius').textContent = 'N/A';
         document.getElementById('tt-size').textContent = `${data.size.w}×${data.size.d}×${data.size.h}`;
         document.getElementById('tt-sockets').textContent = data.sockets ? data.sockets.length : 0;
         return;
@@ -149,20 +141,7 @@ on('GRID_CONFIG_CHANGED', () => {
     buildSceneData(placement, true);
   }
 });
-on(EVENTS.ORBIT_LABELS_CHANGED, () => {
-  const placement = store.get('placementData');
-  if (placement) {
-    updateHUD(placement);
-  }
-});
-
-on(EVENTS.ORBIT_COLORS_CHANGED, () => {
-  const placement = store.get('placementData');
-  if (placement) {
-    buildSceneData(placement, true);
-    updateHUD(placement);
-  }
-});
+// Orbit event listeners removed
 
 async function loadProject(project) {
   store.set('projectName', project);

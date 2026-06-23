@@ -42,33 +42,7 @@ export function showSettingsModal() {
   const modalBox = document.createElement('div');
   modalBox.className = 'settings-modal-box';
 
-  // Build dynamic orbits checkboxes list in REVERSED order (Outer L3 at top, Core L0 at bottom)
-  const orbits = placementData.orbits || [];
   let orbitsHtml = '';
-  const reversedOrbits = [...orbits].reverse();
-  if (reversedOrbits.length > 0) {
-    reversedOrbits.forEach(orb => {
-      const labelNames = ['Core', 'Inner', 'Mid', 'Outer'];
-      const name = labelNames[orb.index] || `Level ${orb.index}`;
-      orbitsHtml += `
-        <div class="settings-modal-field">
-          <label>L${orb.index} — ${name}:</label>
-          <input type="checkbox" class="set-orbit-vis" data-orbit="${orb.index}" ${layersVis[orb.index] !== false ? 'checked' : ''} style="accent-color: #10b981; width: 16px; height: 16px; cursor: pointer;">
-        </div>
-      `;
-    });
-  } else {
-    // Fallback if placementData orbits list is not loaded yet
-    for (let i = 3; i >= 0; i--) {
-      const labelNames = ['Core', 'Inner', 'Mid', 'Outer'];
-      orbitsHtml += `
-        <div class="settings-modal-field">
-          <label>L${i} — ${labelNames[i]}:</label>
-          <input type="checkbox" class="set-orbit-vis" data-orbit="${i}" ${layersVis[i] !== false ? 'checked' : ''} style="accent-color: #10b981; width: 16px; height: 16px; cursor: pointer;">
-        </div>
-      `;
-    }
-  }
 
   // Calculate dynamic bounding box of all shards in voxels
   const shards = placementData.shards || [];
@@ -137,10 +111,7 @@ export function showSettingsModal() {
             </div>
           </div>
           
-          <div class="settings-modal-section">
-            <div class="settings-modal-section-title">Видимость уровней</div>
-            ${orbitsHtml}
-          </div>
+
         </div>
 
         <!-- TAB 2: EDITOR -->
@@ -663,17 +634,7 @@ export function showSettingsModal() {
     store.set('editorSettings', newEditorSettings);
     localStorage.setItem('axicor_editor_settings', JSON.stringify(newEditorSettings));
 
-    // Handle orbits visibility checkboxes
-    const orbitCheckboxes = modalBox.querySelectorAll('.set-orbit-vis');
-    import('../scene_builder.js').then(({ setLayerPlaneVisibility }) => {
-      orbitCheckboxes.forEach(cb => {
-        const orbitIndex = parseInt(cb.dataset.orbit);
-        const visible = cb.checked;
-        if (layersVis[orbitIndex] !== visible) {
-          setLayerPlaneVisibility(orbitIndex, visible);
-        }
-      });
-    });
+
 
     // Emit event if grid step changed
     if (oldSettings.grid_step !== grid_step) {

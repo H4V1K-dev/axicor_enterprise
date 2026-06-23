@@ -102,56 +102,9 @@ def compile_project(project_name, script_name):
         json.dump(result, f, indent=2)
 
     # 2. Run router
-    from algorithms import router
-    print(f"Compiling project routes: {project_name}")
-    with open(placement_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # Index shards by key for easy position lookup
-    shards_by_key = {s["key"]: s for s in data["shards"]}
-
+    # 2. Run router (Connections/Routes disabled in Composition mode)
+    print(f"Compiling project routes (disabled): {project_name}")
     routes = []
-    print(f"Routing {len(data['connections'])} connections...")
-    
-    for conn in data["connections"]:
-        from_key = conn["from"]
-        to_key = conn["to"]
-        
-        if from_key not in shards_by_key or to_key not in shards_by_key:
-            continue
-            
-        if conn.get("manual"):
-            routes.append({
-                "from": from_key,
-                "to": to_key,
-                "from_socket": conn["from_socket"],
-                "to_socket": conn["to_socket"],
-                "matrix_w": conn["matrix_w"],
-                "matrix_h": conn["matrix_h"],
-                "manual": True,
-                "control_points": conn.get("control_points", []),
-                "points": conn.get("points", [])
-            })
-            continue
-            
-        from_shard = shards_by_key[from_key]
-        to_shard = shards_by_key[to_key]
-        
-        p0 = [from_shard["position"]["x"], from_shard["position"]["y"], from_shard["position"]["z"]]
-        p3 = [to_shard["position"]["x"], to_shard["position"]["y"], to_shard["position"]["z"]]
-        
-        curve_points = router.compute_bezier_points(p0, p3)
-        
-        routes.append({
-            "from": from_key,
-            "to": to_key,
-            "from_socket": conn["from_socket"],
-            "to_socket": conn["to_socket"],
-            "matrix_w": conn["matrix_w"],
-            "matrix_h": conn["matrix_h"],
-            "points": curve_points
-        })
-
     with open(routes_path, "w", encoding="utf-8") as f:
         json.dump(routes, f, indent=2)
 
@@ -273,6 +226,8 @@ def update_and_regenerate(payload):
         overrides["simulation"] = payload["simulation"]
     if "world" in payload:
         overrides["world"] = payload["world"]
+    if "levels" in payload:
+        overrides["levels"] = payload["levels"]
 
     # Save connection overrides
     if "connections" in payload:

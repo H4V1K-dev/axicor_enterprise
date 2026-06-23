@@ -67,7 +67,7 @@ export function initToolbar() {
   const layersBtn = document.createElement('button');
   layersBtn.id = 'layers-toggle-btn';
   layersBtn.className = 'ax-panel bottom-floating-panel interactive-panel';
-  layersBtn.textContent = 'Слои';
+  layersBtn.textContent = 'Уровни';
   leftContainer.appendChild(layersBtn);
 
   // 3. Validator button (сама является интерактивной плашкой)

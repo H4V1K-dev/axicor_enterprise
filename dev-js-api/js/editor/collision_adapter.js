@@ -36,20 +36,15 @@ export function checkShardCollision(movedKey, newPos, newSize) {
     if (newSize.orbit !== undefined) orbit = newSize.orbit;
   }
 
-  const placementData = store.get('placementData');
-  const orbitData = placementData ? placementData.orbits.find(o => o.index === orbit) : null;
-  const radius = orbitData ? orbitData.radius : 0.0;
-
-  const voxelY = newPos ? (newPos.y / VIS_SCALE) + radius : y;
-
+  // newPos is the Three.js mesh center position. 
+  // We reconstruct the AABB min coordinates (Rust layout: x=X, y=Y/depth, z=Z/height)
   const movedBox = {
-    x: newPos ? newPos.x / VIS_SCALE : 0,
-    y: voxelY,
-    z: newPos ? newPos.z / VIS_SCALE : 0,
+    x: newPos ? (newPos.x / VIS_SCALE) - w / 2 : 0,
+    y: newPos ? (newPos.y / VIS_SCALE) - h / 2 : y,         // Rust Z (height)
+    z: newPos ? (newPos.z / VIS_SCALE) - d / 2 : 0,         // Rust Y (depth)
     w: w,
     d: d,
-    h: h,
-    orbit: orbit
+    h: h
   };
 
   const otherBoxes = [];
@@ -59,13 +54,12 @@ export function checkShardCollision(movedKey, newPos, newSize) {
     if (!otherData) continue;
     otherBoxes.push({
       key,
-      x: mesh.position.x / VIS_SCALE,
-      y: otherData.position.y,
-      z: mesh.position.z / VIS_SCALE,
+      x: otherData.position.x, // Rust X (AABB min)
+      y: otherData.position.z, // Rust Z (height, AABB min)
+      z: otherData.position.y, // Rust Y (depth, AABB min)
       w: otherData.size.w,
       d: otherData.size.d,
-      h: otherData.size.h,
-      orbit: otherData.orbit
+      h: otherData.size.h
     });
   }
 

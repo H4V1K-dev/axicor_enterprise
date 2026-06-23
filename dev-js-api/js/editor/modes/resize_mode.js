@@ -138,8 +138,8 @@ export class ResizeMode {
     if (!shardMesh) return;
 
     const w = shardMesh.geometry.parameters.width;
-    const d = shardMesh.geometry.parameters.height;
-    const h = shardMesh.geometry.parameters.depth;
+    const h = shardMesh.geometry.parameters.height; // Three Y height
+    const d = shardMesh.geometry.parameters.depth;  // Three Z depth
 
     const handleGeo = new THREE.BoxGeometry(1.2 * VIS_SCALE, 1.2 * VIS_SCALE, 1.2 * VIS_SCALE);
     
@@ -158,10 +158,10 @@ export class ResizeMode {
     const normals = [
       { name: 'PX', normal: new THREE.Vector3(1, 0, 0), axis: 'x', pos: new THREE.Vector3(w / 2, 0, 0) },
       { name: 'NX', normal: new THREE.Vector3(-1, 0, 0), axis: 'x', pos: new THREE.Vector3(-w / 2, 0, 0) },
-      { name: 'PY', normal: new THREE.Vector3(0, 1, 0), axis: 'y', pos: new THREE.Vector3(0, d / 2, 0) },
-      { name: 'NY', normal: new THREE.Vector3(0, -1, 0), axis: 'y', pos: new THREE.Vector3(0, -d / 2, 0) },
-      { name: 'PZ', normal: new THREE.Vector3(0, 0, 1), axis: 'z', pos: new THREE.Vector3(0, 0, h / 2) },
-      { name: 'NZ', normal: new THREE.Vector3(0, 0, -1), axis: 'z', pos: new THREE.Vector3(0, 0, -h / 2) }
+      { name: 'PY', normal: new THREE.Vector3(0, 1, 0), axis: 'y', pos: new THREE.Vector3(0, h / 2, 0) },
+      { name: 'NY', normal: new THREE.Vector3(0, -1, 0), axis: 'y', pos: new THREE.Vector3(0, -h / 2, 0) },
+      { name: 'PZ', normal: new THREE.Vector3(0, 0, 1), axis: 'z', pos: new THREE.Vector3(0, 0, d / 2) },
+      { name: 'NZ', normal: new THREE.Vector3(0, 0, -1), axis: 'z', pos: new THREE.Vector3(0, 0, -d / 2) }
     ];
 
     normals.forEach(info => {
@@ -203,90 +203,6 @@ export class ResizeMode {
   }
 
   computeDynamicLimit(selShardKey, localNormal) {
-    const shardMesh = shardMeshes[selShardKey];
-    if (!shardMesh) return Infinity;
-    const sd = shardDataMap[shardMesh.uuid];
-    if (!sd) return Infinity;
-
-    const parentNormal = localNormal.clone().applyQuaternion(shardMesh.quaternion).normalize();
-    const pnx = Math.round(parentNormal.x);
-    const pny = Math.round(parentNormal.y);
-    const pnz = Math.round(parentNormal.z);
-
-    // If resizing vertically (Parent Y), horizontal plane collision limit doesn't apply
-    if (pny !== 0) {
-      return Infinity;
-    }
-
-    const initialW = sd.size.w;
-    const initialD = sd.size.d;
-
-    const posX = shardMesh.position.x / VIS_SCALE;
-    const posZ = shardMesh.position.z / VIS_SCALE;
-
-    const minX = posX - initialW / 2;
-    const maxX = posX + initialW / 2;
-    const minZ = posZ - initialD / 2;
-    const maxZ = posZ + initialD / 2;
-
-    let minDist = Infinity;
-    const currentOrbit = sd.orbit;
-
-    for (const [key, mesh] of Object.entries(shardMeshes)) {
-      if (key === selShardKey) continue;
-      const otherData = shardDataMap[mesh.uuid];
-      if (!otherData || otherData.orbit !== currentOrbit) continue;
-
-      const otherW = otherData.size.w;
-      const otherD = otherData.size.d;
-
-      const otherX = mesh.position.x / VIS_SCALE;
-      const otherZ = mesh.position.z / VIS_SCALE;
-
-      const otherMinX = otherX - otherW / 2;
-      const otherMaxX = otherX + otherW / 2;
-      const otherMinZ = otherZ - otherD / 2;
-      const otherMaxZ = otherZ + otherD / 2;
-
-      // Check spatial overlaps and calculate distances based on parent normal directions
-      if (pnx > 0) { // Right (Parent X positive)
-        const overlapZ = minZ < otherMaxZ && maxZ > otherMinZ;
-        if (overlapZ && otherMinX >= maxX) {
-          const dist = otherMinX - maxX;
-          if (dist < minDist) minDist = dist;
-        }
-      } else if (pnx < 0) { // Left (Parent X negative)
-        const overlapZ = minZ < otherMaxZ && maxZ > otherMinZ;
-        if (overlapZ && otherMaxX <= minX) {
-          const dist = minX - otherMaxX;
-          if (dist < minDist) minDist = dist;
-        }
-      } else if (pnz > 0) { // Forward/depth (Parent Z positive)
-        const overlapX = minX < otherMaxX && maxX > otherMinX;
-        if (overlapX && otherMinZ >= maxZ) {
-          const dist = otherMinZ - maxZ;
-          if (dist < minDist) minDist = dist;
-        }
-      } else if (pnz < 0) { // Backward/depth (Parent Z negative)
-        const overlapX = minX < otherMaxX && maxX > otherMinX;
-        if (overlapX && otherMaxZ <= minZ) {
-          const dist = minZ - otherMaxZ;
-          if (dist < minDist) minDist = dist;
-        }
-      }
-    }
-
-    if (minDist !== Infinity) {
-      // Round down to multiples of 10
-      const steps = Math.floor(minDist / 10);
-      const safeDist = steps * 10;
-      if (pnx !== 0) {
-        return initialW + safeDist;
-      } else if (pnz !== 0) {
-        return initialD + safeDist;
-      }
-    }
-
     return Infinity;
   }
 
@@ -410,30 +326,7 @@ export class ResizeMode {
     const selSocketKey = store.get('selectedSocketKey');
 
     if (selSocketKey) {
-      const handlesList = [];
-      for (const group of Object.values(socketMeshes)) {
-        group.traverse(child => {
-          if (child.name && child.name.startsWith("handle_") && child.visible) {
-            handlesList.push(child);
-          }
-        });
-      }
-
-      const hoverHits = raycaster.intersectObjects(handlesList);
-      if (hoverHits.length > 0) {
-        const name = hoverHits[0].object.name;
-        if (name === 'handle_L' || name === 'handle_R') {
-          document.body.style.cursor = 'col-resize';
-        } else if (name === 'handle_T' || name === 'handle_B') {
-          document.body.style.cursor = 'row-resize';
-        } else if (name === 'handle_TR' || name === 'handle_BL') {
-          document.body.style.cursor = 'nesw-resize';
-        } else if (name === 'handle_TL' || name === 'handle_BR') {
-          document.body.style.cursor = 'nwse-resize';
-        }
-      } else {
-        document.body.style.cursor = 'default';
-      }
+      // Socket drag is handled inside handle_drag.js
       return;
     }
 
@@ -469,169 +362,136 @@ export class ResizeMode {
         return;
       }
 
-    // Drag processing
-    const intersectPoint = new THREE.Vector3();
-    if (raycaster.ray.intersectPlane(this.dragPlane, intersectPoint)) {
-      const localNormal = this.activeHandle.userData.normal;
-      const axis = this.activeHandle.userData.axis;
+      // Drag processing
+      const intersectPoint = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(this.dragPlane, intersectPoint)) {
+        const localNormal = this.activeHandle.userData.normal;
+        const axis = this.activeHandle.userData.axis;
 
-      // Project world delta vector onto the motion axis
-      const U = localNormal.clone().applyQuaternion(shardMesh.quaternion).normalize();
-      const Delta = new THREE.Vector3().subVectors(intersectPoint, this.dragStartPoint);
-      const deltaVoxels = Delta.dot(U) / VIS_SCALE;
+        // Project world delta vector onto the motion axis
+        const U = localNormal.clone().applyQuaternion(shardMesh.quaternion).normalize();
+        const Delta = new THREE.Vector3().subVectors(intersectPoint, this.dragStartPoint);
+        const deltaVoxels = Delta.dot(U) / VIS_SCALE;
 
-      // Snap delta to step increment from settings
-      const editorSettings = store.get('editorSettings') || {};
-      const RESIZE_STEP = editorSettings.resize_step || 10;
-      const steppedDelta = Math.round(deltaVoxels / RESIZE_STEP) * RESIZE_STEP;
+        // Snap delta to step increment from settings
+        const editorSettings = store.get('editorSettings') || {};
+        const RESIZE_STEP = editorSettings.resize_step || 10;
+        const steppedDelta = Math.round(deltaVoxels / RESIZE_STEP) * RESIZE_STEP;
 
-      // Iterative step verification to prevent tunnel collision issues
-      let finalDelta = 0;
-      const stepsCount = Math.abs(steppedDelta) / RESIZE_STEP;
-      const stepDir = Math.sign(steppedDelta);
+        // Iterative step verification to prevent tunnel collision issues
+        let finalDelta = 0;
+        const stepsCount = Math.abs(steppedDelta) / RESIZE_STEP;
+        const stepDir = Math.sign(steppedDelta);
 
-      const MAX_SHARD_SIZE_XY = 1024;
-      const MAX_SHARD_SIZE_Z = 256;
-      const MIN_SHARD_SIZE = 10;
+        const MAX_SHARD_SIZE_XY = 1024;
+        const MAX_SHARD_SIZE_Z = 256;
+        const MIN_SHARD_SIZE = 10;
 
-      for (let i = 1; i <= stepsCount; i++) {
-        const testDelta = i * RESIZE_STEP * stepDir;
-        
-        let tempW = this.initialW;
-        let tempD = this.initialD;
-        let tempH = this.initialH;
+        for (let i = 1; i <= stepsCount; i++) {
+          const testDelta = i * RESIZE_STEP * stepDir;
+          
+          let tempW = this.initialW;
+          let tempD = this.initialD;
+          let tempH = this.initialH;
 
-        if (axis === 'x') tempW += testDelta;
-        if (axis === 'y') tempD += testDelta;
-        if (axis === 'z') tempH += testDelta;
+          if (axis === 'x') tempW += testDelta;
+          if (axis === 'y') tempH += testDelta; // Three Y height
+          if (axis === 'z') tempD += testDelta; // Three Z depth
 
-        // Clamp sizes
-        let clampedW = tempW;
-        let clampedD = tempD;
-        let clampedH = tempH;
+          // Clamp sizes
+          let clampedW = tempW;
+          let clampedD = tempD;
+          let clampedH = tempH;
 
-        if (axis === 'x') {
-          if (clampedW < MIN_SHARD_SIZE) clampedW = MIN_SHARD_SIZE;
-          clampedW = Math.min(MAX_SHARD_SIZE_XY, clampedW);
-          if (testDelta > 0) {
-            clampedW = Math.min(this.dynamicLimit, clampedW);
+          if (axis === 'x') {
+            if (clampedW < MIN_SHARD_SIZE) clampedW = MIN_SHARD_SIZE;
+            clampedW = Math.min(MAX_SHARD_SIZE_XY, clampedW);
           }
+          if (axis === 'z') {
+            if (clampedD < MIN_SHARD_SIZE) clampedD = MIN_SHARD_SIZE;
+            clampedD = Math.min(MAX_SHARD_SIZE_XY, clampedD);
+          }
+          if (axis === 'y') {
+            if (clampedH < MIN_SHARD_SIZE) clampedH = MIN_SHARD_SIZE;
+            clampedH = Math.min(MAX_SHARD_SIZE_Z, clampedH);
+          }
+
+          // Effective delta based on clamping
+          let effectiveDelta = 0;
+          if (axis === 'x') effectiveDelta = clampedW - this.initialW;
+          if (axis === 'z') effectiveDelta = clampedD - this.initialD;
+          if (axis === 'y') effectiveDelta = clampedH - this.initialH;
+
+          const localShift = localNormal.clone()
+            .multiplyScalar(effectiveDelta * VIS_SCALE / 2)
+            .applyQuaternion(shardMesh.quaternion);
+          
+          const tempPosition = this.initialPosition.clone().add(localShift);
+          const newSize2D = { w: clampedW, d: clampedD, h: clampedH };
+
+          // Shrinking (testDelta < 0) is always allowed as it resolves overlaps
+          if (testDelta > 0 && checkShardCollision(selShardKey, tempPosition, newSize2D)) {
+            // Collision detected at this step, stop at previous valid step
+            break;
+          }
+
+          // Vertical limits check removed as orbits/levels are disabled
+          if (axis === 'y' && testDelta > 0) {
+            // No vertical constraints, fully free movement/resize
+          }
+          finalDelta = testDelta;
         }
-        if (axis === 'y') {
-          if (clampedD < MIN_SHARD_SIZE) clampedD = MIN_SHARD_SIZE;
-          clampedD = Math.min(MAX_SHARD_SIZE_XY, clampedD);
-          if (testDelta > 0) {
-            clampedD = Math.min(this.dynamicLimit, clampedD);
+
+        // Calculate final sizes based on maximum valid delta found
+        let finalW = this.initialW;
+        let finalD = this.initialD;
+        let finalH = this.initialH;
+
+        if (axis === 'x') finalW += finalDelta;
+        if (axis === 'z') finalD += finalDelta;
+        if (axis === 'y') finalH += finalDelta;
+
+        // Final bounds enforcement and warnings
+        if (axis === 'x') {
+          if (finalW < MIN_SHARD_SIZE) {
+            if (finalW <= 9) showToast("Размер шарда не может быть меньше 10 вокселей", "warning");
+            finalW = MIN_SHARD_SIZE;
           }
+          finalW = Math.min(MAX_SHARD_SIZE_XY, finalW);
         }
         if (axis === 'z') {
-          if (clampedH < MIN_SHARD_SIZE) clampedH = MIN_SHARD_SIZE;
-          clampedH = Math.min(MAX_SHARD_SIZE_Z, clampedH);
-        }
-
-        // Effective delta based on clamping
-        let effectiveDelta = 0;
-        if (axis === 'x') effectiveDelta = clampedW - this.initialW;
-        if (axis === 'y') effectiveDelta = clampedD - this.initialD;
-        if (axis === 'z') effectiveDelta = clampedH - this.initialH;
-
-        const localShift = localNormal.clone()
-          .multiplyScalar(effectiveDelta * VIS_SCALE / 2)
-          .applyQuaternion(shardMesh.quaternion);
-        
-        const tempPosition = this.initialPosition.clone().add(localShift);
-        const newSize2D = { w: clampedW, d: clampedD };
-
-        // Shrinking (testDelta < 0) is always allowed as it resolves overlaps
-        if (testDelta > 0 && checkShardCollision(selShardKey, tempPosition, newSize2D)) {
-          // Collision detected at this step, stop at previous valid step
-          break;
-        }
-
-        // Vertical floor and ceiling constraints check when growing along Z axis (Parent Y height)
-        if (axis === 'z' && testDelta > 0) {
-          const tempPosLocalY = tempPosition.y / VIS_SCALE;
-          const tempBottomY = tempPosLocalY - clampedH / 2;
-          const tempTopY = tempPosLocalY + clampedH / 2;
-
-          const orbits = store.get('placementData').orbits;
-          const currentOrbitIdx = sd.orbit;
-          const nextOrbit = orbits
-            .filter(o => o.index > currentOrbitIdx)
-            .sort((a, b) => a.index - b.index)[0];
-          
-          const currentOrbit = orbits.find(o => o.index === currentOrbitIdx);
-          const currentRadius = currentOrbit ? currentOrbit.radius : 0;
-          const nextRadius = nextOrbit ? nextOrbit.radius : Infinity;
-          const ceilingY = nextRadius - currentRadius;
-
-          if (tempBottomY < -0.01 || tempTopY > ceilingY + 0.01) {
-            break; // Stop growing vertically if violating floor or ceiling bounds
+          if (finalD < MIN_SHARD_SIZE) {
+            if (finalD <= 9) showToast("Размер шарда не может быть меньше 10 вокселей", "warning");
+            finalD = MIN_SHARD_SIZE;
           }
+          finalD = Math.min(MAX_SHARD_SIZE_XY, finalD);
         }
-        finalDelta = testDelta;
+        if (axis === 'y') {
+          if (finalH < MIN_SHARD_SIZE) {
+            if (finalH <= 9) showToast("Размер шарда не может быть меньше 10 вокселей", "warning");
+            finalH = MIN_SHARD_SIZE;
+          }
+          finalH = Math.min(MAX_SHARD_SIZE_Z, finalH);
+        }
+
+        let finalEffectiveDelta = 0;
+        if (axis === 'x') finalEffectiveDelta = finalW - this.initialW;
+        if (axis === 'z') finalEffectiveDelta = finalD - this.initialD;
+        if (axis === 'y') finalEffectiveDelta = finalH - this.initialH;
+
+        const finalPosition = this.initialPosition.clone().add(localShift);
+
+        // Apply to mesh
+        shardMesh.position.copy(finalPosition);
+
+        // Dynamically reconstruct geometry for real-time visual feedback
+        this.updateMeshGeometry(shardMesh, finalW, finalD, finalH);
+
+        // Handle child attachments (sockets, layers, handles)
+        this.updateAttachments(shardMesh, finalW, finalD, finalH, localNormal, finalEffectiveDelta);
       }
-
-      // Calculate final sizes based on maximum valid delta found
-      let finalW = this.initialW;
-      let finalD = this.initialD;
-      let finalH = this.initialH;
-
-      if (axis === 'x') finalW += finalDelta;
-      if (axis === 'y') finalD += finalDelta;
-      if (axis === 'z') finalH += finalDelta;
-
-      // Final bounds enforcement and warnings
-      if (axis === 'x') {
-        if (finalW < MIN_SHARD_SIZE) {
-          if (finalW <= 9) showToast("Размер шарда не может быть меньше 10 вокселей", "warning");
-          finalW = MIN_SHARD_SIZE;
-        }
-        finalW = Math.min(MAX_SHARD_SIZE_XY, finalW);
-        if (finalDelta > 0) {
-          finalW = Math.min(this.dynamicLimit, finalW);
-        }
-      }
-      if (axis === 'y') {
-        if (finalD < MIN_SHARD_SIZE) {
-          if (finalD <= 9) showToast("Размер шарда не может быть меньше 10 вокселей", "warning");
-          finalD = MIN_SHARD_SIZE;
-        }
-        finalD = Math.min(MAX_SHARD_SIZE_XY, finalD);
-        if (finalDelta > 0) {
-          finalD = Math.min(this.dynamicLimit, finalD);
-        }
-      }
-      if (axis === 'z') {
-        if (finalH < MIN_SHARD_SIZE) {
-          if (finalH <= 9) showToast("Размер шарда не может быть меньше 10 вокселей", "warning");
-          finalH = MIN_SHARD_SIZE;
-        }
-        finalH = Math.min(MAX_SHARD_SIZE_Z, finalH);
-      }
-
-      let finalEffectiveDelta = 0;
-      if (axis === 'x') finalEffectiveDelta = finalW - this.initialW;
-      if (axis === 'y') finalEffectiveDelta = finalD - this.initialD;
-      if (axis === 'z') finalEffectiveDelta = finalH - this.initialH;
-
-      const localShift = localNormal.clone()
-        .multiplyScalar(finalEffectiveDelta * VIS_SCALE / 2)
-        .applyQuaternion(shardMesh.quaternion);
-      
-      const finalPosition = this.initialPosition.clone().add(localShift);
-
-      // Apply to mesh
-      shardMesh.position.copy(finalPosition);
-
-      // Dynamically reconstruct geometry for real-time visual feedback
-      this.updateMeshGeometry(shardMesh, finalW, finalD, finalH);
-
-      // Handle child attachments (sockets, layers, handles)
-      this.updateAttachments(shardMesh, finalW, finalD, finalH, localNormal, finalEffectiveDelta);
     }
   }
-}
 
   onPointerUp(event, raycaster) {
     if (isDraggingHandle()) {
@@ -658,57 +518,18 @@ export class ResizeMode {
       const newH = Math.round(shardMesh.geometry.parameters.depth / VIS_SCALE);
 
       // Convert local coordinates back to placement space
-      // JSON X = Three X
-      // JSON Y = Three Y + radius (actually, y relative to plane + radius)
-      // JSON Z = Three Z? Wait, let's review:
-      // In scene_builder:
-      // x = sd.position.x * VIS_SCALE
-      // y = (sd.position.y - radius) * VIS_SCALE -> so sd.position.y = (y / VIS_SCALE) + radius
-      // z = sd.position.z * VIS_SCALE -> so sd.position.z = z / VIS_SCALE
-      const orb = store.get('placementData').orbits.find(o => o.index === sd.orbit);
-      const radius = orb ? orb.radius : 0.0;
-
+      // Rust X = Three X, Rust Y = Three Z, Rust Z = Three Y
       sd.size.w = newW;
       sd.size.d = newD;
       sd.size.h = newH;
 
-      sd.position.x = Math.round(shardMesh.position.x / VIS_SCALE);
-      sd.position.y = Math.round((shardMesh.position.y / VIS_SCALE) + radius);
-      sd.position.z = Math.round(shardMesh.position.z / VIS_SCALE);
+      sd.position.x = Math.round(shardMesh.position.x / VIS_SCALE - newW / 2);
+      sd.position.y = Math.round(shardMesh.position.z / VIS_SCALE - newD / 2);
+      sd.position.z = Math.round(shardMesh.position.y / VIS_SCALE - newH / 2);
 
       // Update and finalize socket configurations in placement data
       if (sd.sockets) {
-        sd.sockets.forEach(sock => {
-          const socketKey = `${sd.key}.${sock.name}`;
-          const socketGroup = socketMeshes[socketKey];
-          if (socketGroup) {
-            sock.offset = {
-              x: Math.round(socketGroup.position.x / VIS_SCALE),
-              y: Math.round(socketGroup.position.y / VIS_SCALE),
-              z: socketGroup.userData.originalOffset && socketGroup.userData.originalOffset.z !== undefined 
-                ? Number(socketGroup.userData.originalOffset.z.toFixed(2)) 
-                : Number((socketGroup.position.z / VIS_SCALE).toFixed(2))
-            };
-            
-            // Rebuild the socket completely to update handles bounds
-            rebuildSocket(
-              sd.key,
-              sock.name,
-              sock.width,
-              sock.height,
-              sock.pitch || 1,
-              sock.offset,
-              socketGroup.userData.faceSign,
-              sock.rotation || 0
-            );
-          }
-        });
-      }
-
-      // Redraw connection routing line graphics
-      const routes = store.get('routesData');
-      if (routes) {
-        drawRoutes(routes);
+        sd.sockets = [];
       }
 
       // Check if size or position changed and push to history
@@ -738,7 +559,7 @@ export class ResizeMode {
 
       this.initialShardState = null;
 
-      // Signal layout updates and validate connections
+      // Signal layout updates
       emit(EVENTS.LAYOUT_CHANGED, sd);
       emit(EVENTS.VALIDATION_REQ);
 
@@ -777,7 +598,7 @@ export class ResizeMode {
 
   updateMeshGeometry(shardMesh, w, d, h) {
     shardMesh.geometry.dispose();
-    shardMesh.geometry = new THREE.BoxGeometry(w * VIS_SCALE, d * VIS_SCALE, h * VIS_SCALE);
+    shardMesh.geometry = new THREE.BoxGeometry(w * VIS_SCALE, h * VIS_SCALE, d * VIS_SCALE);
 
     const mainWire = shardMesh.children.find(c => c.name === "main_wireframe");
     if (mainWire) {
@@ -787,26 +608,26 @@ export class ResizeMode {
   }
 
   updateAttachments(shardMesh, w, d, h, localNormal, effectiveDelta) {
-    // 1. Move the resize handles to match new boundaries
+    // 1. Move the resize handles to match new boundaries (Three Y = height, Three Z = depth)
     shardMesh.traverse(child => {
       if (child.userData && child.userData.isResizeHandle) {
         const info = child.userData;
         if (info.handleName === 'PX') child.position.set((w * VIS_SCALE) / 2, 0, 0);
         if (info.handleName === 'NX') child.position.set(-(w * VIS_SCALE) / 2, 0, 0);
-        if (info.handleName === 'PY') child.position.set(0, (d * VIS_SCALE) / 2, 0);
-        if (info.handleName === 'NY') child.position.set(0, -(d * VIS_SCALE) / 2, 0);
-        if (info.handleName === 'PZ') child.position.set(0, 0, (h * VIS_SCALE) / 2);
-        if (info.handleName === 'NZ') child.position.set(0, 0, -(h * VIS_SCALE) / 2);
+        if (info.handleName === 'PY') child.position.set(0, (h * VIS_SCALE) / 2, 0);
+        if (info.handleName === 'NY') child.position.set(0, -(h * VIS_SCALE) / 2, 0);
+        if (info.handleName === 'PZ') child.position.set(0, 0, (d * VIS_SCALE) / 2);
+        if (info.handleName === 'NZ') child.position.set(0, 0, -(d * VIS_SCALE) / 2);
       }
     });
 
-    // 2. Adjust Text Label sprite position
+    // 2. Adjust Text Label sprite position (on top of the height axis Y)
     const label = shardMesh.children.find(c => c instanceof THREE.Sprite);
     if (label) {
-      label.position.set(0, 0, (h * VIS_SCALE) / 2 + 1.5);
+      label.position.set(0, (h * VIS_SCALE) / 2 + 1.5, 0);
     }
 
-    // 3. Scale and shift horizontal layers
+    // 3. Scale and shift horizontal layers (along the Y height axis)
     const layerMeshes = [];
     shardMesh.traverse(child => {
       if (child.userData && child.userData.layerIndex !== undefined) {
@@ -815,17 +636,17 @@ export class ResizeMode {
     });
     layerMeshes.sort((a, b) => a.userData.layerIndex - b.userData.layerIndex);
 
-    let currentZ = -(h * VIS_SCALE) / 2;
+    let currentY = -(h * VIS_SCALE) / 2;
     layerMeshes.forEach(layerMesh => {
       const layer_vis_h = (h * VIS_SCALE) * layerMesh.userData.height_pct;
-      const zCenter = currentZ + layer_vis_h / 2;
+      const yCenter = currentY + layer_vis_h / 2;
 
-      layerMesh.position.set(0, 0, zCenter);
-      layerMesh.scale.set(1.0, 1.0, layer_vis_h);
+      layerMesh.position.set(0, yCenter, 0);
+      layerMesh.scale.set(1.0, layer_vis_h, 1.0);
 
-      // Re-create the horizontal layer geometry to accommodate width/depth changes
+      // Re-create the horizontal layer geometry
       layerMesh.geometry.dispose();
-      layerMesh.geometry = new THREE.BoxGeometry(w * VIS_SCALE, d * VIS_SCALE, 1.0);
+      layerMesh.geometry = new THREE.BoxGeometry(w * VIS_SCALE, 1.0, d * VIS_SCALE);
 
       const wire = layerMesh.children.find(c => c.name === "wireframe");
       if (wire) {
@@ -833,10 +654,10 @@ export class ResizeMode {
         wire.geometry = new THREE.EdgesGeometry(layerMesh.geometry);
       }
 
-      currentZ += layer_vis_h;
+      currentY += layer_vis_h;
     });
 
-    // 4. Update visual horizontal layer dividers positions and widths
+    // 4. Update visual horizontal layer dividers positions and widths (along Y axis)
     const dividers = [];
     shardMesh.traverse(child => {
       if (child.userData && child.userData.isDivider) {
@@ -845,10 +666,10 @@ export class ResizeMode {
     });
     dividers.sort((a, b) => a.userData.dividerIndex - b.userData.dividerIndex);
 
-    let accumZ = -(h * VIS_SCALE) / 2;
+    let accumY = -(h * VIS_SCALE) / 2;
     dividers.forEach((divMesh, idx) => {
-      accumZ += (h * VIS_SCALE) * layerMeshes[idx].userData.height_pct;
-      divMesh.position.set(0, 0, accumZ);
+      accumY += (h * VIS_SCALE) * layerMeshes[idx].userData.height_pct;
+      divMesh.position.set(0, accumY, 0);
 
       // Recreate plane geometry to match width/depth changes
       divMesh.geometry.dispose();
@@ -868,44 +689,5 @@ export class ResizeMode {
         ]);
       }
     });
-
-    // 5. Update socket attachments positions
-    const sd = shardDataMap[shardMesh.uuid];
-    if (sd && sd.sockets) {
-      sd.sockets.forEach(sock => {
-        const socketKey = `${sd.key}.${sock.name}`;
-        const socketGroup = socketMeshes[socketKey];
-        if (socketGroup) {
-          const faceSign = socketGroup.userData.faceSign;
-          
-          // Compute new offsets to lock their absolute world coordinates during horizontal scaling
-          let newOffset = { ...this.initialSocketOffsets[socketKey] };
-
-          if (localNormal.x !== 0) {
-            newOffset.x -= localNormal.x * effectiveDelta / 2;
-          }
-          if (localNormal.y !== 0) {
-            newOffset.y -= localNormal.y * effectiveDelta / 2;
-          }
-
-          let oz = faceSign * ((h * VIS_SCALE) / 2 + 0.01);
-          if (newOffset.z !== undefined) {
-            const scaleZ = h / this.initialH;
-            const newOffsetZ = newOffset.z * scaleZ;
-            oz = newOffsetZ * VIS_SCALE;
-            if (socketGroup.userData.originalOffset) {
-              socketGroup.userData.originalOffset.z = newOffsetZ;
-            }
-          }
-
-          // Move the group to the new position
-          socketGroup.position.set(
-            newOffset.x * VIS_SCALE,
-            newOffset.y * VIS_SCALE,
-            oz
-          );
-        }
-      });
-    }
   }
 }

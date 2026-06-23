@@ -20,9 +20,9 @@ function getLivePlacementData() {
   liveData.shards.forEach(shard => {
     const mesh = shardMeshes[shard.key];
     if (mesh) {
-      shard.position.x = Math.round(mesh.position.x / VIS_SCALE);
-      shard.position.y = Math.round(mesh.position.y / VIS_SCALE);
-      shard.position.z = Math.round(mesh.position.z / VIS_SCALE);
+      shard.position.x = Math.round(mesh.position.x / VIS_SCALE - shard.size.w / 2);
+      shard.position.y = Math.round(mesh.position.z / VIS_SCALE - shard.size.d / 2); // Rust Y (depth)
+      shard.position.z = Math.round(mesh.position.y / VIS_SCALE - shard.size.h / 2); // Rust Z (height)
 
       const rawData = shardDataMap[mesh.uuid];
       if (rawData && rawData.layers) {

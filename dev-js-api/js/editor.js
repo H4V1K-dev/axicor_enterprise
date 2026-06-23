@@ -30,8 +30,6 @@ import { InspectMode } from './editor/modes/inspect_mode.js';
 import { ResizeMode } from './editor/modes/resize_mode.js';
 
 import { AddShardMode } from './editor/modes/add_shard_mode.js';
-import { AddSocketMode } from './editor/modes/add_socket_mode.js';
-import { AddRouteMode } from './editor/modes/add_route_mode.js';
 
 // Re-exports for other modules (like ui.js, main.js)
 export {
@@ -60,8 +58,6 @@ export function initEditor() {
   modeManager.register('translate', new TranslateMode());
   modeManager.register('resize', new ResizeMode());
   modeManager.register('add_shard', new AddShardMode());
-  modeManager.register('add_socket', new AddSocketMode());
-  modeManager.register('add_route', new AddRouteMode());
 
   // Default to inspect mode
   modeManager.setMode('inspect');

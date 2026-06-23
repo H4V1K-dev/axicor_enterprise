@@ -1,5 +1,5 @@
 import { shardMeshes, socketMeshes } from '../../scene_builder.js';
-import { selectShard, selectSocket, deselectAll, selectRoute } from '../selection.js';
+import { selectShard, selectSocket, deselectAll } from '../selection.js';
 import { transformControls } from '../transform.js';
 import { updateFocusVisuals } from '../focus.js';
 import { store } from '../../store/store.js';
@@ -209,13 +209,7 @@ export class TranslateMode {
       const bestHit = resolveRaycastHit(raycaster);
 
       if (bestHit) {
-        if (bestHit.type === 'control_point') {
-          transformControls.attach(bestHit.object);
-          return true;
-        } else if (bestHit.type === 'route') {
-          selectRoute(bestHit.key);
-          return true;
-        } else if (bestHit.type === 'socket') {
+        if (bestHit.type === 'socket') {
           selectSocket(bestHit.key);
           return true;
         } else if (bestHit.type === 'shard') {

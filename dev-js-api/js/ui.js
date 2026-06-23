@@ -5,7 +5,6 @@
 import { on, emit, EVENTS } from './store/event_bus.js';
 import { showSidebar, hideSidebar, saveAllLayoutChanges, renderLayersListItems } from './ui/sidebar.js';
 import { initToolbar } from './ui/toolbar.js';
-import { initPhysicsPanel } from './ui/physics_panel.js';
 import { initLayersPanel } from './ui/layers_panel.js';
 import { initValidatorPanel } from './ui/validator_panel.js';
 import { initHistoryPanel } from './ui/history_panel.js';
@@ -256,8 +255,7 @@ export function initUI() {
     });
   }
 
-  // Initialize sub-panels
-  initPhysicsPanel(physicsBtn);
+// Initialize sub-panels
   initLayersPanel(layersBtn);
   initValidatorPanel(validatorBtn);
   initHistoryPanel();

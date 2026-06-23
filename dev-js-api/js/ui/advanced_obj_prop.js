@@ -3,7 +3,7 @@
  */
 
 import { store } from '../store/store.js';
-import { ORBIT_LABELS, ORBIT_COLORS } from '../scene_builder.js';
+// Orbit imports removed
 import * as THREE from 'three';
 
 export const advancedObjPropConfig = {
@@ -194,13 +194,7 @@ function renderPanel() {
   const depts = placement ? placement.departments || [] : [];
   const orbits = placement ? placement.orbits || [] : [];
 
-  const orbitOptions = orbits.map(orb => {
-    const color = ORBIT_COLORS[orb.index] || 0x888888;
-    const hexColor = '#' + new THREE.Color(color).getHexString();
-    const label = ORBIT_LABELS[orb.index] || `L${orb.index}`;
-    const selected = orb.index === advancedObjPropConfig.orbit ? 'selected' : '';
-    return `<option value="${orb.index}" ${selected}>Layer ${orb.index} (${label})</option>`;
-  }).join('');
+  const orbitOptions = '';
 
   const deptOptions = depts.map(d => {
     const selected = d.name === advancedObjPropConfig.dept ? 'selected' : '';
@@ -214,12 +208,7 @@ function renderPanel() {
     </div>
     
     <div style="display: flex; flex-direction: column; gap: 8px;">
-      <div style="display: flex; flex-direction: column; gap: 4px;">
-        <label style="font-size: 11px; opacity: 0.7;">Слой (Орбита)</label>
-        <select id="ghost-orbit-select" class="ax-select" style="width: 100%;">
-          ${orbitOptions}
-        </select>
-      </div>
+      <!-- Orbit selector removed -->
 
       <div style="display: flex; flex-direction: column; gap: 4px;">
         <label style="font-size: 11px; opacity: 0.7;">Департамент</label>
@@ -252,10 +241,7 @@ function renderPanel() {
   `;
 
   // Bind change events
-  panelElement.querySelector('#ghost-orbit-select').addEventListener('change', (e) => {
-    advancedObjPropConfig.orbit = parseInt(e.target.value);
-    triggerChange();
-  });
+  // Orbit change listener removed
 
   const deptSelect = panelElement.querySelector('#ghost-dept-select');
   deptSelect.addEventListener('change', (e) => {

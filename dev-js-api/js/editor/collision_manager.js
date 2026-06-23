@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { shardMeshes, socketMeshes, VIS_SCALE } from '../scene_builder.js';
-import { routesGroup } from '../rendering/route_renderer.js';
-import { routeEditorGroup } from './route_editor.js';
+const routesGroup = null;
+const routeEditorGroup = null;
 import { store } from '../store/store.js';
 
 /**
