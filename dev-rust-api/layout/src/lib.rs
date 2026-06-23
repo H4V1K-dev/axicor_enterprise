@@ -1,5 +1,10 @@
 #![no_std]
 
+extern crate alloc;
+
+use alloc::vec;
+use alloc::vec::Vec;
+
 pub mod error;
 pub mod offsets;
 
@@ -100,6 +105,165 @@ pub struct BurstHeads8 {
     pub h5: u32,
     pub h6: u32,
     pub h7: u32,
+}
+
+impl BurstHeads8 {
+    #[inline]
+    pub const fn empty(sentinel: u32) -> Self {
+        Self {
+            h0: sentinel,
+            h1: sentinel,
+            h2: sentinel,
+            h3: sentinel,
+            h4: sentinel,
+            h5: sentinel,
+            h6: sentinel,
+            h7: sentinel,
+        }
+    }
+}
+
+/// Host-side SoA state of a shard.
+/// Used for baking and disk I/O.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShardStateSoA {
+    pub padded_n: usize, // Must be multiple of 32 (Warp Alignment)
+
+    // --- Soma Hot State ---
+    pub voltage: Vec<i32>,
+    pub flags: Vec<u8>,
+    pub threshold_offset: Vec<i32>,
+    pub refractory_timer: Vec<u8>,
+
+    // --- Columnar Dendrites (Size = MAX_DENDRITES * padded_n) ---
+    pub dendrite_targets: Vec<u32>, // Dense ID + Segment Offset
+    pub dendrite_weights: Vec<i32>,
+    pub dendrite_timers: Vec<u8>,
+
+    // --- Axon Heads (Size = total_axons) ---
+    pub axon_heads: Vec<BurstHeads8>,
+}
+
+impl ShardStateSoA {
+    /// Initializes a new shard.
+    /// - `padded_n`: number of neurons (multiple of 32).
+    /// - `total_axons`: total axons (local + ghost + virtual).
+    pub fn new(padded_n: usize, total_axons: usize) -> Self {
+        assert!(
+            padded_n % 32 == 0,
+            "padded_n must be warp-aligned (multiple of 32)"
+        );
+
+        Self {
+            padded_n,
+            voltage: vec![0; padded_n],
+            flags: vec![0; padded_n],
+            threshold_offset: vec![0; padded_n],
+            refractory_timer: vec![0; padded_n],
+
+            dendrite_targets: vec![0; MAX_DENDRITES * padded_n],
+            dendrite_weights: vec![0; MAX_DENDRITES * padded_n],
+            dendrite_timers: vec![0; MAX_DENDRITES * padded_n],
+
+            axon_heads: vec![BurstHeads8::empty(types::AXON_SENTINEL); total_axons],
+        }
+    }
+
+    /// Calculates flat index for Coalesced Access on GPU
+    #[inline(always)]
+    pub fn columnar_idx(padded_n: usize, neuron_idx: usize, slot: usize) -> usize {
+        assert!(neuron_idx < padded_n && slot < MAX_DENDRITES,
+            "columnar_idx: neuron_idx={neuron_idx} >= padded_n={padded_n} or slot={slot} >= {MAX_DENDRITES}");
+        slot * padded_n + neuron_idx
+    }
+}
+
+/// Packs Axon_ID and segment offset.
+/// Applies +1 to Axon_ID so target == 0 always means "empty slot".
+#[inline(always)]
+pub const fn pack_dendrite_target(axon_id: u32, segment_offset: u32) -> u32 {
+    if axon_id >= 0x00FF_FFFF {
+        panic!("CRITICAL: Axon ID exceeds 24 bits");
+    }
+    if segment_offset >= 256 {
+        panic!("CRITICAL: Segment offset exceeds 8 bits");
+    }
+
+    (segment_offset << 24) | ((axon_id + 1) & 0x00FF_FFFF)
+}
+
+/// Extracts Axon_ID (accounting for -1 reverse shift).
+#[inline(always)]
+pub const fn unpack_axon_id(target_packed: u32) -> u32 {
+    (target_packed & 0x00FF_FFFF).saturating_sub(1)
+}
+
+/// Extracts segment offset [0..255].
+#[inline(always)]
+pub const fn unpack_segment_offset(target_packed: u32) -> u32 {
+    target_packed >> 24
+}
+
+/// CUDA-compatible structure for SoA FFI (Legacy compatibility).
+/// Contains raw pointers to Host/Device memory.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VramState {
+    pub padded_n: u32,
+    pub total_axons: u32,
+
+    // Soma Hot State
+    pub voltage: *mut i32,
+    pub flags: *mut u8,
+    pub threshold_offset: *mut i32,
+    pub refractory_timer: *mut u8,
+    pub soma_to_axon: *mut u32,
+
+    // Dendrites (Size: 128 * padded_n)
+    pub dendrite_targets: *mut u32,
+    pub dendrite_weights: *mut i32,
+    pub dendrite_timers: *mut u8,
+
+    // Axons (Size: total_axons)
+    pub axon_heads: *mut BurstHeads8,
+
+    // I/O & Telemetry
+    pub input_bitmask: *mut u32,
+    pub output_history: *mut u8,
+    pub telemetry_count: *mut u32,
+    pub telemetry_spikes: *mut u32,
+}
+
+impl VramState {
+    /// Initializes a `VramState` FFI struct from `ShardStateSoA`.
+    /// 
+    /// # Safety
+    /// Caller must guarantee `soa` is not moved, resized, or dropped
+    /// while `VramState` is in use.
+    #[inline(always)]
+    pub unsafe fn from_soa(soa: &mut ShardStateSoA) -> Self {
+        Self {
+            padded_n: soa.padded_n as u32,
+            total_axons: soa.axon_heads.len() as u32,
+
+            voltage: soa.voltage.as_mut_ptr(),
+            flags: soa.flags.as_mut_ptr(),
+            threshold_offset: soa.threshold_offset.as_mut_ptr(),
+            refractory_timer: soa.refractory_timer.as_mut_ptr(),
+            soma_to_axon: core::ptr::null_mut(),
+
+            dendrite_targets: soa.dendrite_targets.as_mut_ptr(),
+            dendrite_weights: soa.dendrite_weights.as_mut_ptr(),
+            dendrite_timers: soa.dendrite_timers.as_mut_ptr(),
+
+            axon_heads: soa.axon_heads.as_mut_ptr(),
+
+            input_bitmask: core::ptr::null_mut(),
+            output_history: core::ptr::null_mut(),
+            telemetry_count: core::ptr::null_mut(),
+            telemetry_spikes: core::ptr::null_mut(),
+        }
+    }
 }
 
 /// State machine flags for Night Phase IPC.
@@ -420,5 +584,48 @@ mod tests {
     fn test_shard_vram_ptrs_layout() {
         assert_eq!(size_of::<ShardVramPtrs>(), 10 * size_of::<*mut u8>());
         assert_eq!(align_of::<ShardVramPtrs>(), align_of::<*mut u8>());
+    }
+
+    #[test]
+    fn test_shard_soa_allocation() {
+        let n = 1024;
+        let axons = 5000;
+        let soa = ShardStateSoA::new(n, axons);
+
+        assert_eq!(soa.padded_n, n);
+        assert_eq!(soa.voltage.len(), n);
+        assert_eq!(soa.dendrite_weights.len(), n * 128);
+        assert_eq!(soa.axon_heads.len(), axons);
+    }
+
+    #[test]
+    fn test_vram_state_pointer_mapping() {
+        let mut soa = ShardStateSoA::new(32, 100);
+        soa.voltage[0] = 42;
+        soa.axon_heads[99] = BurstHeads8::empty(123);
+
+        unsafe {
+            let vram = VramState::from_soa(&mut soa);
+            assert_eq!(vram.padded_n, 32);
+            assert_eq!(vram.total_axons, 100);
+            assert_eq!(*vram.voltage, 42);
+            assert_eq!((*vram.axon_heads.add(99)).h0, 123);
+        }
+    }
+
+    #[test]
+    fn test_dendrite_target_packing() {
+        let t0 = pack_dendrite_target(0, 0);
+        assert_ne!(t0, 0);
+        assert_eq!(unpack_axon_id(t0), 0);
+        assert_eq!(unpack_segment_offset(t0), 0);
+
+        let t_max = pack_dendrite_target(0x00FF_FFFE, 255);
+        assert_eq!(unpack_axon_id(t_max), 0x00FF_FFFE);
+        assert_eq!(unpack_segment_offset(t_max), 255);
+
+        let t_mix = pack_dendrite_target(0x123456, 0xAB);
+        assert_eq!(unpack_axon_id(t_mix), 0x123456);
+        assert_eq!(unpack_segment_offset(t_mix), 0xAB);
     }
 }
