@@ -142,12 +142,22 @@ impl GpuBackend for CpuBackend {
         })
     }
 
-    fn patch_ghosts(&self, handle: &VramHandle, _patches: &[GhostPatch]) -> Result<(), ComputeApiError> {
+    fn patch_ghosts(&self, handle: &VramHandle, patches: &[GhostPatch]) -> Result<(), ComputeApiError> {
         let key = handle_to_key(handle);
         let guard = self.resources.read().map_err(|_| ComputeApiError::DeviceLost)?;
-        let _resource = guard.get(key).ok_or(ComputeApiError::InvalidHandle)?;
+        let resource = guard.get(key).ok_or(ComputeApiError::InvalidHandle)?;
 
-        // Stub: Patch ghosts
+        // INV-COMPUTE-API-006, E-063: Check ghost capacity bounds
+        for patch in patches {
+            match patch {
+                GhostPatch::Add { dst_ghost, .. } | GhostPatch::Prune { dst_ghost } => {
+                    if *dst_ghost >= resource.layout.total_ghosts {
+                        return Err(ComputeApiError::CapacityExceeded);
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
