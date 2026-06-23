@@ -74,6 +74,8 @@ pub struct ManifestMemory {
     pub virtual_axons: usize,
     pub ghost_capacity: usize,
     pub v_seg: u16,
+    #[serde(default)]
+    pub num_outputs: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

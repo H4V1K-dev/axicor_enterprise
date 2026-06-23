@@ -22,6 +22,9 @@ pub fn run_shard_thread(
                 tick_base,
                 batch_size,
                 global_dopamine,
+                input_bitmask,
+                num_virtual_axons,
+                num_outputs,
             } => {
                 let spike_counts = vec![0u32; batch_size as usize];
                 let mapped_somas = vec![];
@@ -31,9 +34,9 @@ pub fn run_shard_thread(
                     v_seg: 0,
                     global_dopamine,
                     virtual_offset: 0,
-                    num_virtual_axons: 0,
-                    num_outputs: 0,
-                    input_bitmask: None,
+                    num_virtual_axons,
+                    num_outputs,
+                    input_bitmask: input_bitmask.as_deref(),
                     incoming_spikes: None,
                     spike_counts: &spike_counts,
                     mapped_soma_ids: &mapped_somas,

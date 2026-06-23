@@ -82,13 +82,16 @@ pub struct DynamicCapacityRouting {
 }
 
 /// Controlling command sent to the Shard Thread to orchestrate the lifecycle of the accelerator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ComputeCommand {
     /// Run a simulation epoch on the given batch size.
     RunBatch {
         tick_base: u32,
         batch_size: u32,
         global_dopamine: i16,
+        input_bitmask: Option<Vec<u8>>,
+        num_virtual_axons: u32,
+        num_outputs: u32,
     },
     /// Prepare the device memory for resurrection and potential warmup.
     Resurrect,

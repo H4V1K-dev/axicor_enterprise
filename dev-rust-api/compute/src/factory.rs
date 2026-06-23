@@ -46,6 +46,7 @@ pub fn instantiate_backend(
     }
 
     let dev_id = device_id.unwrap_or(0);
+    let _ = dev_id;
 
     match backend {
         BackendType::Cpu => {

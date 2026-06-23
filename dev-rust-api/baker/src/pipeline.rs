@@ -122,8 +122,18 @@ pub fn bake(
     tracing::debug!("Baker Phase C: routed {} ghost connections", ghost_cursor);
 
     // ── Phase D: Layout Serialization ────────────────────────────────────────
+    let mut num_virtual_axons = 0;
+    if let Some(ref ports) = shard.ports {
+        for port in ports {
+            if port.direction == config::SocketDirection::In {
+                for pin in &port.pins {
+                    num_virtual_axons += (pin.width * pin.height) as usize;
+                }
+            }
+        }
+    }
     let padded_n = layout::align_to_warp(somas.len()) as u32;
-    let total_axons = somas.len() as u32;
+    let total_axons = (somas.len() + num_virtual_axons) as u32;
     let n = padded_n as usize;
 
     let voltage        = vec![0i32; n];
@@ -164,12 +174,12 @@ pub fn bake(
             h6: types::AXON_SENTINEL,
             h7: types::AXON_SENTINEL,
         };
-        somas.len()
+        total_axons as usize
     ];
     let axons_buf = serialize_axons(total_axons, &heads)?;
 
-    let path_lengths = vec![0u8; somas.len()];
-    let matrix = vec![types::PackedPosition(0); somas.len() * 256];
+    let path_lengths = vec![0u8; total_axons as usize];
+    let matrix = vec![types::PackedPosition(0); (total_axons as usize) * 256];
     let paths_buf = serialize_paths(
         total_axons,
         &path_lengths,
@@ -185,6 +195,108 @@ pub fn bake(
     // Write blobs to a temp staging directory, then pack into output .axic file.
     let staging = tempfile::tempdir().map_err(BakerError::IOError)?;
     let staging_path = staging.path();
+
+    let mut num_virtual_axons = 0;
+    let mut num_outputs = 0;
+    if let Some(ref ports) = shard.ports {
+        for port in ports {
+            if port.direction == config::SocketDirection::In {
+                for pin in &port.pins {
+                    num_virtual_axons += (pin.width * pin.height) as usize;
+                }
+            } else if port.direction == config::SocketDirection::Out {
+                for pin in &port.pins {
+                    num_outputs += (pin.width * pin.height) as usize;
+                }
+            }
+        }
+    }
+
+    let zone_name = config_dir
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("CartPoleCortex");
+    let zone_name = if zone_name.eq_ignore_ascii_case("cartpole") {
+        "CartPoleCortex".to_string()
+    } else {
+        zone_name.to_string()
+    };
+    let zone_hash = types::fnv1a_32(zone_name.as_bytes());
+
+    let mut variants = Vec::new();
+    for (i, v) in shard.neuron_types.iter().enumerate() {
+        variants.push(config::ManifestVariant {
+            id: i as u8,
+            name: v.name.clone(),
+            threshold: v.membrane.threshold,
+            rest_potential: v.membrane.rest_potential,
+            leak_shift: v.membrane.leak_shift,
+            homeostasis_penalty: v.homeostasis.homeostasis_penalty,
+            spontaneous_firing_period_ticks: v.spontaneous.spontaneous_firing_period_ticks,
+            initial_synapse_weight: 100,
+            gsop_potentiation: v.gsop.gsop_potentiation,
+            gsop_depression: v.gsop.gsop_depression,
+            homeostasis_decay: v.homeostasis.homeostasis_decay,
+            refractory_period: v.timings.refractory_period,
+            synapse_refractory_period: v.timings.synapse_refractory_period,
+            signal_propagation_length: v.signal.signal_propagation_length,
+            is_inhibitory: v.gsop.is_inhibitory,
+            inertia_curve: {
+                let mut curve = [0u8; 8];
+                let len = v.gsop.inertia_curve.len().min(8);
+                curve[..len].copy_from_slice(&v.gsop.inertia_curve[..len]);
+                curve
+            },
+            ahp_amplitude: v.membrane.ahp_amplitude,
+            adaptive_leak_min_shift: v.adaptive_leak.adaptive_leak_min_shift,
+            adaptive_leak_gain: v.adaptive_leak.adaptive_leak_gain,
+            adaptive_mode: v.adaptive_leak.adaptive_mode,
+            d1_affinity: v.dopamine.d1_affinity,
+            d2_affinity: v.dopamine.d2_affinity,
+            heartbeat_m: if v.spontaneous.spontaneous_firing_period_ticks > 0 {
+                65536 / v.spontaneous.spontaneous_firing_period_ticks
+            } else {
+                0
+            },
+        });
+    }
+
+    let manifest = config::ZoneManifest {
+        magic: 0x47454E45,
+        zone_hash,
+        blueprints_path: "shard.toml".to_string(),
+        memory: config::ManifestMemory {
+            padded_n: padded_n as usize,
+            virtual_axons: num_virtual_axons,
+            ghost_capacity: shard.settings.ghost_capacity as usize,
+            v_seg: _v_seg as u16,
+            num_outputs,
+        },
+        network: config::ManifestNetwork {
+            slow_path_tcp: 8010,
+            external_udp_in: 8081,
+            external_udp_out: 8082,
+            external_udp_out_target: Some("127.0.0.1:8092".to_string()),
+            fast_path_udp_local: 9001,
+            fast_path_peers: std::collections::HashMap::new(),
+        },
+        settings: config::ManifestSettings {
+            night_interval_ticks: shard.settings.night_interval_ticks as u64,
+            save_checkpoints_interval_ticks: shard.settings.save_checkpoints_interval_ticks as u64,
+            plasticity: config::ManifestPlasticity {
+                prune_threshold: shard.settings.prune_threshold as i16,
+                max_sprouts: shard.settings.max_sprouts as u16,
+            },
+        },
+        variants,
+        connections: Vec::new(),
+    };
+
+    let manifest_toml = toml::to_string(&manifest)
+        .map_err(|e| BakerError::IOError(std::io::Error::other(e.to_string())))?;
+    std::fs::write(staging_path.join("manifest.toml"), &manifest_toml)
+        .map_err(BakerError::IOError)?;
 
     std::fs::write(staging_path.join("shard.state"), &state_buf)
         .map_err(BakerError::IOError)?;

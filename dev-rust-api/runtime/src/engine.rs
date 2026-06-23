@@ -57,6 +57,21 @@ pub struct NodeRuntime {
 
     /// Flag set by signal handlers or administrators to request graceful shutdown.
     pub shutdown_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+
+    /// Optional UDP input queue for external sensory inputs
+    pub io_input_queue: Option<std::sync::Arc<crossbeam::queue::SegQueue<[u8; 32]>>>,
+
+    /// Optional UDP output sender for external motor outputs
+    pub io_output_tx: Option<crossbeam::channel::Sender<(u32, Vec<u8>)>>,
+
+    /// Optional global dopamine level shared with UDP server
+    pub io_dopamine: Option<std::sync::Arc<std::sync::atomic::AtomicI32>>,
+
+    /// Number of virtual axons (sensory inputs)
+    pub num_virtual_axons: u32,
+
+    /// Number of outputs (motor targets)
+    pub num_outputs: u32,
 }
 
 impl NodeRuntime {
@@ -74,6 +89,11 @@ impl NodeRuntime {
         max_sprouts: u16,
         night_interval_ticks: u32,
         shutdown_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        io_input_queue: Option<std::sync::Arc<crossbeam::queue::SegQueue<[u8; 32]>>>,
+        io_output_tx: Option<crossbeam::channel::Sender<(u32, Vec<u8>)>>,
+        io_dopamine: Option<std::sync::Arc<std::sync::atomic::AtomicI32>>,
+        num_virtual_axons: u32,
+        num_outputs: u32,
     ) -> Self {
         Self {
             state: NodeState::Booting,
@@ -91,6 +111,11 @@ impl NodeRuntime {
             max_sprouts,
             night_interval_ticks,
             shutdown_flag,
+            io_input_queue,
+            io_output_tx,
+            io_dopamine,
+            num_virtual_axons,
+            num_outputs,
         }
     }
 
@@ -124,21 +149,65 @@ impl NodeRuntime {
                         continue;
                     }
 
+                    // Pop sensory inputs block-waiting if io_input_queue is configured
+                    let input_bitmask = if let Some(ref queue) = self.io_input_queue {
+                        tracing::info!("Waiting for 10 sensory inputs from UDP server...");
+                        let mut inputs = Vec::with_capacity(10 * 32);
+                        for _ in 0..10 {
+                            loop {
+                                if shutdown_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                                    self.state = NodeState::Shutdown;
+                                    return Ok(());
+                                }
+                                if let Some(tick) = queue.pop() {
+                                    inputs.extend_from_slice(&tick);
+                                    break;
+                                }
+                                std::thread::sleep(std::time::Duration::from_micros(100));
+                            }
+                        }
+                        tracing::info!("Popped 10 ticks of inputs successfully.");
+                        Some(inputs)
+                    } else {
+                        None
+                    };
+
+                    let global_dopamine = if let Some(ref dop) = self.io_dopamine {
+                        dop.load(std::sync::atomic::Ordering::Relaxed) as i16
+                    } else {
+                        0
+                    };
+
                     // INV-NET-004: Sync via BSP barrier before running next epoch batch
                     let current_epoch = self.tick_counter / 10; // assuming batch size 10
                     self.bsp_barrier.sync_and_swap(current_epoch)
                         .map_err(|_| RuntimeError::ChannelError)?;
 
+                    tracing::info!("Sending RunBatch command to worker thread...");
                     self.shard_tx
                         .send(compute_api::ComputeCommand::RunBatch {
                             tick_base: self.tick_counter,
                             batch_size: 10,
-                            global_dopamine: 0,
+                            global_dopamine,
+                            input_bitmask,
+                            num_virtual_axons: self.num_virtual_axons,
+                            num_outputs: self.num_outputs,
                         })
                         .map_err(|_| RuntimeError::ChannelError)?;
 
                     let res = self.result_rx.recv().map_err(|_| RuntimeError::ChannelError)?;
                     self.tick_counter += res.ticks_processed;
+                    tracing::info!("Batch execution finished. Processed ticks: {}", res.ticks_processed);
+
+                    // Download motor outputs and dispatch to UDP loop
+                    if self.num_outputs > 0 {
+                        if let Ok(output_frame) = self.shard_engine.download_output() {
+                            tracing::info!("Downloaded outputs frame: len={}, num_outputs={}", output_frame.data.len(), output_frame.num_outputs);
+                            if let Some(ref tx) = self.io_output_tx {
+                                let _ = tx.send((self.zone_hash, output_frame.data));
+                            }
+                        }
+                    }
                 }
                 NodeState::Night => {
                     self.transition_to_night()?;
@@ -295,6 +364,11 @@ mod tests {
             4,
             100,
             shutdown_flag,
+            None,
+            None,
+            None,
+            0,
+            0,
         );
         runtime.state = state;
         (runtime, shard_rx_chan, result_tx_chan)
@@ -315,7 +389,14 @@ mod tests {
     #[test]
     fn test_crossbeam_channel_isolation() {
         let (runtime, rx, tx) = setup_test_runtime(NodeState::Running);
-        assert!(runtime.shard_tx.send(compute_api::ComputeCommand::RunBatch { tick_base: 0, batch_size: 10, global_dopamine: 0 }).is_ok());
+        assert!(runtime.shard_tx.send(compute_api::ComputeCommand::RunBatch {
+            tick_base: 0,
+            batch_size: 10,
+            global_dopamine: 0,
+            input_bitmask: None,
+            num_virtual_axons: 0,
+            num_outputs: 0,
+        }).is_ok());
         
         let cmd = rx.recv().unwrap();
         match cmd {

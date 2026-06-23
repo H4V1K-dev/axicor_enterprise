@@ -3,6 +3,7 @@
 .context
 .local-storage
 .old-trash
+*.axic
 
 
 # --- Rust (Cargo) ---

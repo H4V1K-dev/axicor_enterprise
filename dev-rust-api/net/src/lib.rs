@@ -6,6 +6,7 @@ pub mod worker;
 pub mod geometry;
 pub mod telemetry;
 pub mod node;
+pub mod external;
 
 pub use error::*;
 pub use routing::*;
@@ -15,6 +16,7 @@ pub use worker::*;
 pub use geometry::*;
 pub use telemetry::*;
 pub use node::*;
+pub use external::*;
 
 #[cfg(test)]
 mod tests {

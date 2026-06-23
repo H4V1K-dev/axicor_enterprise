@@ -110,7 +110,48 @@ fn main() {
     // Set up lock-free command queues for thread communication
     let (shard_tx, shard_rx) = crossbeam::channel::unbounded();
     let (result_tx, result_rx) = crossbeam::channel::unbounded();
-    
+
+    // Initialize External UDP I/O Server if configured in manifest
+    let io_server = if manifest.network.external_udp_in > 0 {
+        let in_addr = format!("127.0.0.1:{}", manifest.network.external_udp_in);
+        match net::ExternalIoServer::bind(&in_addr) {
+            Ok(server) => Some(Arc::new(server)),
+            Err(e) => {
+                tracing::error!("Failed to bind UDP I/O Server to {}: {:?}", in_addr, e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let (io_output_tx, io_output_rx) = crossbeam::channel::unbounded::<(u32, Vec<u8>)>();
+
+    if let Some(ref server) = io_server {
+        let server_clone = server.clone();
+        let shutdown_clone = shutdown_flag.clone();
+        std::thread::spawn(move || {
+            server_clone.run_rx_loop(shutdown_clone);
+        });
+
+        let server_clone_tx = server.clone();
+        let shutdown_clone_tx = shutdown_flag.clone();
+        std::thread::spawn(move || {
+            while !shutdown_clone_tx.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Ok((zone_hash, data)) = io_output_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    if let Err(e) = server_clone_tx.send_outputs(zone_hash, &data) {
+                        tracing::error!("Failed to send external outputs: {:?}", e);
+                    }
+                }
+            }
+        });
+    }
+
+    let io_input_queue = io_server.as_ref().map(|s| s.input_queue.clone());
+    let io_dopamine = io_server.as_ref().map(|s| s.global_dopamine.clone());
+    let num_virtual_axons = manifest.memory.virtual_axons as u32;
+    let num_outputs = manifest.memory.num_outputs as u32;
+
     let mut runtime = runtime::NodeRuntime::new(
         shard_engine,
         shard_tx,
@@ -123,7 +164,12 @@ fn main() {
         manifest.settings.plasticity.prune_threshold,
         manifest.settings.plasticity.max_sprouts,
         manifest.settings.night_interval_ticks as u32,
-        shutdown_flag,
+        shutdown_flag.clone(),
+        io_input_queue,
+        Some(io_output_tx),
+        io_dopamine,
+        num_virtual_axons,
+        num_outputs,
     );
     
     // Spawn OS execution context thread and run orchestrator loop
