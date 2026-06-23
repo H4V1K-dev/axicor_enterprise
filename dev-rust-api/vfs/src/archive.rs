@@ -195,17 +195,43 @@ pub const fn page_padding(offset: usize) -> usize {
     (4096 - (offset % 4096)) % 4096
 }
 
-/// Packs the contents of a flat directory into a page-aligned archive.
+fn collect_files_recursive(
+    dir: &Path,
+    base: &Path,
+    files: &mut Vec<(String, std::path::PathBuf, std::fs::Metadata)>,
+) -> Result<(), VfsError> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_files_recursive(&path, base, files)?;
+        } else if file_type.is_file() {
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|_| VfsError::PathTooLong(path.to_string_lossy().into_owned()))?;
+            let rel_str = rel.to_string_lossy().to_string().replace("\\", "/");
+            if rel_str.len() > 255 {
+                return Err(VfsError::PathTooLong(rel_str));
+            }
+            let metadata = entry.metadata()?;
+            files.push((rel_str, path, metadata));
+        }
+    }
+    Ok(())
+}
+
+/// Packs the contents of a directory recursively into a page-aligned archive.
 ///
 /// Implements INV-VFS-001 OS Page Alignment.
 ///
 /// # Arguments
-/// * `project_dir` - The path of the directory to pack. Subdirectories are ignored.
+/// * `project_dir` - The path of the directory to pack.
 /// * `out_file` - The destination path of the output `.axic` archive file.
 ///
 /// # Errors
 /// Returns `VfsError` if reading/writing fails, if `project_dir` is not a directory,
-/// or if a file path exceeds 255 bytes.
+/// or if a relative file path exceeds 255 bytes.
 pub fn pack_directory(project_dir: &Path, out_file: &Path) -> Result<(), VfsError> {
     use std::io::{BufWriter, Write};
 
@@ -214,22 +240,7 @@ pub fn pack_directory(project_dir: &Path, out_file: &Path) -> Result<(), VfsErro
     }
 
     let mut entries = Vec::new();
-    for entry in std::fs::read_dir(project_dir)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        if file_type.is_file() {
-            let file_name = entry.file_name();
-            let name_str = file_name.into_string().map_err(|os_str| {
-                VfsError::PathTooLong(os_str.to_string_lossy().into_owned())
-            })?;
-            if name_str.len() > 255 {
-                return Err(VfsError::PathTooLong(name_str));
-            }
-            let path = entry.path();
-            let metadata = entry.metadata()?;
-            entries.push((name_str, path, metadata));
-        }
-    }
+    collect_files_recursive(project_dir, project_dir, &mut entries)?;
 
     // Sort entries to make packing deterministic
     entries.sort_by(|a, b| a.0.cmp(&b.0));
@@ -621,5 +632,50 @@ mod tests {
         let archive = AxicArchive::open(temp.path()).unwrap();
         assert!(archive.toc.contains_key("ab"));
         assert!(!archive.toc.contains_key("ab\0c"));
+    }
+
+    #[test]
+    fn test_archive_pack_recursive() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let source_dir = dir.path();
+
+        // Create structure:
+        // source_dir/file_root.bin
+        // source_dir/nested/file_nested.bin
+        // source_dir/nested/deep/file_deep.bin
+        let root_file = source_dir.join("file_root.bin");
+        let nested_dir = source_dir.join("nested");
+        let deep_dir = nested_dir.join("deep");
+
+        std::fs::create_dir_all(&deep_dir).unwrap();
+
+        let nested_file = nested_dir.join("file_nested.bin");
+        let deep_file = deep_dir.join("file_deep.bin");
+
+        std::fs::write(&root_file, b"root content").unwrap();
+        std::fs::write(&nested_file, b"nested content").unwrap();
+        std::fs::write(&deep_file, b"deep content").unwrap();
+
+        let archive_temp = NamedTempFile::new().unwrap();
+        let archive_path = archive_temp.path();
+
+        pack_directory(source_dir, archive_path).unwrap();
+
+        let archive = AxicArchive::open(archive_path).unwrap();
+
+        // Check file count
+        assert_eq!(archive.toc.len(), 3);
+
+        // Check files are present with correct paths (using forward slashes)
+        assert!(archive.toc.contains_key("file_root.bin"));
+        assert!(archive.toc.contains_key("nested/file_nested.bin"));
+        assert!(archive.toc.contains_key("nested/deep/file_deep.bin"));
+
+        // Check content
+        assert_eq!(archive.get_file("file_root.bin").unwrap(), b"root content");
+        assert_eq!(archive.get_file("nested/file_nested.bin").unwrap(), b"nested content");
+        assert_eq!(archive.get_file("nested/deep/file_deep.bin").unwrap(), b"deep content");
     }
 }
