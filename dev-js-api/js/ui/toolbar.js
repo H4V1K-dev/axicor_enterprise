@@ -157,6 +157,31 @@ export function initToolbar() {
     }
   });
   
+  const historyContainer = document.createElement('div');
+  historyContainer.id = 'history-panel-container';
+  historyContainer.className = 'ax-panel bottom-floating-panel';
+  historyContainer.style.display = 'flex';
+  historyContainer.style.alignItems = 'center';
+  historyContainer.style.gap = '4px';
+  historyContainer.style.padding = '4px 8px';
+  historyContainer.style.height = '36px';
+  historyContainer.style.boxSizing = 'border-box';
+
+  const undoBtn = document.createElement('button');
+  undoBtn.id = 'history-undo-btn';
+  undoBtn.className = 'ax-btn';
+  undoBtn.title = 'Undo (Ctrl+Z)';
+  undoBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-undo-2"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>`;
+
+  const redoBtn = document.createElement('button');
+  redoBtn.id = 'history-redo-btn';
+  redoBtn.className = 'ax-btn';
+  redoBtn.title = 'Redo (Ctrl+Y)';
+  redoBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-redo-2"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg>`;
+
+  historyContainer.appendChild(undoBtn);
+  historyContainer.appendChild(redoBtn);
+
   const saveAllBtn = document.createElement('button');
   saveAllBtn.id = 'save-all-btn';
   saveAllBtn.className = 'ax-panel bottom-floating-panel interactive-panel';
@@ -164,6 +189,7 @@ export function initToolbar() {
   saveAllBtn.addEventListener('click', saveAllLayoutChanges);
   
   saveContainer.appendChild(deleteBtn);
+  saveContainer.appendChild(historyContainer);
   saveContainer.appendChild(saveAllBtn);
   
   document.body.appendChild(saveContainer);

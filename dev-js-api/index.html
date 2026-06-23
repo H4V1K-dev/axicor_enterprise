@@ -88,21 +88,33 @@
     </div>
   </div>
 
-  <!-- Top Left CAD Header Panels Container -->
-  <div id="top-left-container">
-    <div id="cad-title-panel" class="ax-panel floating-header-panel">
-      <span class="cad-logo">AxiCAD</span>
-      <span class="cad-model" id="cad-model-name">OCTOPUS</span>
+
+  <!-- Top Header Bar Container -->
+  <div id="top-header-bar">
+    <!-- Left Panel: Logo, Project, Explorer -->
+    <div id="top-left-container" class="ax-panel floating-header-panel">
+      <div class="cad-brand">
+        <span class="cad-logo">AxiCAD</span>
+      </div>
+      <div class="cad-divider"></div>
+      <div class="cad-project">
+        <span class="cad-model" id="cad-model-name">OCTOPUS</span>
+      </div>
+      <button id="summon-hub-flat-btn" class="ax-btn explorer-btn" title="Открыть Project Hub">
+        EXPLORER
+      </button>
     </div>
 
-    <button id="summon-hub-flat-btn" class="ax-panel floating-header-panel interactive-panel"
-      title="Открыть Project Hub">
-      <span class="explorer-text">EXPLORER</span>
-    </button>
-
-    <button id="stats-trigger-btn" class="ax-panel floating-header-panel interactive-panel">
-      Статистика
-    </button>
+    <!-- Center Panel: The Brow (Workspaces layout only) -->
+    <div id="top-center-brow" class="ax-panel floating-header-panel">
+      <div id="workspace-tabs" style="display: none;">
+        <button class="workspace-tab active" data-workspace="model-composition">Composition</button>
+        <button class="workspace-tab" data-workspace="neuron-lab">Neuron Lab</button>
+        <button class="workspace-tab" data-workspace="connectom-editor">Connectom</button>
+        <button class="workspace-tab" data-workspace="growth-simulator">Growth</button>
+        <button class="workspace-tab" data-workspace="inference-mode">Inference</button>
+      </div>
+    </div>
   </div>
 
   <!-- Floating stats overlay -->
@@ -238,6 +250,36 @@
   <div id="sidebar" class="ax-panel">
     <button id="sidebar-toggle-btn" class="ax-btn ax-btn--secondary" title="Свернуть/Развернуть инспектор">▶</button>
     <div id="sidebar-inner"></div>
+  </div>
+
+  <!-- Growth Simulator Playback Panel (Bottom Center) -->
+  <div id="growth-playback-panel">
+    <button class="playback-btn" id="growth-play-btn" title="Запуск роста">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="lucide lucide-play"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+    </button>
+    <button class="playback-btn" id="growth-step-btn" title="Сделать шаг роста">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-skip-forward"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></svg>
+    </button>
+    <button class="playback-btn" id="growth-reset-btn" title="Сбросить рост">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><polyline points="3 3 3 8 8 8"/></svg>
+    </button>
+    <div class="playback-divider"></div>
+    <span class="playback-label" id="growth-status-label">Рост: Шаг 0 / 100</span>
+  </div>
+
+  <!-- Inference Mode Playback Panel (Bottom Center) -->
+  <div id="inference-playback-panel">
+    <button class="playback-btn" id="inference-play-btn" title="Запустить инференс">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="lucide lucide-play"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+    </button>
+    <button class="playback-btn" id="inference-step-btn" title="Вычислить такт">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-skip-forward"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></svg>
+    </button>
+    <button class="playback-btn" id="inference-reset-btn" title="Сбросить симуляцию">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><polyline points="3 3 3 8 8 8"/></svg>
+    </button>
+    <div class="playback-divider"></div>
+    <span class="playback-label" id="inference-status-label">Инференс: Такт 0</span>
   </div>
 
   <div id="tooltip">

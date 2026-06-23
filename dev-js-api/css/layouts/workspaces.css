@@ -1,0 +1,224 @@
+/* ==========================================================================
+   AXICOR VISUALIZER — WORKSPACES CSS
+   ========================================================================== */
+
+/* Timeline/Playback controls for growth & simulation modes */
+#growth-playback-panel,
+#inference-playback-panel {
+  position: fixed;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  height: 44px;
+  border-radius: var(--ax-radius-xl);
+  background: rgba(20, 21, 25, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--ax-shadow-lg);
+}
+
+.playback-btn {
+  background: var(--ax-bg-surface);
+  border: 1px solid var(--ax-border);
+  color: var(--ax-text-secondary);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ax-radius-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--ax-duration-fast) var(--ax-ease);
+}
+
+.playback-btn:hover {
+  background: var(--ax-bg-hover);
+  color: var(--ax-text);
+  border-color: var(--ax-scrollbar-hover);
+}
+
+.playback-btn.active {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border-color: #10b981;
+}
+
+.playback-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--ax-border-subtle);
+}
+
+.playback-label {
+  font-family: var(--ax-font-mono);
+  font-size: 11px;
+  color: var(--ax-text-muted);
+  min-width: 90px;
+}
+
+/* ==========================================================================
+   AXICOR VISUALIZER — TOP HEADER BAR (LEFT PANEL & BROW)
+   ========================================================================== */
+
+#top-header-bar {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  z-index: 1000;
+  pointer-events: none; /* Allows interacting with canvas beneath empty spaces */
+}
+
+#top-header-bar > * {
+  pointer-events: auto; /* Re-enable pointer events on the actual panels */
+}
+
+.floating-header-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: var(--ax-radius-xl);
+  background: rgba(20, 21, 25, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--ax-shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-sizing: border-box;
+}
+
+/* Left Group */
+#top-left-container {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cad-brand {
+  display: flex;
+  align-items: center;
+}
+
+.cad-logo {
+  color: #10b981;
+  font-family: var(--ax-font-sans);
+  font-weight: 800;
+  font-size: 13.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.cad-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 10px;
+  flex-shrink: 0;
+}
+
+.cad-project {
+  display: flex;
+  align-items: center;
+}
+
+.cad-model {
+  color: var(--ax-text);
+  font-family: var(--ax-font-mono);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.explorer-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ax-radius-md);
+  color: var(--ax-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all var(--ax-duration-fast) var(--ax-ease);
+  height: 24px;
+  box-sizing: border-box;
+}
+
+.explorer-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ax-text);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Center Group: The Brow (Workspaces tabs) - permanently left-aligned */
+#top-center-brow {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+#workspace-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspace-tab {
+  background: transparent;
+  border: none;
+  color: var(--ax-text-muted);
+  font-family: var(--ax-font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 6px 12px;
+  border-radius: var(--ax-radius-md);
+  cursor: pointer;
+  transition: all var(--ax-duration-fast) var(--ax-ease);
+  white-space: nowrap;
+}
+
+.workspace-tab:hover {
+  color: var(--ax-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.workspace-tab.active {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  font-weight: 700;
+}
+
+#history-panel-container {
+  position: relative;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+}
+
+/* History dropdown positioning above the bottom right panel */
+#history-dropdown-panel {
+  top: auto !important;
+  left: auto !important;
+  bottom: 44px !important;
+  right: 0 !important;
+}
+
+
+

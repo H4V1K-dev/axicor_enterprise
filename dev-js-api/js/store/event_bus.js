@@ -23,6 +23,12 @@ export const EVENTS = {
   MODE_CHANGED: 'mode:changed',
 
   /**
+   * Fired when the active workspace changes.
+   * Payload: { workspace: string }
+   */
+  WORKSPACE_CHANGED: 'workspace:changed',
+
+  /**
    * Fired when a shard's position or size is updated in the editor.
    * Payload: { shardKey: string, position: Vec3, size: {w: number, d: number, h: number} }
    */

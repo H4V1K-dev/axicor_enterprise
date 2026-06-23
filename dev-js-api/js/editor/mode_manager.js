@@ -134,7 +134,6 @@ export class ModeManager {
       target.closest('.bottom-floating-panel') ||
       target.closest('#bottom-left-container') ||
       target.closest('#bottom-right-container') ||
-      target.closest('#top-left-container') ||
       target.closest('#ax-confirm-modal') ||
       target.closest('#ax-settings-modal')
     );

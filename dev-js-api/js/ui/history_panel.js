@@ -44,89 +44,52 @@ function updateElapsedTimesOnly() {
  * Initializes the history control panel widget and events.
  */
 export function initHistoryPanel() {
-  if (document.getElementById('history-panel-container')) return;
+  panelContainer = document.getElementById('history-panel-container');
+  if (!panelContainer) return;
 
-  // Create main control bar
-  panelContainer = document.createElement('div');
-  panelContainer.id = 'history-panel-container';
-  panelContainer.className = 'ax-panel'; // Glassmorphic backing
-  panelContainer.innerHTML = `
-    <button id="history-undo-btn" class="ax-btn" title="Отменить последнее действие (Ctrl+Z)">←</button>
-    <button id="history-toggle-btn" class="ax-btn">Глобальная история</button>
-    <button id="history-redo-btn" class="ax-btn" title="Повторить отмененное действие (Ctrl+Y)">→</button>
-  `;
-
-  // Append history panel container to #top-left-container as the last element
-  const topLeft = document.getElementById('top-left-container');
-  if (topLeft) {
-    topLeft.appendChild(panelContainer);
-  } else {
-    document.body.appendChild(panelContainer);
-  }
-
-
-
-  // Create horizontal scrollable action dropdown list inside panelContainer (for absolute positioning alignment)
+  // Create horizontal scrollable action dropdown list inside panelContainer
   dropdownPanel = document.createElement('div');
   dropdownPanel.id = 'history-dropdown-panel';
+  dropdownPanel.style.display = 'none';
   panelContainer.appendChild(dropdownPanel);
 
-  // Wire horizontal mouse wheel scrolling
-  dropdownPanel.addEventListener('wheel', (e) => {
-    if (e.deltaY !== 0) {
-      e.preventDefault();
-      dropdownPanel.scrollLeft += e.deltaY;
-    }
-  });
-
-  // Wire buttons events
   const undoBtn = document.getElementById('history-undo-btn');
   const redoBtn = document.getElementById('history-redo-btn');
-  const toggleBtn = document.getElementById('history-toggle-btn');
 
-  undoBtn.addEventListener('click', () => {
-    if (historyManager.previewActive) {
-      historyManager.resetPreview();
-    }
-    historyManager.undoGlobal();
-    updateHistoryUI();
-  });
-
-  redoBtn.addEventListener('click', () => {
-    if (historyManager.previewActive) {
-      historyManager.resetPreview();
-    }
-    historyManager.redoGlobal();
-    updateHistoryUI();
-  });
-
-  toggleBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (historyManager.previewActive) {
-      // Commit preview
-      historyManager.applyPreview();
-      closeDropdown();
+  if (undoBtn) {
+    undoBtn.addEventListener('click', () => {
+      if (historyManager.previewActive) {
+        historyManager.resetPreview();
+      }
+      historyManager.undoGlobal();
       updateHistoryUI();
-    } else {
-      toggleDropdown();
+    });
+  }
+
+  if (redoBtn) {
+    redoBtn.addEventListener('click', () => {
+      if (historyManager.previewActive) {
+        historyManager.resetPreview();
+      }
+      historyManager.redoGlobal();
+      updateHistoryUI();
+    });
+  }
+
+  // Toggle dropdown on panel click (excluding buttons)
+  panelContainer.addEventListener('click', (e) => {
+    if (e.target.closest('#history-undo-btn') || e.target.closest('#history-redo-btn')) {
+      return;
     }
+    e.stopPropagation();
+    toggleDropdown();
   });
 
   // Close dropdown on click outside
-  window.addEventListener('pointerdown', (e) => {
-    if (
-      panelContainer.contains(e.target) ||
-      dropdownPanel.contains(e.target) ||
-      e.target.closest('#ax-confirm-modal') ||
-      e.target.closest('#ax-settings-modal')
-    ) {
-      return;
+  document.addEventListener('click', (e) => {
+    if (dropdownPanel && dropdownPanel.classList.contains('open') && !panelContainer.contains(e.target)) {
+      closeDropdown();
     }
-    if (historyManager.previewActive) {
-      historyManager.resetPreview();
-      updateHistoryUI();
-    }
-    closeDropdown();
   });
 
   // Listen to reactives updates
@@ -149,7 +112,6 @@ export function initHistoryPanel() {
         historyManager.resetPreview();
         updateHistoryUI();
       }
-      closeDropdown();
     }
   });
 
@@ -228,17 +190,19 @@ function updateHistoryUI() {
   }
 
   // Center button text and class
-  if (historyManager.previewActive) {
-    toggleBtn.textContent = 'Применить';
-    toggleBtn.classList.add('preview-active');
-  } else {
-    toggleBtn.classList.remove('preview-active');
-    if (isFocused) {
-      const selShardKey = store.get('selectedShardKey');
-      const label = selShardKey ? 'Шард' : 'Сокет';
-      toggleBtn.textContent = `${label}: История`;
+  if (toggleBtn) {
+    if (historyManager.previewActive) {
+      toggleBtn.textContent = 'Применить';
+      toggleBtn.classList.add('preview-active');
     } else {
-      toggleBtn.textContent = 'Глобальная история';
+      toggleBtn.classList.remove('preview-active');
+      if (isFocused) {
+        const selShardKey = store.get('selectedShardKey');
+        const label = selShardKey ? 'Шард' : 'Сокет';
+        toggleBtn.textContent = `${label}: История`;
+      } else {
+        toggleBtn.textContent = 'Глобальная история';
+      }
     }
   }
 

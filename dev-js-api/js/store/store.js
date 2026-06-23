@@ -36,6 +36,7 @@ const state = {
   selectedShardKey: null,
   selectedSocketKey: null,
   connectionMode: 1,
+  activeWorkspace: 'model-composition',
   activeMode: 'inspect',
   hasUnsavedChanges: false,
   modalActive: false,

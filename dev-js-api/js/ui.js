@@ -13,6 +13,7 @@ import { initViewCube } from './ui/viewcube.js';
 import { showToast } from './ui/toast.js';
 import { store } from './store/store.js';
 import { modeManager } from './editor.js';
+import { initWorkspaces } from './ui/workspaces.js';
 
 export { showToast, showSidebar, hideSidebar, saveAllLayoutChanges };
 
@@ -261,4 +262,5 @@ export function initUI() {
   initValidatorPanel(validatorBtn);
   initHistoryPanel();
   initViewCube();
+  initWorkspaces();
 }

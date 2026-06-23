@@ -2,48 +2,6 @@
    AXICOR VISUALIZER — EDITOR SPECIFIC LAYOUT
    ========================================================================== */
 
-/* --- Top Left CAD Header Panel --- */
-#top-left-container {
-  position: fixed;
-  top: 16px;
-  left: 16px;
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  gap: 12px;
-}
-
-.floating-header-panel {
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  height: 36px;
-  border-radius: var(--ax-radius-lg);
-  font-size: var(--ax-text-sm);
-  box-shadow: var(--ax-shadow-md);
-  margin: 0;
-}
-
-#cad-title-panel {
-  display: flex;
-  align-items: center;
-  gap: var(--ax-space-2);
-}
-
-.cad-logo {
-  font-family: var(--ax-font-sans);
-  font-weight: 850;
-  font-size: var(--ax-text-sm);
-  color: var(--ax-text);
-  letter-spacing: 1.5px;
-}
-
-.cad-model {
-  font-family: var(--ax-font-mono);
-  font-weight: 600;
-  font-size: var(--ax-text-sm);
-  color: var(--ax-accent);
-}
 
 .interactive-panel {
   cursor: pointer;
@@ -861,16 +819,24 @@
 #tools-sidebar.folding .ax-list button:nth-child(1) {
   transition-delay: 0.7s;
 }
-
 /* --- History Panel UI --- */
 #history-panel-container {
+  position: fixed;
+  top: 16px;
+  right: 170px;
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 4px;
   height: 36px;
   box-sizing: border-box;
-  position: relative; /* to contain absolute dropdown */
+  z-index: 1000;
+  border-radius: var(--ax-radius-lg);
+  background: var(--ax-bg-surface);
+  border: 1px solid var(--ax-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--ax-shadow-md);
 }
 
 #history-panel-container .ax-btn {
@@ -878,11 +844,13 @@
   color: var(--ax-text-secondary);
   border: none;
   border-radius: var(--ax-radius-md);
-  padding: 4px 12px;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
   font-size: var(--ax-text-sm);
   font-weight: 600;
   cursor: pointer;
-  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -892,22 +860,6 @@
 #history-panel-container .ax-btn:hover:not(:disabled) {
   background: var(--ax-bg-hover);
   color: var(--ax-text);
-}
-
-#history-panel-container #history-toggle-btn {
-  font-weight: 700;
-  min-width: 140px;
-}
-
-#history-panel-container #history-toggle-btn.preview-active {
-  background: rgba(16, 185, 129, 0.15) !important;
-  border: 1px solid rgba(16, 185, 129, 0.45) !important;
-  color: #10b981 !important;
-}
-
-#history-panel-container #history-toggle-btn.preview-active:hover {
-  background: rgba(16, 185, 129, 0.25) !important;
-  color: #ffffff !important;
 }
 
 #history-dropdown-panel {
