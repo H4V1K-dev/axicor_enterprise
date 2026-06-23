@@ -29,6 +29,23 @@ pub const fn compute_glif(
     v_integrated.wrapping_sub(diff >> leak_shift)
 }
 
+/// Legacy division-based GLIF calculation.
+/// Uses integer division by `leak_rate` instead of bit shift.
+#[inline]
+pub const fn compute_glif_div(
+    voltage: i32,
+    rest_potential: i32,
+    leak_rate: i32,
+    input_current: i32,
+) -> i32 {
+    if leak_rate <= 0 {
+        voltage + input_current
+    } else {
+        let leak = (voltage - rest_potential) / leak_rate;
+        voltage - leak + input_current
+    }
+}
+
 /// Updates the homeostatic threshold offset based on decay and spiking activity.
 ///
 /// # INV-PHYS-001 Zero Warp Divergence
@@ -134,5 +151,17 @@ mod tests {
         // diff >> 30 = -1. result = 9995 - (-1) = 9996.
         let val_max_shift = compute_glif(9995, 10000, 30, 0);
         assert_eq!(val_max_shift, 9996);
+    }
+
+    #[test]
+    fn test_glif_div_compatibility() {
+        // voltage=100, rest=-70, leak=2, input=0 -> new_v = 15
+        assert_eq!(compute_glif_div(100, -70, 2, 0), 15);
+        // voltage=-100, rest=-70, leak=2, input=0 -> new_v = -85
+        assert_eq!(compute_glif_div(-100, -70, 2, 0), -85);
+        // voltage=-70, rest=-70, leak=2, input=50 -> new_v = -20
+        assert_eq!(compute_glif_div(-70, -70, 2, 50), -20);
+        // leak_rate <= 0 handling
+        assert_eq!(compute_glif_div(100, -70, 0, 10), 110);
     }
 }

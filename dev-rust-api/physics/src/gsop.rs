@@ -75,6 +75,77 @@ pub const fn compute_gsop_weight(
     new_abs * sign
 }
 
+/// Legacy GSOP weight calculation matching the behavior of stable legacy code.
+///
+/// Preserves:
+/// - 16-rank inertia logic (using `abs_weight >> 27` and size-16 `inertia_curve`).
+/// - Optional distance-to-spike logic with spatial cooling (`min_dist >> 4`).
+/// - Allowing `raw_pot` to be negative (no clamp to 0 for potentiation before decay/clamp).
+/// - Non-branchless control flow corresponding exactly to the legacy CPU emulation.
+#[inline]
+pub fn compute_gsop_weight_legacy(
+    weight: i32,
+    dopamine: i16,
+    dist_to_spike: Option<u32>,
+    burst_count: u8,
+    d1_affinity: u8,
+    d2_affinity: u8,
+    gsop_potentiation: u16,
+    gsop_depression: u16,
+    inertia_curve: &[u8; 16],
+) -> i32 {
+    let sign = if weight >= 0 { 1 } else { -1 };
+    let abs_w = weight.abs();
+
+    // 1. Dopamine modulation
+    let pot_mod = ((dopamine as i32) * (d1_affinity as i32)) >> 7;
+    let dep_mod = ((dopamine as i32) * (d2_affinity as i32)) >> 7;
+
+    let raw_pot = (gsop_potentiation as i32) + pot_mod;
+    let raw_dep = (gsop_depression as i32) - dep_mod;
+    let final_dep = raw_dep.max(0);
+
+    // 2. Inertia and bursts
+    let rank = (abs_w >> 27) as usize;
+    let rank_safe = rank.min(15);
+    let inertia = inertia_curve[rank_safe] as i32;
+    let burst_mult = if burst_count > 0 {
+        burst_count as i32
+    } else {
+        1
+    };
+
+    let delta_pot = (raw_pot * inertia * burst_mult) >> 7;
+    let delta_dep = (final_dep * inertia * burst_mult) >> 7;
+
+    // 3. Spatial Cooling
+    let is_active = dist_to_spike.is_some();
+    let min_dist = dist_to_spike.unwrap_or(u32::MAX);
+    let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
+
+    // 4. Final delta
+    let delta = if is_active {
+        delta_pot >> cooling_shift
+    } else {
+        -delta_dep
+    };
+
+    // 5. Global Decay
+    let decay = 128i32;
+    let delta = (delta * decay) >> 7;
+
+    // 6. Clamp
+    let mut new_abs = abs_w + delta;
+    if new_abs < 0 {
+        new_abs = 0;
+    }
+    if new_abs > 2140000000 {
+        new_abs = 2140000000;
+    }
+
+    sign * new_abs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +242,81 @@ mod tests {
 
         assert_eq!(delta_no_cooling, 100);
         assert_eq!(delta_cooled, 25);
+    }
+
+    #[test]
+    fn test_gsop_potentiation_basic() {
+        let inertia_curve = [
+            128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+        ];
+        let w = compute_gsop_weight_legacy(
+            100,
+            0,
+            Some(0),
+            0,
+            128,
+            128,
+            80,
+            40,
+            &inertia_curve,
+        );
+        assert_eq!(w, 180);
+    }
+
+    #[test]
+    fn test_gsop_depression_basic() {
+        let inertia_curve = [
+            128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+        ];
+        let w = compute_gsop_weight_legacy(
+            100,
+            0,
+            None,
+            0,
+            128,
+            128,
+            80,
+            40,
+            &inertia_curve,
+        );
+        assert_eq!(w, 60);
+    }
+
+    #[test]
+    fn test_gsop_clamp_max_legacy() {
+        let inertia_curve = [
+            128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+        ];
+        let w = compute_gsop_weight_legacy(
+            2140000000,
+            0,
+            Some(0),
+            0,
+            128,
+            128,
+            80,
+            40,
+            &inertia_curve,
+        );
+        assert_eq!(w, 2140000000);
+    }
+
+    #[test]
+    fn test_gsop_spatial_cooling_legacy() {
+        let inertia_curve = [
+            128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+        ];
+        let w = compute_gsop_weight_legacy(
+            1000,
+            0,
+            Some(32),
+            0,
+            128,
+            128,
+            80,
+            40,
+            &inertia_curve,
+        );
+        assert_eq!(w, 1020);
     }
 }

@@ -20,9 +20,45 @@ pub const fn is_in_active_tail(head: u32, segment_idx: u32, prop_len: u32) -> bo
     head.wrapping_sub(segment_idx) < prop_len
 }
 
+/// Legacy axon head initialization.
+///
+/// In the legacy `signal.rs`, the head position was initialized as
+/// `AXON_SENTINEL - length_segments * v_seg`.
+#[inline]
+pub const fn initial_axon_head_legacy(length_segments: u32, v_seg: u32) -> u32 {
+    types::AXON_SENTINEL.wrapping_sub(length_segments.wrapping_mul(v_seg))
+}
+
+/// Legacy active tail check containing explicit sentinel checks.
+#[inline]
+pub const fn is_segment_active_legacy(axon_head: u32, segment_idx: u32, propagation_length: u32) -> bool {
+    if axon_head == types::AXON_SENTINEL {
+        return false;
+    }
+    axon_head.wrapping_sub(segment_idx) < propagation_length
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_legacy_axon_head_and_active_tail() {
+        use types::AXON_SENTINEL;
+        let head = initial_axon_head_legacy(10, 1);
+        assert_ne!(head, AXON_SENTINEL);
+        assert_ne!(head, 0);
+
+        // test mid flight
+        let length = 5u32;
+        let propagation = 3u32;
+        let mut h = initial_axon_head_legacy(length, 1);
+        for _ in 0..(length - propagation) {
+            h = h.wrapping_add(1);
+        }
+        let starting_segment = AXON_SENTINEL.wrapping_sub(length * 1);
+        assert!(is_segment_active_legacy(h, starting_segment, propagation));
+    }
 
     #[test]
     fn test_spike_birth_wrap_around() {

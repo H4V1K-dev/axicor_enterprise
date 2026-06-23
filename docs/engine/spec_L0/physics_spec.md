@@ -167,17 +167,24 @@
 Функции принимают единичные скалярные значения, ничего не знают о графах и массивах. Выполняются на GPU/CPU без ветвлений (Zero Warp Divergence).
 *   `pub const fn compute_glif(voltage: i32, rest_potential: i32, leak_shift: u32, input_current: i32) -> i32` — Интеграция токов и экспоненциальная утечка заряда (через битовый сдвиг).
 *   `pub const fn update_homeostasis(offset: i32, decay: u16, is_spiking: bool, penalty: i32) -> i32` — Вычисляет адаптивный порог.
-*   `pub const fn initial_axon_head(length_segments: u32, v_seg: u32) -> u32` — Вычисление стартовой позиции головы аксона от `AXON_SENTINEL`.
+*   `pub const fn initial_axon_head(v_seg: u32) -> u32` — Вычисление стартовой позиции головы аксона (`0 - v_seg` для последующего сдвига).
 *   `pub const fn is_in_active_tail(head_idx: u32, segment_idx: u32, prop_len: u32) -> bool` — Проверка попадания в "активный хвост" летящего сигнала (wrap-around math).
-*   `pub const fn inertia_rank(abs_weight: i32) -> usize` — Вычисляет ранг инерции синапса (0..7) через логарифмическое масштабирование в Mass Domain.
-*   `pub const fn compute_gsop_weight(weight: i32, dopamine: i16, d1_aff: u8, d2_aff: u8, pot: u16, dep: u16, inertia: i32, is_active: bool, burst_mult: u32, cooling_shift: u32) -> i32` — Полный расчет изменения синаптического веса в Mass Domain.
+*   `pub const fn inertia_rank(abs_weight: i32) -> usize` — Вычисляет ранг инерции синапса (0..7) через битовый сдвиг в Mass Domain.
+*   `pub const fn compute_gsop_weight(weight: i32, dopamine: i16, d1_aff: u8, d2_aff: u8, pot: u16, dep: u16, inertia: i32, is_active: bool, burst_mult: i32, cooling_shift: u32) -> i32` — Полный расчет изменения синаптического веса в Mass Domain.
 
-#### 2. Биологическая деривация (AOT Math)
+#### 2. Совместимость с легаси-кодом (Legacy Compatibility)
+Функции для поддержки вычислений старой архитектуры и обеспечения совместимости со старыми тестами.
+*   `pub const fn compute_glif_div(voltage: i32, rest_potential: i32, leak_rate: i32, input_current: i32) -> i32` — Легаси-расчет GLIF с использованием целочисленного деления на `leak_rate` вместо битового сдвига.
+*   `pub const fn initial_axon_head_legacy(length_segments: u32, v_seg: u32) -> u32` — Легаси-расчет начальной позиции головы аксона как смещения от `AXON_SENTINEL`.
+*   `pub const fn is_segment_active_legacy(axon_head: u32, segment_idx: u32, propagation_length: u32) -> bool` — Легаси-проверка активности сегмента с явным отсечением сентинеля.
+*   `pub fn compute_gsop_weight_legacy(weight: i32, dopamine: i16, dist_to_spike: Option<u32>, burst_count: u8, d1_affinity: u8, d2_affinity: u8, gsop_potentiation: u16, gsop_depression: u16, inertia_curve: &[u8; 16]) -> i32` — Легаси-расчет изменения веса синапса по алгоритму CPU-эмуляции.
+
+#### 3. Биологическая деривация (AOT Math)
 Чистые математические преобразования человекочитаемых параметров конфигурации в целочисленные машинные константы. Выполняются один раз при компиляции (Baking).
 *   `pub const fn compile_dds_heartbeat(period_ticks: u32) -> u32` — Вычисляет множитель фазы `heartbeat_m` для Direct Digital Synthesis.
 *   `pub const fn derive_d1_affinity(is_inhibitory: bool) -> u8` — Вычисляет чувствительность к потенциации (LTP-модулятор).
 *   `pub const fn derive_d2_affinity(is_inhibitory: bool) -> u8` — Вычисляет сопротивление к депрессии (LTD-модулятор).
-*   `pub const fn compute_v_seg(speed_m_s: f32, tick_us: u32, voxel_um: f32, seg_voxels: u32) -> Option<u32>` — Безопасный пересчет физической скорости. Возвращает `None`, если `v_seg` получается дробным (защита от Float в горячем цикле).
+*   `pub fn compute_v_seg(speed_m_s: f32, tick_us: u32, voxel_um: f32, seg_voxels: u32) -> Result<u32, &'static str>` — Безопасный пересчет физической скорости. Возвращает `Err`, если `v_seg` получается дробным (защита от Float в горячем цикле) или выходит за границы 255.
 
 ### §4.4. Константы и Магические Числа
 
