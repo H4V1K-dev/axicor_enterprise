@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicBool};
+use std::sync::atomic::AtomicBool;
 use std::net::SocketAddr;
 use tokio::sync::broadcast::Sender;
 use crate::worker::UdpWorker;
@@ -20,7 +20,7 @@ impl NetworkNode {
         routes: Arc<crate::routing::RoutingTable>,
         egress_pool: Arc<transport::EgressPool>,
         reassembly: protocol::ReassemblyBuffer,
-        current_epoch: Arc<AtomicU32>,
+        bsp_barrier: Arc<crate::bsp::BspBarrier>,
         shutdown: Arc<AtomicBool>,
     ) -> UdpWorker {
         // Retrieve or build a new tokio runtime
@@ -56,7 +56,7 @@ impl NetworkNode {
             routes,
             egress_pool,
             reassembly,
-            current_epoch,
+            bsp_barrier,
             shutdown,
         )
     }
@@ -73,7 +73,7 @@ mod tests {
         let routes = Arc::new(crate::routing::RoutingTable::new());
         let egress_pool = Arc::new(transport::EgressPool::new(10));
         let reassembly = protocol::ReassemblyBuffer::new(5);
-        let current_epoch = Arc::new(AtomicU32::new(1));
+        let bsp_barrier = Arc::new(crate::bsp::BspBarrier::new(1, 0, transport::WaitStrategy::Eco));
         let shutdown = Arc::new(AtomicBool::new(false));
 
         // Ephemeral ports
@@ -91,7 +91,7 @@ mod tests {
             routes,
             egress_pool,
             reassembly,
-            current_epoch,
+            bsp_barrier,
             shutdown,
         );
     }

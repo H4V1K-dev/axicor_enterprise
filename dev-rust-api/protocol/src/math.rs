@@ -247,3 +247,44 @@ pub fn encode_spike_batch(
 
     Ok(required_size)
 }
+
+/// Verification of cluster secret for routing tables updates.
+#[inline]
+pub fn validate_cluster_secret(
+    packet_secret: u64,
+    expected_secret: u64,
+) -> Result<(), ProtocolError> {
+    if packet_secret == expected_secret {
+        Ok(())
+    } else {
+        Err(ProtocolError::AuthFailure)
+    }
+}
+
+/// Decodes an external I/O packet (sensors, motors) with zero-copy.
+#[inline]
+pub fn decode_io_packet(
+    buf: &[u8],
+) -> Result<(wire::ExternalIoHeader, &[u8]), ProtocolError> {
+    let header_size = core::mem::size_of::<wire::ExternalIoHeader>();
+    if buf.len() < header_size {
+        return Err(ProtocolError::BufferTooSmall {
+            expected: header_size,
+            actual: buf.len(),
+        });
+    }
+
+    verify_cast_guards::<wire::ExternalIoHeader>(&buf[..header_size])?;
+    let header = bytemuck::pod_read_unaligned::<wire::ExternalIoHeader>(&buf[..header_size]);
+    let header = header.from_le();
+
+    let payload = &buf[header_size..];
+    if payload.len() < header.payload_size as usize {
+        return Err(ProtocolError::BufferTooSmall {
+            expected: header.payload_size as usize,
+            actual: payload.len(),
+        });
+    }
+
+    Ok((header, &payload[..header.payload_size as usize]))
+}

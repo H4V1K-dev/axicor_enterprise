@@ -14,3 +14,5 @@ crossbeam = "0.8.4"
 tokio = { workspace = true }
 axum = "0.7.9"
 tracing = { workspace = true }
+bytemuck = { workspace = true }
+

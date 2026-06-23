@@ -35,7 +35,7 @@ mod tests {
         
         #[cfg(not(feature = "cuda"))]
         {
-            let res = run_differential_suite(layout, 42, &[], BackendType::Cuda);
+            let res = run_differential_suite(layout.clone(), 42, &[], BackendType::Cuda);
             assert!(matches!(res, Err(DifferentialTestError::BackendInitFailed(_))), "Expected Cuda backend initialization to fail when disabled");
         }
 

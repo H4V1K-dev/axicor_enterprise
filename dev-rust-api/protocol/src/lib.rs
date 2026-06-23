@@ -137,5 +137,134 @@ mod tests {
         assert_eq!(full_batch[1], spikes_0[1]);
         assert_eq!(full_batch[2], spikes_1[0]);
     }
+
+    #[test]
+    fn test_validate_cluster_secret() {
+        // E-116: Mismatch of cluster secret returns AuthFailure
+        assert_eq!(validate_cluster_secret(12345, 12345), Ok(()));
+        assert_eq!(validate_cluster_secret(12345, 67890), Err(ProtocolError::AuthFailure));
+    }
+
+    #[test]
+    fn test_decode_io_packet() {
+        let header = wire::ExternalIoHeader {
+            magic: *b"IOPH",
+            zone_hash: 1,
+            matrix_hash: 2,
+            payload_size: 4,
+            global_reward: 10,
+            _padding: 0,
+        };
+        let header_bytes = bytemuck::bytes_of(&header);
+        let payload = [1u8, 2, 3, 4];
+
+        let mut packet = alloc::vec::Vec::new();
+        packet.extend_from_slice(header_bytes);
+        packet.extend_from_slice(&payload);
+
+        let (decoded_header, decoded_payload) = decode_io_packet(&packet).unwrap();
+        assert_eq!(decoded_header.zone_hash, 1);
+        assert_eq!(decoded_header.matrix_hash, 2);
+        assert_eq!(decoded_header.payload_size, 4);
+        assert_eq!(decoded_header.global_reward, 10);
+        assert_eq!(decoded_payload, &payload[..]);
+    }
+
+    #[test]
+    fn test_zero_alloc_hot_path() {
+        // INV-PROTO-001: Ensure zero heap allocations during serialization and fragmentation
+        let header = SpikeBatchHeaderV2 {
+            src_zone_hash: 1,
+            dst_zone_hash: 2,
+            epoch: 3,
+            chunk_idx: 0,
+            total_chunks: 1,
+        };
+        let spikes = [SpikeEventV2 { ghost_id: 1, tick_offset: 10 }];
+        let mut buf = [0u8; 100];
+        let size = encode_spike_batch(&header, &spikes, &mut buf).unwrap();
+
+        let (decoded_header, decoded_spikes) = decode_spike_batch(&buf[..size]).unwrap();
+        assert_eq!(decoded_header.src_zone_hash, 1);
+        assert_eq!(decoded_spikes.len(), 1);
+
+        let fragments: alloc::vec::Vec<_> = fragment_spikes(header, &spikes, 1400).unwrap().collect();
+        assert_eq!(fragments.len(), 1);
+    }
+
+    #[test]
+    fn test_invalid_mtu_limits() {
+        // E-108: MTU below minimum required (24 bytes) returns InvalidMtu
+        let header = SpikeBatchHeaderV2 {
+            src_zone_hash: 1,
+            dst_zone_hash: 2,
+            epoch: 3,
+            chunk_idx: 0,
+            total_chunks: 1,
+        };
+        let spikes = [SpikeEventV2 { ghost_id: 1, tick_offset: 10 }];
+        let res = fragment_spikes(header, &spikes, 23);
+        assert!(matches!(res, Err(ProtocolError::InvalidMtu { mtu: 23, min_required: 24 })));
+    }
+
+    #[test]
+    fn test_reassembly_oob() {
+        // E-106: Fragment index >= total_chunks returns InvalidFragmentIndex
+        let mut buffer = ReassemblyBuffer::new(2);
+        let header = SpikeBatchHeaderV2 {
+            src_zone_hash: 42,
+            dst_zone_hash: 43,
+            epoch: 100,
+            chunk_idx: 5,
+            total_chunks: 2,
+        };
+        let spikes = [SpikeEventV2 { ghost_id: 1, tick_offset: 10 }];
+        let payload = bytemuck::cast_slice::<SpikeEventV2, u8>(&spikes);
+        let res = buffer.insert_chunk(&header, payload);
+        assert!(matches!(res, Err(ProtocolError::InvalidFragmentIndex { index: 5, total: 2 })));
+    }
+
+    #[test]
+    fn test_reassembly_buffer_full() {
+        // D-029: Reassembly buffer full of active slots returns ReassemblyBufferFull
+        let mut buffer = ReassemblyBuffer::new(1);
+        let header1 = SpikeBatchHeaderV2 {
+            src_zone_hash: 42,
+            dst_zone_hash: 43,
+            epoch: 100,
+            chunk_idx: 0,
+            total_chunks: 2,
+        };
+        let spikes = [SpikeEventV2 { ghost_id: 1, tick_offset: 10 }];
+        let payload = bytemuck::cast_slice::<SpikeEventV2, u8>(&spikes);
+
+        buffer.insert_chunk(&header1, payload).unwrap();
+
+        let header2 = SpikeBatchHeaderV2 {
+            src_zone_hash: 99,
+            dst_zone_hash: 43,
+            epoch: 100,
+            chunk_idx: 0,
+            total_chunks: 2,
+        };
+        let res = buffer.insert_chunk(&header2, payload);
+        assert_eq!(res.err(), Some(ProtocolError::ReassemblyBufferFull));
+    }
+
+    #[test]
+    fn test_batch_capacity_bounds() {
+        // E-112: Estimated spikes exceed MAX_BATCH_SPIKES returns BatchCapacityExceeded
+        let mut buffer = ReassemblyBuffer::new(1);
+        let header = SpikeBatchHeaderV2 {
+            src_zone_hash: 42,
+            dst_zone_hash: 43,
+            epoch: 100,
+            chunk_idx: 0,
+            total_chunks: 1,
+        };
+        let large_payload = alloc::vec![0u8; (MAX_BATCH_SPIKES + 1) * 8];
+        let res = buffer.insert_chunk(&header, &large_payload);
+        assert!(matches!(res, Err(ProtocolError::BatchCapacityExceeded { .. })));
+    }
 }
 

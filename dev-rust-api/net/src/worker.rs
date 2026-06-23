@@ -1,5 +1,6 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+use bytemuck;
 
 /// High-Frequency Trading (HFT) network worker.
 ///
@@ -16,7 +17,7 @@ pub struct UdpWorker {
     pub routes: Arc<crate::routing::RoutingTable>,
     pub egress_pool: Arc<transport::EgressPool>,
     pub reassembly: protocol::ReassemblyBuffer,
-    pub current_epoch: Arc<AtomicU32>,
+    pub bsp_barrier: Arc<crate::bsp::BspBarrier>,
     /// Shutdown flag to break the infinite loop gracefully.
     pub shutdown: Arc<AtomicBool>,
 }
@@ -28,7 +29,7 @@ impl UdpWorker {
         routes: Arc<crate::routing::RoutingTable>,
         egress_pool: Arc<transport::EgressPool>,
         reassembly: protocol::ReassemblyBuffer,
-        current_epoch: Arc<AtomicU32>,
+        bsp_barrier: Arc<crate::bsp::BspBarrier>,
         shutdown: Arc<AtomicBool>,
     ) -> Self {
         Self {
@@ -36,7 +37,7 @@ impl UdpWorker {
             routes,
             egress_pool,
             reassembly,
-            current_epoch,
+            bsp_barrier,
             shutdown,
         }
     }
@@ -55,7 +56,7 @@ impl UdpWorker {
                     // Decode header and spikes from packet
                     match protocol::decode_spike_batch(&recv_buf[..len]) {
                         Ok((header, _spikes)) => {
-                            let node_epoch = self.current_epoch.load(Ordering::Acquire);
+                            let node_epoch = self.bsp_barrier.global_epoch.load(Ordering::Acquire);
                             
                             // Biological Amnesia Pattern (E-124, INV-CROSS-012)
                             let epoch_verdict = protocol::validate_epoch_math(
@@ -72,13 +73,51 @@ impl UdpWorker {
                                 }
                                 protocol::EpochAction::SelfHealingFastForward(target_epoch) => {
                                     // Node is lagging, force fast-forward local epoch
-                                    self.current_epoch.store(target_epoch, Ordering::Release);
+                                    self.bsp_barrier.global_epoch.store(target_epoch, Ordering::Release);
+                                    self.bsp_barrier.reset_completed_peers();
                                 }
                                 protocol::EpochAction::Accept => {}
                             }
 
-                            // Feed the chunk into the reassembly buffer
-                            let _ = self.reassembly.insert_chunk(&header, &recv_buf[16..len]);
+                            // 1. Process ACK packet
+                            if header.chunk_idx == 0xFFFF {
+                                self.bsp_barrier.increment_completed_peers();
+                                continue;
+                            }
+
+                            // 2. Process Heartbeat/Empty packet (total_chunks == 0)
+                            if header.total_chunks == 0 {
+                                self.bsp_barrier.increment_completed_peers();
+                                if let Some(target_addr) = self.routes.get_address(header.src_zone_hash) {
+                                    let ack = wire::SpikeBatchHeaderV2 {
+                                        src_zone_hash: header.dst_zone_hash,
+                                        dst_zone_hash: header.src_zone_hash,
+                                        epoch: header.epoch,
+                                        chunk_idx: 0xFFFF, // ACK
+                                        total_chunks: 0,
+                                    };
+                                    let _ = self.socket.send_to(bytemuck::bytes_of(&ack), target_addr);
+                                }
+                                continue;
+                            }
+
+                            // 3. Feed the chunk into the reassembly buffer
+                            match self.reassembly.insert_chunk(&header, &recv_buf[16..len]) {
+                                Ok(Some(_spikes)) => {
+                                    self.bsp_barrier.increment_completed_peers();
+                                    if let Some(target_addr) = self.routes.get_address(header.src_zone_hash) {
+                                        let ack = wire::SpikeBatchHeaderV2 {
+                                            src_zone_hash: header.dst_zone_hash,
+                                            dst_zone_hash: header.src_zone_hash,
+                                            epoch: header.epoch,
+                                            chunk_idx: 0xFFFF, // ACK
+                                            total_chunks: 0,
+                                        };
+                                        let _ = self.socket.send_to(bytemuck::bytes_of(&ack), target_addr);
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                         Err(_) => {
                             // Invalid packet size/alignment, discard silently in HFT loop
@@ -136,7 +175,7 @@ mod tests {
         let routes = Arc::new(crate::routing::RoutingTable::new());
         let egress_pool = Arc::new(transport::EgressPool::new(10));
         let reassembly = protocol::ReassemblyBuffer::new(5);
-        let current_epoch = Arc::new(AtomicU32::new(10));
+        let bsp_barrier = Arc::new(crate::bsp::BspBarrier::new(10, 1, transport::WaitStrategy::Eco));
         let shutdown = Arc::new(AtomicBool::new(false));
 
         // Create standard loopback UDP sockets
@@ -149,7 +188,7 @@ mod tests {
             routes,
             egress_pool,
             reassembly,
-            current_epoch.clone(),
+            bsp_barrier.clone(),
             shutdown.clone(),
         );
 
@@ -178,7 +217,7 @@ mod tests {
 
         // The slot for zone 42 should not have been updated since epoch 2 is AmnesiaDrop
         assert_eq!(worker.reassembly.slots[0].src_zone_hash, 0);
-        assert_eq!(current_epoch.load(Ordering::Relaxed), 10);
+        assert_eq!(bsp_barrier.global_epoch.load(Ordering::Relaxed), 10);
     }
 
     #[test]
@@ -186,7 +225,7 @@ mod tests {
         let routes = Arc::new(crate::routing::RoutingTable::new());
         let egress_pool = Arc::new(transport::EgressPool::new(10));
         let reassembly = protocol::ReassemblyBuffer::new(5);
-        let current_epoch = Arc::new(AtomicU32::new(10));
+        let bsp_barrier = Arc::new(crate::bsp::BspBarrier::new(10, 1, transport::WaitStrategy::Eco));
         let shutdown = Arc::new(AtomicBool::new(false));
 
         let socket_receiver = transport::FastPathSocket::bind("127.0.0.1:0").unwrap();
@@ -198,7 +237,7 @@ mod tests {
             routes,
             egress_pool,
             reassembly,
-            current_epoch.clone(),
+            bsp_barrier.clone(),
             shutdown.clone(),
         );
 
@@ -224,6 +263,6 @@ mod tests {
         worker.run();
 
         // The current_epoch should have fast-forwarded to 150
-        assert_eq!(current_epoch.load(Ordering::Relaxed), 150);
+        assert_eq!(bsp_barrier.global_epoch.load(Ordering::Relaxed), 150);
     }
 }
