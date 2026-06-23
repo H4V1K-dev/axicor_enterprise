@@ -10,9 +10,9 @@ layout = { path = "../layout" }
 wire = { path = "../wire" }
 protocol = { path = "../protocol" }
 transport = { path = "../transport" }
-crossbeam = "0.8.4"
+crossbeam = { workspace = true }
 tokio = { workspace = true }
-axum = "0.7.9"
+axum = "=0.7.9"
 tracing = { workspace = true }
 bytemuck = { workspace = true }
 

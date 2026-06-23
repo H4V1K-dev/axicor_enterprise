@@ -5,14 +5,22 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "=4.6.1", features = ["derive"] }
 tracing = { workspace = true }
-tracing-subscriber = "0.3"
-ctrlc = "3.4"
-crossbeam = "0.8"
+tracing-subscriber = "=0.3.23"
+ctrlc = "=3.5.2"
+crossbeam = { workspace = true }
 
 # Internal workspace crates
 boot = { path = "../boot" }
 runtime = { path = "../runtime" }
 compute = { path = "../compute" }
 compute-api = { path = "../compute-api" }
+types = { path = "../types" }
+layout = { path = "../layout" }
+net = { path = "../net" }
+ipc = { path = "../ipc" }
+transport = { path = "../transport" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }

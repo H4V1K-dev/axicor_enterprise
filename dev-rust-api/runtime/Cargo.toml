@@ -10,7 +10,11 @@ compute-api = { path = "../compute-api" }
 types = { path = "../types" }
 layout = { path = "../layout" }
 config = { path = "../config" }
+net = { path = "../net" }
+ipc = { path = "../ipc" }
+wire = { path = "../wire" }
+transport = { path = "../transport" }
 
-crossbeam = "0.8"
+crossbeam = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
