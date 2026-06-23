@@ -114,6 +114,10 @@ mod tests {
 
         let seed = MasterSeed::from_str("AXICOR");
         assert_eq!(seed.raw(), 969268877276664313); // Standard FNV-1a 64-bit for "AXICOR"
+
+        // Golden contract check for 08_io_matrix.md
+        // "SensoryCortex" must hash to 0x273fd103
+        assert_eq!(fnv1a_32(b"SensoryCortex"), 0x273fd103);
     }
 
     #[test]
@@ -140,5 +144,23 @@ mod tests {
             assert!(val < 1.0, "Value reached or exceeded 1.0: {}", val);
             i += 1;
         }
+    }
+
+    #[test]
+    fn test_legacy_seed_messy_and_empty() {
+        // Messy strings and spaces
+        let messy = "   AXICOR   __ 2026      \n\t_!!   $#@%   ";
+        let s1 = MasterSeed::from_str(messy);
+        assert_ne!(s1.raw(), 0);
+        let s2 = MasterSeed::from_str(messy);
+        assert_eq!(s1.raw(), s2.raw());
+
+        // Empty string
+        let empty1 = MasterSeed::from_str("");
+        let empty2 = MasterSeed::from_str("");
+        assert_eq!(empty1, empty2);
+
+        // Different strings must yield different seeds
+        assert_ne!(MasterSeed::from_str("A"), MasterSeed::from_str("B"));
     }
 }

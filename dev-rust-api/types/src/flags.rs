@@ -63,6 +63,16 @@ impl SomaFlags {
     }
 }
 
+pub const FLAG_IS_SPIKING: u8 = 0b0000_0001;
+pub const FLAG_TYPE_MASK: u8 = 0b1111_0000;
+
+/// Extracts Variant ID (Type ID) from raw memory flags.
+#[inline]
+pub const fn extract_variant_id(flags: u8) -> usize {
+    ((flags & FLAG_TYPE_MASK) >> 4) as usize
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +104,17 @@ mod tests {
         assert_eq!(updated_zero.type_id(), 5);
         assert_eq!(updated_zero.burst_count(), 0);
         assert_eq!(updated_zero.is_spiking(), true);
+    }
+
+    #[test]
+    fn test_legacy_flags_support() {
+        // Check legacy constants
+        assert_eq!(FLAG_IS_SPIKING, 0b0000_0001);
+        assert_eq!(FLAG_TYPE_MASK, 0b1111_0000);
+
+        // Check extract_variant_id helper
+        assert_eq!(extract_variant_id(0b1010_0000), 10);
+        assert_eq!(extract_variant_id(0b1111_0001), 15);
+        assert_eq!(extract_variant_id(0b0000_0000), 0);
     }
 }

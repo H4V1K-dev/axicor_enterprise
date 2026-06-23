@@ -55,3 +55,40 @@ pub type Microns = f32;
 /// # WARNING
 /// AOT and configuration only. Float math is fatal in hot loops.
 pub type Fraction = f32;
+
+/// Converts milliseconds to ticks given a specific tick duration in microseconds.
+#[inline]
+pub fn ms_to_ticks(ms: f32, tick_duration_us: u32) -> Tick {
+    let us = ms * 1000.0;
+    ((us / tick_duration_us as f32) + 0.5) as Tick
+}
+
+/// Converts microseconds to ticks given a specific tick duration in microseconds.
+#[inline]
+pub fn us_to_ticks(us: u32, tick_duration_us: u32) -> Tick {
+    (us / tick_duration_us) as Tick
+}
+
+/// Converts ticks to milliseconds given a specific tick duration in microseconds.
+#[inline]
+pub fn ticks_to_ms(ticks: Tick, tick_duration_us: u32) -> f32 {
+    ticks as f32 * tick_duration_us as f32 / 1000.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_time_conversions() {
+        // ms_to_ticks: 5.0 ms with tick_duration 100us -> 50 ticks
+        assert_eq!(ms_to_ticks(5.0, 100), 50);
+
+        // us_to_ticks: 500 us with tick_duration 100us -> 5 ticks
+        assert_eq!(us_to_ticks(500, 100), 5);
+
+        // ticks_to_ms: 50 ticks with tick_duration 100us -> 5.0 ms
+        assert_eq!(ticks_to_ms(50, 100), 5.0);
+    }
+}
+
