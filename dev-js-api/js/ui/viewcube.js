@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { camera as mainCamera, controls, animateCameraTo, setCameraProjection } from '../viewer.js';
+import { addFrameCallback, getActiveCamera, controls, animateCameraTo, setCameraProjection } from '../viewer.js';
 import { store } from '../store/store.js';
 
-export let viewcubeScene = null;
-export let viewcubeCamera = null;
-export let viewcubeRenderer = null;
+let viewcubeScene = null;
+let viewcubeCamera = null;
+let viewcubeRenderer = null;
 
 export function initViewCube() {
   const container = document.getElementById('viewcube-container');
@@ -187,7 +187,8 @@ export function initViewCube() {
     lastMouseY = e.clientY;
 
     targetCenter.copy(controls.target);
-    distance = mainCamera.position.distanceTo(targetCenter);
+    const activeCamera = getActiveCamera();
+    distance = activeCamera.position.distanceTo(targetCenter);
 
     // Switch off orthographic mode before dragging
     setCameraProjection(false);
@@ -209,7 +210,8 @@ export function initViewCube() {
 
     const editorSettings = store.get('editorSettings') || {};
     const sensitivity = editorSettings.viewcube_sensitivity !== undefined ? editorSettings.viewcube_sensitivity : 0.0075;
-    const offset = mainCamera.position.clone().sub(targetCenter);
+    const activeCamera = getActiveCamera();
+    const offset = activeCamera.position.clone().sub(targetCenter);
 
     // Horizontal rotation: around world Y axis (0, 1, 0)
     const theta = -deltaX * sensitivity;
@@ -217,7 +219,7 @@ export function initViewCube() {
     offset.applyQuaternion(qY);
 
     // Vertical rotation: around camera local X axis (Right vector)
-    const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(mainCamera.quaternion).normalize();
+    const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(activeCamera.quaternion).normalize();
     const phi = -deltaY * sensitivity;
     const qX = new THREE.Quaternion().setFromAxisAngle(cameraRight, phi);
 
@@ -229,7 +231,7 @@ export function initViewCube() {
       offset.copy(tempOffset);
     }
 
-    mainCamera.position.copy(targetCenter).add(offset);
+    activeCamera.position.copy(targetCenter).add(offset);
     controls.update();
 
     lastMouseX = e.clientX;
@@ -258,4 +260,14 @@ export function initViewCube() {
       hasMoved = false;
     }, 50);
   }
+
+  // Register frame callback to dynamically sync and render ViewCube
+  addFrameCallback(() => {
+    const activeCam = getActiveCamera();
+    if (viewcubeRenderer && viewcubeScene && viewcubeCamera && activeCam) {
+      viewcubeCamera.quaternion.copy(activeCam.quaternion);
+      viewcubeCamera.position.set(0, 0, 4).applyQuaternion(activeCam.quaternion);
+      viewcubeRenderer.render(viewcubeScene, viewcubeCamera);
+    }
+  });
 }

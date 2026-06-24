@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { shardMeshes, socketMeshes } from '../../scene_builder.js';
 import { selectShard, selectSocket, deselectAll } from '../selection.js';
 import { transformControls } from '../transform.js';
@@ -13,6 +14,20 @@ import {
   onPointerUp as onDividerPointerUp,
   isDragging as isDraggingDivider
 } from '../divider_drag.js';
+
+const hoverBodyMaterial = new THREE.MeshStandardMaterial({
+  color: 0x6366f1,
+  transparent: true,
+  opacity: 0.5,
+  roughness: 0.6,
+  metalness: 0.1
+});
+
+const hoverWireMaterial = new THREE.LineBasicMaterial({
+  color: 0x6366f1,
+  transparent: true,
+  opacity: 0.95
+});
 
 export class TranslateMode {
   constructor() {
@@ -50,12 +65,13 @@ export class TranslateMode {
     if (type === 'shard') {
       const mesh = shardMeshes[key];
       if (mesh) {
-        mesh.material.opacity = 0.5;
-        mesh.material.needsUpdate = true;
-        const mainWire = mesh.children.find(c => c.name === "main_wireframe");
+        const body = mesh.userData.body;
+        const mainWire = mesh.userData.mainWire;
+        if (body) {
+          body.material = hoverBodyMaterial;
+        }
         if (mainWire) {
-          mainWire.material.opacity = 0.95;
-          mainWire.material.needsUpdate = true;
+          mainWire.material = hoverWireMaterial;
         }
       }
     } else if (type === 'socket') {

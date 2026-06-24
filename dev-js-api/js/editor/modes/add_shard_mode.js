@@ -279,11 +279,11 @@ export class AddShardMode {
       const sd = shardDataMap[mesh.uuid];
       if (!sd) continue;
 
-      // Other mesh bounds in AABB min coordinates
+      // Other mesh bounds in AABB min coordinates (Three.js coordinates: Y is height, Z is depth)
       const otherMinX = sd.position.x;
       const otherMaxX = sd.position.x + sd.size.w;
-      const otherMinZ = sd.position.y; // Rust Y (depth)
-      const otherMaxZ = sd.position.y + sd.size.d;
+      const otherMinZ = sd.position.z;
+      const otherMaxZ = sd.position.z + sd.size.d;
 
       // check boundaries alignment distances
       const dist1 = Math.abs(localVoxX - otherMinX);
@@ -410,7 +410,7 @@ export class AddShardMode {
       density: 1.0
     }));
 
-    // Create the shard data object (Absolute coordinates for placement.json)
+    // Create the shard data object (Three.js coordinates: Y is height, Z is depth)
     const newShard = {
       key: finalKey,
       dept: deptName,
@@ -418,8 +418,8 @@ export class AddShardMode {
       orbit: orbitIndex,
       position: {
         x: Math.round(this.ghostMesh.position.x / VIS_SCALE - advancedObjPropConfig.w / 2),
-        y: Math.round(this.ghostMesh.position.z / VIS_SCALE - advancedObjPropConfig.d / 2), // Rust Y (depth)
-        z: Math.round(this.ghostMesh.position.y / VIS_SCALE - advancedObjPropConfig.h / 2) // Rust Z (height)
+        y: Math.round(this.ghostMesh.position.y / VIS_SCALE - advancedObjPropConfig.h / 2), // Three.js Y (height)
+        z: Math.round(this.ghostMesh.position.z / VIS_SCALE - advancedObjPropConfig.d / 2)  // Three.js Z (depth)
       },
       size: {
         w: advancedObjPropConfig.w,
@@ -440,8 +440,8 @@ export class AddShardMode {
       historyManager.pushAction('create', 'shard', finalKey, `Создание шарда ${finalShardName}`, null, newShard);
     });
 
-    // Rebuild visual scene data, preserving camera position
-    buildSceneData(placementData, true);
+    // Incremental visual scene update via Event Bus
+    emit(EVENTS.SHARD_ADDED, newShard);
 
     // Auto-select the newly added shard
     selectShard(finalKey);

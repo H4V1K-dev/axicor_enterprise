@@ -10,6 +10,7 @@ import { store } from '../store/store.js';
 import { emit, EVENTS } from '../store/event_bus.js';
 import { renderer } from '../viewer.js';
 import { historyManager } from '../store/history_manager.js';
+import { historyToRust } from '../editor/coordinate_adapter.js';
 
 let sidebar = null;
 
@@ -575,11 +576,11 @@ export async function saveAllLayoutChanges() {
     simulation: placementData ? placementData.simulation || {} : {},
     world: placementData ? placementData.world || {} : {},
     preview: renderer ? renderer.domElement.toDataURL('image/png') : null,
-    history: {
+    history: historyToRust({
       globalStack: historyManager.globalStack,
       globalIndex: historyManager.globalIndex,
       objectHistory: historyManager.objectHistory
-    }
+    })
   };
 
   // 1. Gather all shard position, size and layer overrides

@@ -109,6 +109,9 @@ export function initHierarchyPanel(hierarchyBtn) {
   store.on('selectedDeptName', () => {
     renderHierarchyList();
   });
+  store.on('selectedShardKey', () => {
+    renderHierarchyList();
+  });
 
   // Helper for levels layout reordering
   const updateLevelOrder = (newLevelsOrder) => {
@@ -465,12 +468,15 @@ export function initHierarchyPanel(hierarchyBtn) {
       });
     }
 
+    const selectedShardKey = store.get('selectedShardKey');
+
     shardsToShow.forEach(shard => {
       const shortName = shard.key.split('.').pop() || shard.key;
       const initials = shortName.replace(/([A-Z])/g, ' $1').trim().split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase() || shortName.slice(0, 2).toUpperCase();
+      const isActive = selectedShardKey === shard.key;
 
       const card = document.createElement('div');
-      card.className = 'panel-card';
+      card.className = 'panel-card' + (isActive ? ' active' : '');
 
       card.innerHTML = `
         <div style="display:flex; align-items:center; gap:10px;">

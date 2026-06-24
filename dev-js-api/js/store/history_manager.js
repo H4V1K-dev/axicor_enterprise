@@ -5,6 +5,8 @@
 import { store } from './store.js';
 import { buildSceneData, drawRoutes } from '../scene_builder.js';
 import { deselectAll } from '../editor/selection.js';
+import { historyToThree } from '../editor/coordinate_adapter.js';
+import { emit, EVENTS } from './event_bus.js';
 
 class HistoryManager {
   constructor() {
@@ -386,6 +388,52 @@ class HistoryManager {
   }
 
   /**
+   * Triggers delta events to incrementally update the scene for an action.
+   * @param {any} action 
+   * @param {boolean} isUndo 
+   */
+  triggerDeltaUpdate(action, isUndo) {
+    const state = isUndo ? action.undoState : action.redoState;
+    const type = action.type;
+    const targetKey = action.targetKey;
+
+    if (action.targetType === 'shard') {
+      if (type === 'create') {
+        if (isUndo) {
+          emit(EVENTS.SHARD_DELETED, targetKey);
+        } else {
+          if (state) emit(EVENTS.SHARD_ADDED, state);
+        }
+      } 
+      else if (type === 'delete') {
+        if (isUndo) {
+          if (state) emit(EVENTS.SHARD_ADDED, state);
+        } else {
+          emit(EVENTS.SHARD_DELETED, targetKey);
+        }
+      }
+      else if (type === 'delete_with_connections') {
+        if (isUndo) {
+          if (state && state.shard) {
+            emit(EVENTS.SHARD_ADDED, state.shard);
+          }
+        } else {
+          emit(EVENTS.SHARD_DELETED, targetKey);
+        }
+      }
+      else { // 'move' or 'resize'
+        if (state && state.position && state.size) {
+          emit(EVENTS.SHARD_TRANSFORMED, {
+            key: targetKey,
+            position: state.position,
+            size: state.size
+          });
+        }
+      }
+    }
+  }
+
+  /**
    * Triggers linear Undo globally.
    */
   undoGlobal() {
@@ -397,7 +445,7 @@ class HistoryManager {
 
       this.globalIndex--;
       store.set('placementData', placementData);
-      buildSceneData(placementData, true);
+      this.triggerDeltaUpdate(action, true);
       const routes = store.get('routesData');
       if (routes) drawRoutes(routes);
 
@@ -417,7 +465,7 @@ class HistoryManager {
       this.applyActionState(placementData, action, false);
 
       store.set('placementData', placementData);
-      buildSceneData(placementData, true);
+      this.triggerDeltaUpdate(action, false);
       const routes = store.get('routesData');
       if (routes) drawRoutes(routes);
 
@@ -580,9 +628,10 @@ class HistoryManager {
       this.globalIndex = -1;
       this.objectHistory = {};
     } else {
-      this.globalStack = data.globalStack || [];
-      this.globalIndex = typeof data.globalIndex === 'number' ? data.globalIndex : -1;
-      this.objectHistory = data.objectHistory || {};
+      const threeHistory = historyToThree(data);
+      this.globalStack = threeHistory.globalStack || [];
+      this.globalIndex = typeof threeHistory.globalIndex === 'number' ? threeHistory.globalIndex : -1;
+      this.objectHistory = threeHistory.objectHistory || {};
     }
     // Discard active previews
     this.previewActive = false;

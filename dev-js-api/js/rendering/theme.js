@@ -38,3 +38,11 @@ export const THEME = {
     defaultBackingOpacity: 0.7
   }
 };
+
+export const RENDER_BINS = {
+  inactive: 0,
+  wireframes: 1,
+  activeBody: 10,
+  activeLayers: 11,
+  neonSockets: 20
+};

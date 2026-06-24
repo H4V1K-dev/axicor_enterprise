@@ -473,18 +473,17 @@ export class ResizeMode {
 
       // Retrieve new dimensions from the modified mesh
       const newW = Math.round(shardMesh.geometry.parameters.width / VIS_SCALE);
-      const newD = Math.round(shardMesh.geometry.parameters.height / VIS_SCALE);
-      const newH = Math.round(shardMesh.geometry.parameters.depth / VIS_SCALE);
+      const newH = Math.round(shardMesh.geometry.parameters.height / VIS_SCALE); // Three Y height
+      const newD = Math.round(shardMesh.geometry.parameters.depth / VIS_SCALE);  // Three Z depth
 
-      // Convert local coordinates back to placement space
-      // Rust X = Three X, Rust Y = Three Z, Rust Z = Three Y
+      // Store in native Three.js coordinates
       sd.size.w = newW;
-      sd.size.d = newD;
       sd.size.h = newH;
+      sd.size.d = newD;
 
       sd.position.x = Math.round(shardMesh.position.x / VIS_SCALE - newW / 2);
-      sd.position.y = Math.round(shardMesh.position.z / VIS_SCALE - newD / 2);
-      sd.position.z = Math.round(shardMesh.position.y / VIS_SCALE - newH / 2);
+      sd.position.y = Math.round(shardMesh.position.y / VIS_SCALE - newH / 2);
+      sd.position.z = Math.round(shardMesh.position.z / VIS_SCALE - newD / 2);
 
       // Update and finalize socket configurations in placement data
       if (sd.sockets) {
@@ -518,8 +517,12 @@ export class ResizeMode {
 
       this.initialShardState = null;
 
-      // Signal layout updates
-      emit(EVENTS.LAYOUT_CHANGED, sd);
+      // Signal layout updates via delta events
+      emit(EVENTS.SHARD_TRANSFORMED, {
+        key: selShardKey,
+        position: { x: sd.position.x, y: sd.position.y, z: sd.position.z },
+        size: { w: sd.size.w, h: sd.size.h, d: sd.size.d }
+      });
       emit(EVENTS.VALIDATION_REQ);
 
       // Re-spawn Handles at finalized boundary coordinates

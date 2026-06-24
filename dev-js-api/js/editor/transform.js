@@ -35,10 +35,10 @@ export function initTransformControls() {
         const d = sd.size.d;
         const h = sd.size.h;
 
-        // Reconstruct AABB min coordinates (Three X -> Rust X, Three Z -> Rust Y, Three Y -> Rust Z)
+        // Reconstruct AABB min coordinates in Three.js space (Y is height, Z is depth)
         let posX = mesh.position.x / VIS_SCALE - w / 2;
-        let posY = mesh.position.z / VIS_SCALE - d / 2;
-        let posZ = mesh.position.y / VIS_SCALE - h / 2;
+        let posY = mesh.position.y / VIS_SCALE - h / 2;
+        let posZ = mesh.position.z / VIS_SCALE - d / 2;
 
         // Snap to grid
         posX = Math.round(posX / snapStep) * snapStep;
@@ -47,8 +47,8 @@ export function initTransformControls() {
 
         // Reconstruct center position for Three.js
         mesh.position.x = (posX + w / 2) * VIS_SCALE;
-        mesh.position.z = (posY + d / 2) * VIS_SCALE;
-        mesh.position.y = (posZ + h / 2) * VIS_SCALE;
+        mesh.position.y = (posY + h / 2) * VIS_SCALE;
+        mesh.position.z = (posZ + d / 2) * VIS_SCALE;
 
         // Collision Check: revert position if it overlaps other shards on the same layer
         if (checkShardCollision(selShardKey, mesh.position)) {
@@ -64,12 +64,17 @@ export function initTransformControls() {
         
         // Re-calculate visual AABB min from the final valid snapped mesh position
         const finalX = Math.round(mesh.position.x / VIS_SCALE - w / 2);
-        const finalY = Math.round(mesh.position.z / VIS_SCALE - d / 2);
-        const finalZ = Math.round(mesh.position.y / VIS_SCALE - h / 2);
+        const finalY = Math.round(mesh.position.y / VIS_SCALE - h / 2);
+        const finalZ = Math.round(mesh.position.z / VIS_SCALE - d / 2);
 
         if (ix) ix.value = finalX;
         if (iy) iy.value = finalY;
         if (iz) iz.value = finalZ;
+
+        emit(EVENTS.SHARD_DRAGGING, {
+          key: selShardKey,
+          position: { x: finalX, y: finalY, z: finalZ }
+        });
       }
     } else if (selSocketKey) {
       const group = socketMeshes[selSocketKey];
@@ -170,8 +175,8 @@ export function initTransformControls() {
           const oldPosition = JSON.parse(JSON.stringify(shard.position));
           const newPosition = {
             x: Math.round(mesh.position.x / VIS_SCALE - w / 2),
-            y: Math.round(mesh.position.z / VIS_SCALE - d / 2),
-            z: Math.round(mesh.position.y / VIS_SCALE - h / 2)
+            y: Math.round(mesh.position.y / VIS_SCALE - h / 2),
+            z: Math.round(mesh.position.z / VIS_SCALE - d / 2)
           };
 
           if (oldPosition.x !== newPosition.x || oldPosition.y !== newPosition.y || oldPosition.z !== newPosition.z) {
@@ -180,7 +185,12 @@ export function initTransformControls() {
             // Save coordinates to placementData in store
             shard.position = newPosition;
             store.set('placementData', placementData);
-            updateContainerWires();
+            
+            emit(EVENTS.SHARD_TRANSFORMED, {
+              key: selShardKey,
+              position: newPosition,
+              size: shard.size
+            });
             
             const redoState = JSON.parse(JSON.stringify(shard));
 

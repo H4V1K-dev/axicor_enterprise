@@ -68,7 +68,31 @@ export const EVENTS = {
    * Fired when orbit colors change.
    * Payload: null
    */
-  ORBIT_COLORS_CHANGED: 'orbit_colors:changed'
+  ORBIT_COLORS_CHANGED: 'orbit_colors:changed',
+
+  /**
+   * Fired when a new shard is created.
+   * Payload: ShardData
+   */
+  SHARD_ADDED: 'shard:added',
+
+  /**
+   * Fired when a shard is deleted.
+   * Payload: string (shardKey)
+   */
+  SHARD_DELETED: 'shard:deleted',
+
+  /**
+   * Fired every frame during active shard translation/drag.
+   * Payload: { key: string, position: Vec3 }
+   */
+  SHARD_DRAGGING: 'shard:dragging',
+
+  /**
+   * Fired when a shard's transform (position, size) is finalized.
+   * Payload: { key: string, position: Vec3, size: {w: number, d: number, h: number} }
+   */
+  SHARD_TRANSFORMED: 'shard:transformed'
 };
 
 /** @type {Map<string, Set<Function>>} */

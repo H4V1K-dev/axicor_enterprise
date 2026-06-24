@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { shardMeshes, socketMeshes } from '../../scene_builder.js';
 import { selectShard, selectSocket, deselectAll } from '../selection.js';
 import { store } from '../../store/store.js';
@@ -6,6 +7,20 @@ import { updateFocusVisuals } from '../focus.js';
 import { modeManager } from '../../editor.js';
 import { transformControls } from '../transform.js';
 import { resolveRaycastHit } from '../collision_manager.js';
+
+const hoverBodyMaterial = new THREE.MeshStandardMaterial({
+  color: 0x6366f1,
+  transparent: true,
+  opacity: 0.15,
+  roughness: 0.6,
+  metalness: 0.1
+});
+
+const hoverWireMaterial = new THREE.LineBasicMaterial({
+  color: 0x6366f1,
+  transparent: true,
+  opacity: 0.3
+});
 
 export class SelectMode {
   constructor() {
@@ -43,15 +58,13 @@ export class SelectMode {
     if (type === 'shard') {
       const mesh = shardMeshes[key];
       if (mesh) {
-        // Make parent monolith highly transparent for X-ray view
-        mesh.material.opacity = 0.15;
-        mesh.material.transparent = true;
-        mesh.material.needsUpdate = true;
-
-        const mainWire = mesh.children.find(c => c.name === "main_wireframe");
+        const body = mesh.userData.body;
+        const mainWire = mesh.userData.mainWire;
+        if (body) {
+          body.material = hoverBodyMaterial;
+        }
         if (mainWire) {
-          mainWire.material.opacity = 0.3;
-          mainWire.material.needsUpdate = true;
+          mainWire.material = hoverWireMaterial;
         }
 
         // Show inner layers & dividers

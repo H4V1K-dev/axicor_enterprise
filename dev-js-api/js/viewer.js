@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { viewcubeScene, viewcubeCamera, viewcubeRenderer } from './ui/viewcube.js';
+
+const frameCallbacks = [];
+export function addFrameCallback(cb) {
+  frameCallbacks.push(cb);
+}
 
 export let scene;
 export let camera;
@@ -171,12 +175,14 @@ export function animateViewer(onUpdate) {
     // Smooth controls damping
     controls.update();
     
-    // Sync and render WebGL ViewCube
-    if (viewcubeRenderer && viewcubeScene && viewcubeCamera && camera) {
-      viewcubeCamera.quaternion.copy(camera.quaternion);
-      viewcubeCamera.position.set(0, 0, 4).applyQuaternion(camera.quaternion);
-      viewcubeRenderer.render(viewcubeScene, viewcubeCamera);
-    }
+    // Run registered frame callbacks (like viewcube renderer sync)
+    frameCallbacks.forEach(cb => {
+      try {
+        cb();
+      } catch (err) {
+        console.error("Error in viewer frame callback:", err);
+      }
+    });
     
     // Call external updates (e.g. selection animations, editor updates)
     if (onUpdate) {

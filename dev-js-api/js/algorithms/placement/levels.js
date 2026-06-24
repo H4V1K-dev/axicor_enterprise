@@ -29,7 +29,7 @@ export function layoutLevelsAndShards(levelsList, shards, oldZStarts = {}) {
     let oldFloor = oldZStarts[lvl.id];
     if (oldFloor === undefined) {
       if (lvlShards.length > 0) {
-        oldFloor = Math.min(...lvlShards.map(s => s.position.z));
+        oldFloor = Math.min(...lvlShards.map(s => s.position.y));
       } else {
         oldFloor = 0;
       }
@@ -37,16 +37,16 @@ export function layoutLevelsAndShards(levelsList, shards, oldZStarts = {}) {
 
     let maxLvlH = 10; // Default height if level is empty
     lvlShards.forEach(s => {
-      // Calculate local Z height above level floor using the old floor position
-      const localZ = Math.max(0, s.position.z - oldFloor);
+      // Calculate local Y height above level floor using the old floor position
+      const localY = Math.max(0, s.position.y - oldFloor);
       
-      const shardTop = localZ + s.size.h;
+      const shardTop = localY + s.size.h;
       if (shardTop > maxLvlH) {
         maxLvlH = shardTop;
       }
 
-      // Translate shard to the new absolute Z position
-      s.position.z = lvl.z_start + localZ;
+      // Translate shard to the new absolute Y position
+      s.position.y = lvl.z_start + localY;
     });
 
     lvl.height = maxLvlH;

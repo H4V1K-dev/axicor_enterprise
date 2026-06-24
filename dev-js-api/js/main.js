@@ -8,6 +8,7 @@ import { on, emit, EVENTS } from './store/event_bus.js';
 import { showProjectSelector } from './ui/project_hub.js';
 import { historyManager } from './store/history_manager.js';
 import { resolveRaycastHit } from './editor/collision_manager.js';
+import { toThreeCoords } from './editor/coordinate_adapter.js';
 
 async function loadData() {
   const projectName = store.get('projectName') || 'octopus';
@@ -98,7 +99,8 @@ function setupHoverTooltip() {
 async function reloadVisualizer() {
   try {
     const data = await loadData();
-    store.set('placementData', data.placement);
+    const threePlacement = toThreeCoords(data.placement);
+    store.set('placementData', threePlacement);
     store.set('routesData', data.routes);
 
     // Load history cache
@@ -120,9 +122,9 @@ async function reloadVisualizer() {
     deselectAll();
 
     // Reload updated placement and curves statically from server
-    buildSceneData(data.placement, true);
+    buildSceneData(threePlacement, true);
     drawRoutes(data.routes);
-    updateHUD(data.placement);
+    updateHUD(threePlacement);
 
     emit(EVENTS.DATA_RELOADED);
     emit(EVENTS.VALIDATION_REQ);
@@ -157,7 +159,8 @@ async function loadProject(project) {
 
   try {
     const data = await loadData();
-    store.set('placementData', data.placement);
+    const threePlacement = toThreeCoords(data.placement);
+    store.set('placementData', threePlacement);
     store.set('routesData', data.routes);
     store.set('connectionMode', 1); // Default connection mode
 
@@ -178,9 +181,9 @@ async function loadProject(project) {
     // Deselect active controls to prevent attachment state bugs
     deselectAll();
 
-    buildSceneData(data.placement);
+    buildSceneData(threePlacement);
     drawRoutes(data.routes);
-    updateHUD(data.placement);
+    updateHUD(threePlacement);
 
     loading.style.display = 'none';
     emit(EVENTS.VALIDATION_REQ);
