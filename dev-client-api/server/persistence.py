@@ -94,7 +94,7 @@ def compile_project(project_name, script_name):
     routes_path = os.path.join(local_proj_dir, "routes.json")
 
     # 1. Run placement
-    from algorithms import placer
+    from algorithms.placement import placer
     print(f"Compiling project layout: {project_name} from {script_path}")
     model = placer.extract_model(script_path)
     result = placer.compute_placement(model, overrides_path)

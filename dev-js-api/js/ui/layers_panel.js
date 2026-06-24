@@ -6,6 +6,7 @@ import { store } from '../store/store.js';
 import { on, emit, EVENTS } from '../store/event_bus.js';
 import { buildSceneData } from '../scene_builder.js';
 import { saveAllLayoutChanges } from './sidebar.js';
+import { layoutLevelsAndShards } from '../algorithms/placement/levels.js';
 
 /**
  * Initializes the levels config drawer panel and hooks it to the toggle button.
@@ -42,29 +43,10 @@ export function initLayersPanel(layersBtn) {
       oldZStarts[l.id] = l.z_start;
     });
 
-    data.levels = newLevelsOrder;
-
-    // Recalculate heights and start coordinates sequentially
-    let currentZ = 0;
-    const gap = 20;
-    data.levels.forEach((lvl) => {
-      const oldZ = oldZStarts[lvl.id] !== undefined ? oldZStarts[lvl.id] : 0;
-      const newZ = currentZ;
-      const delta = newZ - oldZ;
-
-      lvl.z_start = newZ;
-
-      // Shift shards of this level vertically
-      if (data.shards && delta !== 0) {
-        data.shards.forEach(s => {
-          if (s.orbit === lvl.id) {
-            s.position.z += delta;
-          }
-        });
-      }
-
-      currentZ = newZ + lvl.height + gap;
-    });
+    // Run layout stacking
+    const layout = layoutLevelsAndShards(newLevelsOrder, data.shards, oldZStarts);
+    data.levels = layout.levels;
+    data.shards = layout.shards;
 
     store.set('placementData', data);
     buildSceneData(data, true);

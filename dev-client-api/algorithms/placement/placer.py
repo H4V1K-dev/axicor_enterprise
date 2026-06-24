@@ -1,86 +1,25 @@
 #!/usr/bin/env python3
 """
-Orbital Placement Algorithm.
-
-Reads model topology, computes 3D placement of shards on nested spherical
-orbits, and outputs JSON for the browser visualizer.
+Orbital Placement Algorithm Coordinator.
+Reads model topology, computes 3D placement of shards on Z-levels,
+and outputs JSON for the browser visualizer.
 """
 
 import json
 import math
 import sys
 import os
-# Ensure parent directory is in python path when run as standalone script
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+import copy
+
+# Ensure dev-client-api root is in python path
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from server.model_loader import extract_model
-
-
-
-# ─── Placement Algorithm ─────────────────────────────────────────────────
-
-def pack_rectangles(rectangles, gap):
-    """
-    rectangles: list of dicts with 'id', 'w', 'd'
-    gap: spacing between rectangles
-
-    Returns: (width_used, depth_used, positions)
-      positions: dict of id -> (u, v) representing bottom-left of the rectangle (including spacing)
-    """
-    if not rectangles:
-        return 0, 0, {}
-
-    # Sort by depth (d) descending to pack using a shelf algorithm
-    sorted_rects = sorted(rectangles, key=lambda r: r['d'], reverse=True)
-
-    # Calculate target width of the packed area:
-    # We want it to be roughly square, so target_w is sqrt(sum_of_areas)
-    total_area = sum((r['w'] + gap) * (r['d'] + gap) for r in sorted_rects)
-    max_w = max(r['w'] + gap for r in sorted_rects)
-    target_w = max(math.ceil(math.sqrt(total_area)), max_w)
-
-    # Pack into shelves
-    shelves = []  # each shelf: {"y_start": y, "height": h, "x_cursor": x}
-    positions = {}
-
-    for r in sorted_rects:
-        rid = r['id']
-        rw = r['w'] + gap
-        rd = r['d'] + gap
-
-        # Try to place in an existing shelf
-        placed = False
-        for shelf in shelves:
-            if shelf["x_cursor"] + rw <= target_w:
-                # Fits in this shelf
-                positions[rid] = (shelf["x_cursor"], shelf["y_start"])
-                shelf["x_cursor"] += rw
-                shelf["height"] = max(shelf["height"], rd)
-                placed = True
-                break
-
-        if not placed:
-            # Create a new shelf
-            y_start = 0
-            if shelves:
-                prev = shelves[-1]
-                y_start = prev["y_start"] + prev["height"]
-
-            new_shelf = {
-                "y_start": y_start,
-                "height": rd,
-                "x_cursor": rw
-            }
-            positions[rid] = (0, y_start)
-            shelves.append(new_shelf)
-
-    # Calculate bounding box of packed area
-    width_used = max(shelf["x_cursor"] for shelf in shelves) if shelves else 0
-    depth_used = sum(shelf["height"] for shelf in shelves) if shelves else 0
-
-    return width_used, depth_used, positions
+from algorithms.placement.levels import layout_levels_and_shards
+from algorithms.placement.shards import pack_rectangles, pack_shards_locally
+from algorithms.placement.departments import pack_departments_on_level, compute_department_bounds
 
 
 def matrix_to_quaternion(m):
@@ -126,14 +65,13 @@ def matrix_to_quaternion(m):
 
 def compute_placement(model, overrides_path=None):
     """
-    Takes a ModelBuilder with departments and computes 3D placement.
-
+    Takes a ModelBuilder and computes 3D placement.
     Returns a dict ready to be serialized to JSON.
     """
     # Load overrides if they exist
     overrides = {}
     if overrides_path is None:
-        overrides_path = os.path.join(os.path.dirname(__file__), "layout_overrides.json")
+        overrides_path = os.path.join(ROOT_DIR, "algorithms", "layout_overrides.json")
     if os.path.exists(overrides_path):
         try:
             with open(overrides_path, "r", encoding="utf-8") as f:
@@ -197,7 +135,7 @@ def compute_placement(model, overrides_path=None):
     # 1. Resolve level ordering from overrides.levels list
     levels_list = []
     if isinstance(overrides_levels, list):
-        levels_list = json.loads(json.dumps(overrides_levels))
+        levels_list = copy.deepcopy(overrides_levels)
 
     # Find all unique level IDs used by shards
     active_level_ids = set()
@@ -222,37 +160,7 @@ def compute_placement(model, overrides_path=None):
                 "color": colors[len(levels_list) % len(colors)]
             })
 
-    # 2. Calculate dynamic heights and z_start for levels in order
-    levels_map = {}
-    current_z = 0
-    gap_between_levels = 20
-
-    for lvl in levels_list:
-        lvl_id = lvl["id"]
-        lvl["z_start"] = current_z
-
-        # Gather shards on this level to compute height
-        max_lvl_h = 40
-        for dept in model.departments:
-            for s in dept.shards:
-                key = f"{dept.name}.{s.name}"
-                shard_override = overrides_shards.get(key, {})
-                orbit = shard_override.get("orbit", dept.orbit)
-                if orbit == lvl_id:
-                    h = shard_override.get("size", {}).get("h", s.z)
-                    if "position" in shard_override and "z" in shard_override["position"]:
-                        local_z = shard_override["position"]["z"] - lvl["z_start"]
-                        if local_z + h > max_lvl_h:
-                            max_lvl_h = local_z + h
-                    else:
-                        if h > max_lvl_h:
-                            max_lvl_h = h
-        
-        lvl["height"] = max_lvl_h
-        levels_map[lvl_id] = lvl
-        current_z = lvl["z_start"] + lvl["height"] + gap_between_levels
-
-    # 3. Perform default packing for shards and departments if no overrides exist
+    # 2. Perform default packing for shards and departments if no overrides exist
     gap_shards = 0
     gap_depts = 1
     default_positions = {}
@@ -263,30 +171,19 @@ def compute_placement(model, overrides_path=None):
         if not depts_on_level:
             continue
 
-        dept_rects = []
-        dept_packings = {}
+        # Group shards by department for pack_shards_locally
+        dept_buckets = {d.name: d.shards for d in depts_on_level}
 
         # Step A: Pack shards within each department locally
-        for dept in depts_on_level:
-            shards_list = []
-            for s in dept.shards:
-                key = f"{dept.name}.{s.name}"
-                shard_override = overrides_shards.get(key, {})
-                sw = shard_override.get("size", {}).get("w", s.x)
-                sd_d = shard_override.get("size", {}).get("d", s.y)
-                shards_list.append({"id": s.name, "w": sw, "d": sd_d})
-
-            w_dept, d_dept, shard_positions = pack_rectangles(shards_list, gap_shards)
-            dept_packings[dept.name] = {"w": w_dept, "d": d_dept, "positions": shard_positions}
-            dept_rects.append({"id": dept.name, "w": w_dept, "d": d_dept})
+        dept_packings, dept_rects = pack_shards_locally(dept_buckets, overrides_shards, gap_shards)
 
         # Step B: Pack departments within this level
-        w_orbit, d_orbit, dept_positions = pack_rectangles(dept_rects, gap_depts)
+        dept_positions = pack_departments_on_level(dept_rects, gap_depts)
 
         # Step C: Assign default packed coordinates relative to level origin
         for dept in depts_on_level:
             du, dv = dept_positions.get(dept.name, (0, 0))
-            shard_pos = dept_packings[dept.name]["positions"]
+            shard_pos = dept_packings.get(dept.name, {}).get("positions", {})
 
             for s in dept.shards:
                 key = f"{dept.name}.{s.name}"
@@ -294,20 +191,19 @@ def compute_placement(model, overrides_path=None):
                 default_positions[key] = {
                     "x": du + su,
                     "y": dv + sv,
-                    "z": levels_map[lvl_id]["z_start"]
+                    "z": 0 # Will be resolved dynamically by levels stack
                 }
 
-    # 4. Construct final shard list with absolute positions
+    # 3. Construct final shard list with absolute positions (X, Y)
     shards_out = []
     for dept in model.departments:
         for s in dept.shards:
             key = f"{dept.name}.{s.name}"
             shard_override = overrides_shards.get(key, {})
             orbit = shard_override.get("orbit", dept.orbit)
-            level = levels_map.get(orbit)
 
             px, py, pz = 0, 0, 0
-            def_pos = default_positions.get(key, {"x": 0, "y": 0, "z": level["z_start"] if level else 0})
+            def_pos = default_positions.get(key, {"x": 0, "y": 0, "z": 0})
 
             if "position" in shard_override:
                 px = int(round(shard_override["position"]["x"]))
@@ -358,44 +254,16 @@ def compute_placement(model, overrides_path=None):
                 "layers": layers_data
             })
 
-    # 5. Calculate actual dynamic heights for levels and AABB bounds for departments
-    departments_out = []
-    resolved_depts = {} # dept_name -> { orbit, x_min, x_max, y_min, y_max }
+    # 4. Perform Z-stacking of levels and shards
+    layout_result = layout_levels_and_shards(levels_list, shards_out)
 
-    for s in shards_out:
-        lvl_id = s["orbit"]
-
-        # Accumulate AABB for department
-        dname = s["dept"]
-        if dname not in resolved_depts:
-            resolved_depts[dname] = {
-                "name": dname,
-                "orbit": lvl_id,
-                "x_min": s["position"]["x"],
-                "x_max": s["position"]["x"] + s["size"]["w"],
-                "y_min": s["position"]["y"],
-                "y_max": s["position"]["y"] + s["size"]["d"]
-            }
-        else:
-            d_obj = resolved_depts[dname]
-            d_obj["x_min"] = min(d_obj["x_min"], s["position"]["x"])
-            d_obj["x_max"] = max(d_obj["x_max"], s["position"]["x"] + s["size"]["w"])
-            d_obj["y_min"] = min(d_obj["y_min"], s["position"]["y"])
-            d_obj["y_max"] = max(d_obj["y_max"], s["position"]["y"] + s["size"]["d"])
-
-    # Convert resolved departments to output structure
-    for d in resolved_depts.values():
-        departments_out.append({
-            "name": d["name"],
-            "orbit": d["orbit"],
-            "position": {"x": d["x_min"], "y": d["y_min"]},
-            "size": {"w": d["x_max"] - d["x_min"], "d": d["y_max"] - d["y_min"]}
-        })
+    # 5. Calculate dynamic department AABB bounds
+    departments_out = compute_department_bounds(layout_result["shards"])
 
     return {
-        "levels": levels_list,
+        "levels": layout_result["levels"],
         "departments": departments_out,
-        "shards": shards_out,
+        "shards": layout_result["shards"],
         "connections": [],
         "seed": overrides.get("seed", 42),
         "simulation": overrides.get("simulation", {}),
@@ -403,13 +271,9 @@ def compute_placement(model, overrides_path=None):
     }
 
 
-
-
-# ─── Main ────────────────────────────────────────────────────────────────
-
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Orbital Placement Algorithm")
+    parser = argparse.ArgumentParser(description="Orbital Placement Algorithm Coordinator")
     parser.add_argument("script", nargs="?", default=None, help="Path to octopus script")
     parser.add_argument("overrides", nargs="?", default=None, help="Path to layout overrides JSON")
     parser.add_argument("output", nargs="?", default=None, help="Path to output placement JSON")
@@ -418,19 +282,19 @@ def main():
     # Determine script path
     script_path = args.script
     if script_path is None:
-        script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "examples", "octopus.py"))
+        script_path = os.path.abspath(os.path.join(ROOT_DIR, "..", "examples", "octopus.py"))
     script_path = os.path.abspath(script_path)
 
     # Determine overrides path
     overrides_path = args.overrides
     if overrides_path is None:
-        overrides_path = os.path.join(os.path.dirname(__file__), "layout_overrides.json")
+        overrides_path = os.path.join(ROOT_DIR, "algorithms", "layout_overrides.json")
     overrides_path = os.path.abspath(overrides_path)
 
     # Determine output path
     output_path = args.output
     if output_path is None:
-        output_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "dev-js-api", "placement.json"))
+        output_path = os.path.abspath(os.path.join(ROOT_DIR, "..", "dev-js-api", "placement.json"))
     output_path = os.path.abspath(output_path)
 
     print(f"Extracting model from {script_path}...")
