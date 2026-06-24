@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initViewer, animateViewer, scene, getActiveCamera, renderer, controls } from './viewer.js';
-import { buildSceneData, drawRoutes, shardMeshes, socketMeshes } from './scene_builder.js';
+import { buildSceneData, drawRoutes, shardMeshes, socketMeshes, updateLevelsVisibility } from './scene_builder.js';
 import { initEditor, deselectAll, transformControls, updateHandlesScale, modeManager } from './editor.js';
 import { initUI } from './ui.js';
 import { store } from './store/store.js';
@@ -140,6 +140,12 @@ on('GRID_CONFIG_CHANGED', () => {
   if (placement) {
     buildSceneData(placement, true);
   }
+});
+store.on('hiddenLevelIds', () => {
+  updateLevelsVisibility();
+});
+store.on('focusedLevelId', () => {
+  updateLevelsVisibility();
 });
 // Orbit event listeners removed
 

@@ -10,6 +10,107 @@ import {
 // Stub drawRoutes since connections and routes are disabled in Composition mode
 export function drawRoutes() {}
 
+/**
+ * Updates 3D meshes visibility based on store's hiddenLevelIds and soloLevelId.
+ */
+export function updateLevelsVisibility() {
+  const data = store.get('placementData');
+  if (!data) return;
+
+  const hiddenLevelIds = store.get('hiddenLevelIds') || new Set();
+  const focusedLevelId = store.get('focusedLevelId');
+
+  // 1. Shards visibility & opacity
+  for (const [key, mesh] of Object.entries(shardMeshes)) {
+    const sd = shardDataMap[mesh.uuid];
+    if (!sd) continue;
+
+    const isHidden = hiddenLevelIds.has(sd.orbit);
+    if (isHidden) {
+      mesh.visible = false;
+      continue;
+    }
+
+    mesh.visible = true;
+
+    if (focusedLevelId !== null) {
+      const isCurrentLevel = (sd.orbit === focusedLevelId);
+      mesh.material.transparent = !isCurrentLevel;
+      mesh.material.opacity = isCurrentLevel ? 1.0 : 0.15;
+      if (mesh.userData.label) {
+        mesh.userData.label.visible = isCurrentLevel;
+      }
+    } else {
+      mesh.material.transparent = false;
+      mesh.material.opacity = 1.0;
+      if (mesh.userData.label) {
+        mesh.userData.label.visible = true;
+      }
+    }
+  }
+
+  // 2. Sockets visibility (unused in Composition mode, but keep robust)
+  for (const [socketKey, group] of Object.entries(socketMeshes)) {
+    const shardKey = group.userData?.shardKey;
+    if (!shardKey) continue;
+
+    const shard = data.shards.find(s => s.key === shardKey);
+    if (!shard) continue;
+
+    group.visible = !hiddenLevelIds.has(shard.orbit);
+  }
+
+  // 3. Level wireframe visibility & opacity
+  if (levelsGroup) {
+    levelsGroup.children.forEach(lvlMesh => {
+      const lvlId = lvlMesh.userData?.levelId;
+      if (lvlId !== undefined) {
+        const isHidden = hiddenLevelIds.has(lvlId);
+        if (isHidden) {
+          lvlMesh.visible = false;
+          return;
+        }
+
+        lvlMesh.visible = true;
+
+        if (focusedLevelId !== null) {
+          const isCurrentLevel = (lvlId === focusedLevelId);
+          lvlMesh.material.transparent = true;
+          lvlMesh.material.opacity = isCurrentLevel ? 0.18 : 0.03;
+        } else {
+          lvlMesh.material.transparent = true;
+          lvlMesh.material.opacity = 0.18;
+        }
+      }
+    });
+  }
+
+  // 4. Department boundary visibility & opacity
+  if (deptsGroup) {
+    deptsGroup.children.forEach(deptMesh => {
+      const lvlId = deptMesh.userData?.orbit;
+      if (lvlId !== undefined) {
+        const isHidden = hiddenLevelIds.has(lvlId);
+        if (isHidden) {
+          deptMesh.visible = false;
+          return;
+        }
+
+        deptMesh.visible = true;
+
+        if (focusedLevelId !== null) {
+          const isCurrentLevel = (lvlId === focusedLevelId);
+          deptMesh.material.transparent = true;
+          deptMesh.material.opacity = isCurrentLevel ? 0.25 : 0.04;
+        } else {
+          deptMesh.material.transparent = true;
+          deptMesh.material.opacity = 0.25;
+        }
+      }
+    });
+  }
+}
+
 // Scene elements tracking
 export let shardMeshes = {};        // key -> mesh
 export let shardDataMap = {};       // mesh.uuid -> raw data
@@ -123,6 +224,7 @@ export function buildSceneData(data, preserveCamera = false) {
     const wire = new THREE.LineSegments(edgeGeo, mat);
     wire.position.set(x, y, z);
     wire.raycast = () => {}; // Disable raycasting interaction
+    wire.userData = { levelId: lvl.id };
     levelsGroup.add(wire);
   });
 
@@ -152,6 +254,7 @@ export function buildSceneData(data, preserveCamera = false) {
     wire.computeLineDistances();
     wire.position.set(x, y, z);
     wire.raycast = () => {}; // Disable raycasting interaction
+    wire.userData = { orbit: dept.orbit };
     deptsGroup.add(wire);
   });
 
@@ -320,6 +423,9 @@ export function buildSceneData(data, preserveCamera = false) {
   if (!preserveCamera) {
     fitCameraToScene(bbox);
   }
+
+  // Apply hidden/solo visibility filters
+  updateLevelsVisibility();
 }
 
 export function updateAllSocketVisuals() {

@@ -39,6 +39,9 @@ const state = {
   activeWorkspace: 'model-composition',
   activeMode: 'inspect',
   hasUnsavedChanges: false,
+  focusedLevelId: null,
+  hiddenLevelIds: new Set(),
+  soloLevelId: null,
   modalActive: false,
   editorSettings: cachedSettings ? { ...defaultEditorSettings, ...cachedSettings } : defaultEditorSettings
 };

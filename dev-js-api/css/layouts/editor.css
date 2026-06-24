@@ -404,6 +404,19 @@
   cursor: pointer;
 }
 
+.bottom-floating-panel.interactive-panel:hover {
+  background: var(--ax-bg-hover);
+  border-color: var(--ax-border-active);
+  color: var(--ax-text);
+}
+
+.bottom-floating-panel.interactive-panel.active {
+  background: rgba(var(--ax-accent-rgb), 0.12);
+  border-color: var(--ax-accent);
+  color: var(--ax-accent);
+  box-shadow: 0 0 12px rgba(var(--ax-accent-rgb), 0.2);
+}
+
 .bottom-floating-panel.ax-btn--danger {
   background: rgba(239, 68, 68, 0.15) !important;
   border-color: rgba(239, 68, 68, 0.45) !important;
@@ -455,8 +468,7 @@
 }
 
 /* --- Specific Drawer Layout Extensions --- */
-#physics-drawer,
-#layers-drawer,
+#hierarchy-drawer,
 #validator-drawer {
   position: fixed;
   bottom: 64px;
@@ -467,9 +479,9 @@
   transition: all var(--ax-duration-normal) var(--ax-ease);
 }
 
-#physics-drawer,
-#layers-drawer {
+#hierarchy-drawer {
   width: 380px;
+  height: 400px;
   max-height: calc(100vh - 120px);
 }
 
@@ -479,13 +491,13 @@
   max-height: calc(100vh - 120px);
 }
 
-#physics-drawer.open,
-#layers-drawer.open,
+#hierarchy-drawer.open,
 #validator-drawer.open {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
 }
+
 
 .validator-list {
   flex-grow: 1;

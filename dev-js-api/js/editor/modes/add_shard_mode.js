@@ -29,6 +29,17 @@ export class AddShardMode {
     deselectAll();
     showToast("Режим добавления шарда активен. Кликните на уровень для размещения.", "info");
 
+    const focusedLevelId = store.get('focusedLevelId');
+    if (focusedLevelId !== null) {
+      const hiddenLevelIds = store.get('hiddenLevelIds') || new Set();
+      if (hiddenLevelIds.has(focusedLevelId)) {
+        const newHidden = new Set(hiddenLevelIds);
+        newHidden.delete(focusedLevelId);
+        store.set('hiddenLevelIds', newHidden);
+        showToast("Выбранный уровень автоматически сделан видимым", "info");
+      }
+    }
+
     // Block browser's right-click context menu
     this.preventContextMenu = (e) => e.preventDefault();
     window.addEventListener('contextmenu', this.preventContextMenu);
@@ -208,8 +219,25 @@ export class AddShardMode {
   onPointerMove(event, raycaster) {
     if (!this.ghostMesh) return;
 
-    // Raycast against a virtual horizontal ground plane (Y=0)
-    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const focusedLevelId = store.get('focusedLevelId');
+    const placementData = store.get('placementData');
+    
+    let lvlZ = 0;
+    let orbitIndex = 0;
+    if (focusedLevelId !== null && placementData) {
+      const lvl = placementData.levels.find(l => l.id === focusedLevelId);
+      if (lvl) {
+        lvlZ = lvl.z_start || 0;
+        orbitIndex = focusedLevelId;
+      }
+    } else if (placementData && placementData.levels && placementData.levels.length > 0) {
+      const firstLvl = placementData.levels[0];
+      lvlZ = firstLvl.z_start || 0;
+      orbitIndex = firstLvl.id;
+    }
+
+    // Raycast against a virtual horizontal ground plane at the level floor
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -lvlZ * VIS_SCALE);
     const hitPoint = new THREE.Vector3();
     const hitSuccess = raycaster.ray.intersectPlane(groundPlane, hitPoint);
 
@@ -222,7 +250,7 @@ export class AddShardMode {
 
     this.ghostMesh.visible = true;
     document.body.style.cursor = 'cell';
-    this.currentOrbitIndex = 0;
+    this.currentOrbitIndex = orbitIndex;
 
     // Attach ghost directly to scene
     if (this.ghostMesh.parent !== scene) {
@@ -299,7 +327,7 @@ export class AddShardMode {
     // Set position local to level floor (Three.js center coordinates)
     this.ghostMesh.position.set(
       (finalVoxX + gW / 2) * VIS_SCALE,
-      (gH * VIS_SCALE) / 2, // flush with floor plane
+      lvlZ * VIS_SCALE + (gH * VIS_SCALE) / 2, // flush with this level's floor plane
       (finalVoxZ + gD / 2) * VIS_SCALE
     );
 
@@ -343,10 +371,24 @@ export class AddShardMode {
     const placementData = store.get('placementData');
     if (!placementData) return false;
 
-    const orbitIndex = 0;
+    const focusedLevelId = store.get('focusedLevelId');
+    let orbitIndex = 0;
+    if (focusedLevelId !== null) {
+      orbitIndex = focusedLevelId;
+    } else if (placementData.levels && placementData.levels.length > 0) {
+      orbitIndex = placementData.levels[0].id;
+    }
+
+    // Ensure target level is not hidden/soloed out
+    const hiddenLevelIds = store.get('hiddenLevelIds') || new Set();
+    if (hiddenLevelIds.has(orbitIndex)) {
+      const newHidden = new Set(hiddenLevelIds);
+      newHidden.delete(orbitIndex);
+      store.set('hiddenLevelIds', newHidden);
+    }
 
     const deptName = advancedObjPropConfig.dept;
-    const orbitLabel = 'l0';
+    const orbitLabel = `l${orbitIndex}`;
     const deptClean = deptName.toLowerCase().replace(/[^a-z0-9]/g, '_');
 
     let index = 0;

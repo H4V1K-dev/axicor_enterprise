@@ -56,19 +56,12 @@ export function initToolbar() {
   modePanel.appendChild(mode3);
   leftContainer.appendChild(modePanel);
  
-  // 2. Physics button (сама является интерактивной плашкой)
-  const physicsBtn = document.createElement('button');
-  physicsBtn.id = 'physics-toggle-btn';
-  physicsBtn.className = 'ax-panel bottom-floating-panel interactive-panel';
-  physicsBtn.textContent = 'Физика';
-  leftContainer.appendChild(physicsBtn);
- 
-  // 2.5. Layers button (сама является интерактивной плашкой)
-  const layersBtn = document.createElement('button');
-  layersBtn.id = 'layers-toggle-btn';
-  layersBtn.className = 'ax-panel bottom-floating-panel interactive-panel';
-  layersBtn.textContent = 'Уровни';
-  leftContainer.appendChild(layersBtn);
+  // 2. Hierarchy button (сама является интерактивной плашкой)
+  const hierarchyBtn = document.createElement('button');
+  hierarchyBtn.id = 'hierarchy-toggle-btn';
+  hierarchyBtn.className = 'ax-panel bottom-floating-panel interactive-panel';
+  hierarchyBtn.textContent = 'Иерархия';
+  leftContainer.appendChild(hierarchyBtn);
 
   // 3. Validator button (сама является интерактивной плашкой)
   const validatorBtn = document.createElement('button');
@@ -254,7 +247,7 @@ export function initToolbar() {
     }
   });
 
-  return { physicsBtn, layersBtn, validatorBtn };
+  return { hierarchyBtn, validatorBtn };
 }
 
 function getDeletionContext() {

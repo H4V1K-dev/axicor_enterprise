@@ -67,6 +67,9 @@
 
 /* ─── DARK THEME ─── */
 [data-theme="dark"] {
+  --ax-accent:          #10b981;
+  --ax-accent-rgb:      16, 185, 129;
+  --ax-accent-hover:    #059669;
   --ax-bg:              #0e0f12;
   --ax-bg-sidebar:      #141519;
   --ax-bg-surface:      rgba(26, 27, 32, 0.85);

@@ -5,7 +5,7 @@
 import { on, emit, EVENTS } from './store/event_bus.js';
 import { showSidebar, hideSidebar, saveAllLayoutChanges, renderLayersListItems } from './ui/sidebar.js';
 import { initToolbar } from './ui/toolbar.js';
-import { initLayersPanel } from './ui/layers_panel.js';
+import { initHierarchyPanel } from './ui/hierarchy_panel.js';
 import { initValidatorPanel } from './ui/validator_panel.js';
 import { initHistoryPanel } from './ui/history_panel.js';
 import { initViewCube } from './ui/viewcube.js';
@@ -245,7 +245,7 @@ export function initUI() {
   });
 
   // Initialize Bottom Toolbar and get references to drawer toggle buttons
-  const { physicsBtn, layersBtn, validatorBtn } = initToolbar();
+  const { hierarchyBtn, validatorBtn } = initToolbar();
 
   // Settings trigger logic (after toolbar creates it in DOM)
   const settingsTrigger = document.getElementById('settings-trigger-btn');
@@ -255,8 +255,8 @@ export function initUI() {
     });
   }
 
-// Initialize sub-panels
-  initLayersPanel(layersBtn);
+  // Initialize sub-panels
+  initHierarchyPanel(hierarchyBtn);
   initValidatorPanel(validatorBtn);
   initHistoryPanel();
   initViewCube();

@@ -26,8 +26,7 @@ export function initWorkspaces() {
 
   // Bottom toolbar panels & docks
   const modeSwitchPanel = document.getElementById('mode-switch-panel');
-  const physicsToggle = document.getElementById('physics-toggle-btn');
-  const layersToggle = document.getElementById('layers-toggle-btn');
+  const hierarchyToggle = document.getElementById('hierarchy-toggle-btn');
   const validatorToggle = document.getElementById('validator-toggle-btn');
 
   if (!tabsContainer || tabs.length === 0) {
@@ -46,11 +45,11 @@ export function initWorkspaces() {
 
   // Define allowed bottom panels for each workspace
   const workspaceBottomPanels = {
-    'model-composition': { modeSwitch: false, physics: true, layers: true, validator: true },
-    'neuron-lab': { modeSwitch: false, physics: true, layers: false, validator: false },
-    'connectom-editor': { modeSwitch: true, physics: false, layers: true, validator: true },
-    'growth-simulator': { modeSwitch: false, physics: false, layers: false, validator: false },
-    'inference-mode': { modeSwitch: false, physics: false, layers: false, validator: false }
+    'model-composition': { modeSwitch: false, hierarchy: true, validator: true },
+    'neuron-lab': { modeSwitch: false, hierarchy: false, validator: false },
+    'connectom-editor': { modeSwitch: true, hierarchy: true, validator: true },
+    'growth-simulator': { modeSwitch: false, hierarchy: false, validator: false },
+    'inference-mode': { modeSwitch: false, hierarchy: false, validator: false }
   };
 
   // Switch workspace function
@@ -126,23 +125,15 @@ export function initWorkspaces() {
     // 5. Hide/show bottom panel docks
     const panelsConfig = workspaceBottomPanels[workspaceName] || {};
     if (modeSwitchPanel) modeSwitchPanel.style.display = panelsConfig.modeSwitch ? '' : 'none';
-    if (physicsToggle) physicsToggle.style.display = panelsConfig.physics ? '' : 'none';
-    if (layersToggle) layersToggle.style.display = panelsConfig.layers ? '' : 'none';
+    if (hierarchyToggle) hierarchyToggle.style.display = panelsConfig.hierarchy ? '' : 'none';
     if (validatorToggle) validatorToggle.style.display = panelsConfig.validator ? '' : 'none';
 
     // 6. Close bottom drawers if they shouldn't be visible
-    if (!panelsConfig.physics) {
-      const drawer = document.getElementById('physics-drawer');
+    if (!panelsConfig.hierarchy) {
+      const drawer = document.getElementById('hierarchy-drawer');
       if (drawer && drawer.classList.contains('open')) {
         drawer.classList.remove('open');
-        if (physicsToggle) physicsToggle.classList.remove('active');
-      }
-    }
-    if (!panelsConfig.layers) {
-      const drawer = document.getElementById('layers-drawer');
-      if (drawer && drawer.classList.contains('open')) {
-        drawer.classList.remove('open');
-        if (layersToggle) layersToggle.classList.remove('active');
+        if (hierarchyToggle) hierarchyToggle.classList.remove('active');
       }
     }
     if (!panelsConfig.validator) {

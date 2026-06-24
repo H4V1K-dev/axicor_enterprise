@@ -31,3 +31,90 @@
   color: var(--ax-accent);
   font-weight: 600;
 }
+
+/* Card variant: column layout for multi-line content (levels, depts, shards) */
+.panel-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  padding: 8px 12px;
+  min-height: 52px;
+  height: auto;
+  box-sizing: border-box;
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-radius-md);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--ax-text-base);
+  color: var(--ax-text);
+  transition: background var(--ax-duration-fast) var(--ax-ease),
+              border-color var(--ax-duration-fast) var(--ax-ease);
+}
+
+.panel-card:hover {
+  background: var(--ax-bg-hover);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.panel-card.active {
+  background: var(--ax-bg-active);
+  border-color: var(--ax-accent);
+  border-left-width: 2px;
+}
+
+.panel-card.active .panel-card__title {
+  color: var(--ax-accent);
+}
+
+.panel-card__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ax-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.panel-card__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--ax-text-faint);
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.panel-card__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--ax-font-mono);
+  background: rgba(var(--ax-accent-rgb), 0.12);
+  color: var(--ax-accent);
+  flex-shrink: 0;
+}
+
+.panel-card__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--ax-radius-sm);
+  background: rgba(var(--ax-accent-rgb), 0.1);
+  color: var(--ax-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--ax-font-mono);
+  letter-spacing: -0.5px;
+}

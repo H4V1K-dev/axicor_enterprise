@@ -56,7 +56,9 @@ export function initValidatorPanel(validatorBtn) {
   validatorDrawer.id = 'validator-drawer';
   validatorDrawer.className = 'ax-drawer';
   validatorDrawer.innerHTML = `
-    <h3 class="ax-section-title">Стек ошибок</h3>
+    <div class="drawer-header">
+      <h3 class="drawer-title">Стек ошибок</h3>
+    </div>
     <div class="validator-list" id="validator-list">
       <div class="validator-empty">Ошибок не обнаружено. Система функционирует нормально.</div>
     </div>
@@ -114,10 +116,18 @@ export function initValidatorPanel(validatorBtn) {
     validatorDrawer.style.left = safeLeft + 'px';
   };
 
-  let closeTimeout = null;
-
   const openDrawer = () => {
-    if (closeTimeout) clearTimeout(closeTimeout);
+    // Close other drawers
+    const openDrawers = document.querySelectorAll('.ax-drawer.open');
+    openDrawers.forEach(d => {
+      if (d !== validatorDrawer) {
+        d.classList.remove('open');
+        const triggerId = d.id.replace('-drawer', '-toggle-btn');
+        const trigger = document.getElementById(triggerId);
+        if (trigger) trigger.classList.remove('active');
+      }
+    });
+
     updatePosition();
     validatorDrawer.classList.add('open');
     validatorBtn.classList.remove('ax-btn--danger', 'ax-btn--warning', 'ax-btn--success');
@@ -125,12 +135,9 @@ export function initValidatorPanel(validatorBtn) {
   };
 
   const closeDrawer = () => {
-    if (closeTimeout) clearTimeout(closeTimeout);
-    closeTimeout = setTimeout(() => {
-      validatorDrawer.classList.remove('open');
-      validatorBtn.classList.remove('active');
-      updateValidatorBtnStyle();
-    }, 200);
+    validatorDrawer.classList.remove('open');
+    validatorBtn.classList.remove('active');
+    updateValidatorBtnStyle();
   };
 
   validatorBtn.addEventListener('click', (e) => {
@@ -142,12 +149,16 @@ export function initValidatorPanel(validatorBtn) {
     }
   });
 
-  validatorBtn.addEventListener('mouseleave', closeDrawer);
-
-  validatorDrawer.addEventListener('mouseenter', () => {
-    if (closeTimeout) clearTimeout(closeTimeout);
-  });
-  validatorDrawer.addEventListener('mouseleave', closeDrawer);
+  const handleOutsideClick = (e) => {
+    if (!validatorDrawer.classList.contains('open')) return;
+    const clickedInside = validatorDrawer.contains(e.target);
+    const clickedToggle = validatorBtn.contains(e.target);
+    const clickedConfirmModal = document.getElementById('ax-confirm-modal')?.contains(e.target);
+    if (!clickedInside && !clickedToggle && !clickedConfirmModal) {
+      closeDrawer();
+    }
+  };
+  document.addEventListener('click', handleOutsideClick);
 
   // Bind bulk fix actions
   document.getElementById('val-fix-errors-btn').addEventListener('click', async () => {
