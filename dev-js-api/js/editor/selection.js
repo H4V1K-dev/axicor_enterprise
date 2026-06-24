@@ -5,7 +5,6 @@
 import * as THREE from 'three';
 import { camera, scene } from '../viewer.js';
 import { shardMeshes, socketMeshes, shardDataMap, drawRoutes, VIS_SCALE } from '../scene_builder.js';
-import { transformControls } from './transform.js';
 import { updateFocusVisuals } from './focus.js';
 import { store } from '../store/store.js';
 import { on, emit, EVENTS } from '../store/event_bus.js';
@@ -19,28 +18,19 @@ import { spawnSomasForShard, clearSomas } from '../rendering/soma_renderer.js';
 export function selectShard(key) {
   // Clean up previous selection artifacts directly
   updateSocketHandlesVisibility();
-  if (transformControls) transformControls.detach();
   clearSomas();
 
-  // Set the new selected shard key and clear socket selection
-  store.set('selectedShardKey', key);
-  store.set('selectedSocketKey', null);
-  store.set('connectionMode', 1);
+  // Set the new selected shard key and clear socket selection atomically
+  store.setMultiple({
+    selectedShardKey: key,
+    selectedSocketKey: null,
+    connectionMode: 1
+  });
 
   const mesh = shardMeshes[key];
   if (mesh) {
     // Record current position as valid for collision checks
     mesh.userData.lastValidPosition = mesh.position.clone();
-
-    // Attach TransformControls
-    transformControls.attach(mesh);
-    transformControls.space = 'world';
-    transformControls.showX = true;
-    transformControls.showY = true;
-    transformControls.showZ = true;
-    const editorSettings = store.get('editorSettings') || {};
-    const snapStep = editorSettings.snap_step || 1;
-    transformControls.translationSnap = snapStep * VIS_SCALE;
 
     // Apply Focus opacity states
     updateFocusVisuals();
@@ -61,28 +51,19 @@ export function selectShard(key) {
 export function selectSocket(key) {
   // Clean up previous selection artifacts directly
   updateSocketHandlesVisibility();
-  if (transformControls) transformControls.detach();
   clearSomas();
 
-  // Set the new selected socket key and clear shard selection
-  store.set('selectedSocketKey', key);
-  store.set('selectedShardKey', null);
-  store.set('connectionMode', 2);
+  // Set the new selected socket key and clear shard selection atomically
+  store.setMultiple({
+    selectedSocketKey: key,
+    selectedShardKey: null,
+    connectionMode: 2
+  });
 
   const group = socketMeshes[key];
   if (group) {
     // Show resizer handles if in resize mode
     updateSocketHandlesVisibility();
-
-    // Attach local-space TransformControls
-    transformControls.attach(group);
-    transformControls.space = 'local';
-    transformControls.showX = true;
-    transformControls.showY = true;
-    transformControls.showZ = true; // Allow local X-Y-Z movements
-    const editorSettings = store.get('editorSettings') || {};
-    const snapStep = editorSettings.snap_step || 1;
-    transformControls.translationSnap = snapStep * VIS_SCALE;
 
     // Apply Focus opacity states
     updateFocusVisuals();
@@ -99,12 +80,13 @@ export function selectSocket(key) {
 export function deselectAll() {
   updateSocketHandlesVisibility();
 
-  store.set('selectedShardKey', null);
-  store.set('selectedSocketKey', null);
-  store.set('selectedRouteKey', null);
-  store.set('connectionMode', 1);
+  store.setMultiple({
+    selectedShardKey: null,
+    selectedSocketKey: null,
+    selectedRouteKey: null,
+    connectionMode: 1
+  });
 
-  if (transformControls) transformControls.detach();
   updateFocusVisuals();
 
   // Redraw routes to clear highlight

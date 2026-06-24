@@ -23,16 +23,6 @@ export class TranslateMode {
 
   enter() {
     showToast("Режим перемещения (Gizmo) активен", "success");
-    
-    // Auto attach gizmo if an object is already selected
-    const selShardKey = store.get('selectedShardKey');
-    const selSocketKey = store.get('selectedSocketKey');
-    if (selShardKey) {
-      selectShard(selShardKey);
-    } else if (selSocketKey) {
-      selectSocket(selSocketKey);
-    }
-
     this.applyModeVisuals();
     on(EVENTS.SELECTION_CHANGED, this.onSelectionChanged);
   }
@@ -40,15 +30,6 @@ export class TranslateMode {
   exit() {
     off(EVENTS.SELECTION_CHANGED, this.onSelectionChanged);
     this.resetHover();
-
-    if (transformControls) {
-      const selShardKey = store.get('selectedShardKey');
-      const selSocketKey = store.get('selectedSocketKey');
-      if (!selShardKey && !selSocketKey) {
-        transformControls.detach();
-      }
-    }
-
     updateFocusVisuals();
   }
 

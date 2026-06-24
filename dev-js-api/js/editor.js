@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { camera, renderer, scene, controls } from './viewer.js';
 import { shardMeshes, socketMeshes, VIS_SCALE, shardDataMap } from './scene_builder.js';
 import { initTransformControls, transformControls } from './editor/transform.js';
+import { initTransformManager } from './editor/transform_manager.js';
 import { selectShard, selectSocket, deselectAll } from './editor/selection.js';
 import { checkShardCollision } from './editor/collision_adapter.js';
 import { updateFocusVisuals } from './editor/focus.js';
@@ -51,6 +52,7 @@ export let modeManager = null;
 
 export function initEditor() {
   initTransformControls();
+  initTransformManager();
 
   modeManager = new ModeManager();
   modeManager.register('inspect', new InspectMode());

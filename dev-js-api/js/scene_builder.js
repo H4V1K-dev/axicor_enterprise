@@ -113,14 +113,47 @@ let deptsGroup = null;
 export { rebuildSocket };
 
 /**
+ * Recursively disposes geometries, materials, and textures within a Three.js hierarchy.
+ * @param {THREE.Object3D} obj
+ */
+export function disposeHierarchy(obj) {
+  if (!obj) return;
+  obj.traverse(child => {
+    if (child.geometry) {
+      child.geometry.dispose();
+    }
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(mat => {
+          if (mat.map) mat.map.dispose();
+          mat.dispose();
+        });
+      } else {
+        if (child.material.map) child.material.map.dispose();
+        child.material.dispose();
+      }
+    }
+  });
+}
+
+/**
  * Builds the 3D visual scene objects (shards, levels, and departments) from placement data.
  * @param {import("./contracts/types.js").PlacementData} data 
  */
 export function buildSceneData(data, preserveCamera = false) {
-  // Clear any existing groups to avoid duplication
-  if (shardsGroup) scene.remove(shardsGroup);
-  if (levelsGroup) scene.remove(levelsGroup);
-  if (deptsGroup) scene.remove(deptsGroup);
+  // Clear any existing groups to avoid duplication and GPU leaks
+  if (shardsGroup) {
+    disposeHierarchy(shardsGroup);
+    scene.remove(shardsGroup);
+  }
+  if (levelsGroup) {
+    disposeHierarchy(levelsGroup);
+    scene.remove(levelsGroup);
+  }
+  if (deptsGroup) {
+    disposeHierarchy(deptsGroup);
+    scene.remove(deptsGroup);
+  }
 
   shardsGroup = new THREE.Group();
   levelsGroup = new THREE.Group();
@@ -428,7 +461,10 @@ export function updateAllSocketVisuals() {
 export function updateContainerWires() {
   if (!levelsGroup || !deptsGroup) return;
 
+  disposeHierarchy(levelsGroup);
   levelsGroup.clear();
+
+  disposeHierarchy(deptsGroup);
   deptsGroup.clear();
 
   const placement = store.get('placementData');

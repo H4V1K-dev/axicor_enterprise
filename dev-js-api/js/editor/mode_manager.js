@@ -50,9 +50,10 @@ export class ModeManager {
     }
 
     // Push previous mode to history stack if it doesn't duplicate the last entry
+    // and if the top of the stack is not already the target mode
     if (!isPop && this.activeModeName) {
       const lastInHistory = this.modeHistory[this.modeHistory.length - 1];
-      if (lastInHistory !== this.activeModeName) {
+      if (lastInHistory !== this.activeModeName && lastInHistory !== name) {
         this.modeHistory.push(this.activeModeName);
         if (this.modeHistory.length > 10) {
           this.modeHistory.shift();
@@ -261,7 +262,8 @@ export class ModeManager {
           }
         }
         return;
-      case 'Delete': {
+      case 'Delete':
+      case 'Backspace': {
         const deleteBtn = document.getElementById('delete-selected-btn');
         if (deleteBtn && deleteBtn.style.display !== 'none') {
           deleteBtn.click();
@@ -289,21 +291,7 @@ export class ModeManager {
     if (event.code === 'ControlLeft' || event.code === 'ControlRight') {
       if (this.ctrlHeld) {
         this.ctrlHeld = false;
-        
-        const selShardKey = store.get('selectedShardKey');
-        const selSocketKey = store.get('selectedSocketKey');
-        const hasSelection = !!(selShardKey || selSocketKey);
-        
-        const prevMode = this.modeHistory[this.modeHistory.length - 1] || 'inspect';
-        
-        if (hasSelection && prevMode === 'inspect') {
-          if (this.modeHistory.length > 0) {
-            this.modeHistory.pop();
-          }
-          this.setMode('translate');
-        } else {
-          this.popMode();
-        }
+        this.popMode();
       }
     }
   }
