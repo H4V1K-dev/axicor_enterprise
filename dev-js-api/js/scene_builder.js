@@ -425,6 +425,7 @@ export function buildSceneData(data, preserveCamera = false) {
     });
   }
   VIS_SCALE = 35.0 / Math.max(maxCoord, 1.0);
+  store.set('visScale', VIS_SCALE);
   initSharedResources(VIS_SCALE);
   initUnitGeometry();
 

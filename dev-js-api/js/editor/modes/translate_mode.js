@@ -15,16 +15,8 @@ import {
   isDragging as isDraggingDivider
 } from '../divider_drag.js';
 
-const hoverBodyMaterial = new THREE.MeshStandardMaterial({
-  color: 0x6366f1,
-  transparent: true,
-  opacity: 0.5,
-  roughness: 0.6,
-  metalness: 0.1
-});
-
 const hoverWireMaterial = new THREE.LineBasicMaterial({
-  color: 0x6366f1,
+  color: 0x10b981, // Emerald Green
   transparent: true,
   opacity: 0.95
 });
@@ -65,11 +57,7 @@ export class TranslateMode {
     if (type === 'shard') {
       const mesh = shardMeshes[key];
       if (mesh) {
-        const body = mesh.userData.body;
         const mainWire = mesh.userData.mainWire;
-        if (body) {
-          body.material = hoverBodyMaterial;
-        }
         if (mainWire) {
           mainWire.material = hoverWireMaterial;
         }
@@ -168,6 +156,16 @@ export class TranslateMode {
     if (isDraggingDivider()) {
       onDividerPointerMove(event);
       return;
+    }
+
+    // Prevent hover raycasting when hovering over the TransformControls axes
+    if (transformControls && transformControls.visible) {
+      const gizmoHits = raycaster.intersectObjects(transformControls.children, true);
+      if (gizmoHits.length > 0) {
+        this.resetHover();
+        document.body.style.cursor = 'default';
+        return;
+      }
     }
 
     const selShardKey = store.get('selectedShardKey');

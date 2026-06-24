@@ -200,7 +200,6 @@ export function resolveRaycastHit(raycaster) {
   }
 
   // Step 2: Find the closest visible shard
-  let bestShard = null;
   for (const cand of candidates) {
     if (cand.type === 'shard') {
       let occluded = false;
@@ -212,17 +211,9 @@ export function resolveRaycastHit(raycaster) {
         }
       }
       if (!occluded) {
-        if (cand.isOpaque) {
-          return { type: 'shard', key: cand.key, object: cand.object, hit: cand.hit };
-        } else if (!bestShard) {
-          bestShard = cand;
-        }
+        return { type: 'shard', key: cand.key, object: cand.object, hit: cand.hit };
       }
     }
-  }
-
-  if (bestShard) {
-    return { type: 'shard', key: bestShard.key, object: bestShard.object, hit: bestShard.hit };
   }
 
   // Step 3: Find the closest route

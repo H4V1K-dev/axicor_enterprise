@@ -15,36 +15,60 @@ let mouse = new THREE.Vector2();
 // Soma functions will be imported from coordinate re-exporter or direct modules
 import { spawnSomasForShard, clearSomas } from '../rendering/soma_renderer.js';
 
-export function selectShard(key) {
+export function selectShard(key, isMulti = false) {
   // Clean up previous selection artifacts directly
   updateSocketHandlesVisibility();
   clearSomas();
 
-  // Set the new selected shard key and clear socket selection atomically
+  const currentKeys = store.get('selectedShardKeys') || new Set();
+  let newKeys;
+
+  if (isMulti) {
+    newKeys = new Set(currentKeys);
+    if (newKeys.has(key)) {
+      newKeys.delete(key);
+    } else {
+      newKeys.add(key);
+    }
+  } else {
+    newKeys = new Set([key]);
+  }
+
+  const activeKey = newKeys.size > 0 ? Array.from(newKeys)[newKeys.size - 1] : null;
+
+  // Set the new selected shard keys and clear socket selection atomically
   store.setMultiple({
-    selectedShardKey: key,
+    selectedShardKeys: newKeys,
+    selectedShardKey: activeKey,
     selectedSocketKey: null,
     connectionMode: 1
   });
 
-  const mesh = shardMeshes[key];
-  if (mesh) {
-    // Record current position as valid for collision checks
-    mesh.userData.lastValidPosition = mesh.position.clone();
+  if (activeKey) {
+    const mesh = shardMeshes[activeKey];
+    if (mesh) {
+      // Record current position as valid for collision checks
+      mesh.userData.lastValidPosition = mesh.position.clone();
 
-    // Apply Focus opacity states
+      // Apply Focus opacity states
+      updateFocusVisuals();
+
+      // Redraw routes to highlight active ones
+      const routes = store.get('routesData');
+      if (routes) drawRoutes(routes);
+
+      // Spawn 3D somas for this active shard
+      spawnSomasForShard(activeKey);
+
+      // Emit selection changed event (UI panel listens to this)
+      const shardData = shardDataMap[mesh.uuid];
+      emit(EVENTS.SELECTION_CHANGED, { type: 'shard', data: shardData });
+    }
+  } else {
     updateFocusVisuals();
-
-    // Redraw routes to highlight active ones
     const routes = store.get('routesData');
     if (routes) drawRoutes(routes);
-
-    // Spawn 3D somas for this shard
-    spawnSomasForShard(key);
-
-    // Emit selection changed event (UI panel listens to this)
-    const shardData = shardDataMap[mesh.uuid];
-    emit(EVENTS.SELECTION_CHANGED, { type: 'shard', data: shardData });
+    emit(EVENTS.SELECTION_CHANGED, { type: null, data: null });
   }
 }
 
@@ -57,6 +81,7 @@ export function selectSocket(key) {
   store.setMultiple({
     selectedSocketKey: key,
     selectedShardKey: null,
+    selectedShardKeys: new Set(),
     connectionMode: 2
   });
 
@@ -82,6 +107,7 @@ export function deselectAll() {
 
   store.setMultiple({
     selectedShardKey: null,
+    selectedShardKeys: new Set(),
     selectedSocketKey: null,
     selectedRouteKey: null,
     connectionMode: 1

@@ -17,7 +17,6 @@ export function initWorkspaces() {
   
   // Sidebar tool buttons
   const toolInspect = document.getElementById('tool-inspect');
-  const toolSelect = document.getElementById('tool-select');
   const toolTranslate = document.getElementById('tool-translate');
   const toolResize = document.getElementById('tool-resize');
   const toolAddSocket = document.getElementById('tool-add-socket-btn');
@@ -36,9 +35,9 @@ export function initWorkspaces() {
 
   // Define allowed tools for each workspace
   const workspaceTools = {
-    'model-composition': [toolInspect, toolSelect, toolTranslate, toolResize, toolAddShard],
-    'neuron-lab': [toolInspect, toolSelect],
-    'connectom-editor': [toolInspect, toolSelect, toolTranslate, toolResize, toolAddSocket, toolAddRoute],
+    'model-composition': [toolInspect, toolTranslate, toolResize, toolAddShard],
+    'neuron-lab': [toolInspect],
+    'connectom-editor': [toolInspect, toolTranslate, toolResize, toolAddSocket, toolAddRoute],
     'growth-simulator': [toolInspect],
     'inference-mode': [toolInspect]
   };
@@ -80,7 +79,7 @@ export function initWorkspaces() {
 
     // 2. Hide/show tool buttons in tools-sidebar
     const allowedTools = workspaceTools[workspaceName] || [];
-    const allTools = [toolInspect, toolSelect, toolTranslate, toolResize, toolAddSocket, toolAddRoute, toolAddShard];
+    const allTools = [toolInspect, toolTranslate, toolResize, toolAddSocket, toolAddRoute, toolAddShard];
     
     allTools.forEach(tool => {
       if (!tool) return;
@@ -97,7 +96,6 @@ export function initWorkspaces() {
       if (modeManager && modeManager.activeModeName) {
         const allowedModeNames = [];
         if (allowedTools.includes(toolInspect)) allowedModeNames.push('inspect');
-        if (allowedTools.includes(toolSelect)) allowedModeNames.push('select');
         if (allowedTools.includes(toolTranslate)) allowedModeNames.push('translate');
         if (allowedTools.includes(toolResize)) allowedModeNames.push('resize');
         if (allowedTools.includes(toolAddSocket)) allowedModeNames.push('add_socket');

@@ -34,6 +34,7 @@ const state = {
   placementData: null,
   routesData: null,
   selectedShardKey: null,
+  selectedShardKeys: new Set(),
   selectedSocketKey: null,
   connectionMode: 1,
   activeWorkspace: 'model-composition',
@@ -43,6 +44,8 @@ const state = {
   hiddenLevelIds: new Set(),
   soloLevelId: null,
   selectedDeptName: null,
+  focusedShardKey: null,
+  visScale: 1.0,
   modalActive: false,
   editorSettings: cachedSettings ? { ...defaultEditorSettings, ...cachedSettings } : defaultEditorSettings
 };

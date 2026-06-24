@@ -103,7 +103,6 @@ export function initUI() {
  
   // Interactive Tools selection logic
   const toolInspectBtn = document.getElementById('tool-inspect');
-  const toolSelectBtn = document.getElementById('tool-select');
   const toolTranslateBtn = document.getElementById('tool-translate');
   const toolResizeBtn = document.getElementById('tool-resize');
   const toolAddSocketBtn = document.getElementById('tool-add-socket-btn');
@@ -112,7 +111,6 @@ export function initUI() {
 
   const toolButtons = {
     'inspect': toolInspectBtn,
-    'select': toolSelectBtn,
     'translate': toolTranslateBtn,
     'resize': toolResizeBtn,
     'add_socket': toolAddSocketBtn,
@@ -124,7 +122,6 @@ export function initUI() {
     if (modeManager.activeModeName === modeName) {
       const modeLabels = {
         'inspect': 'Режим осмотра активен',
-        'select': 'Режим выделения активен',
         'translate': 'Режим перемещения (Gizmo) активен',
         'resize': 'Режим изменения размеров активен',
         'add_socket': 'Режим добавления сокета',
@@ -141,9 +138,6 @@ export function initUI() {
 
   if (toolInspectBtn) {
     toolInspectBtn.addEventListener('click', () => triggerMode('inspect'));
-  }
-  if (toolSelectBtn) {
-    toolSelectBtn.addEventListener('click', () => triggerMode('select'));
   }
   if (toolTranslateBtn) {
     toolTranslateBtn.addEventListener('click', () => triggerMode('translate'));

@@ -44,6 +44,12 @@ const bodyMaterials = {
     roughness: 0.6,
     metalness: 0.1,
   }),
+  invisible: new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.0,
+    depthWrite: false
+  }),
 };
 
 const wireMaterials = {
@@ -72,11 +78,19 @@ const wireMaterials = {
   }),
 };
 
+const greenWireMaterial = new THREE.LineBasicMaterial({
+  color: 0x10b981, // Emerald Green
+  transparent: true,
+  opacity: 0.95
+});
+
 /**
  * Applies opacity and highlight filters to shard meshes based on current cascading selection.
  */
 export function updateFocusVisuals() {
   const selShardKey = store.get('selectedShardKey');
+  const selectedShardKeys = store.get('selectedShardKeys');
+  const focusedShardKey = store.get('focusedShardKey');
   const focusedLevelId = store.get('focusedLevelId');
   const hiddenLevelIds = store.get('hiddenLevelIds') || new Set();
   const selectedDeptName = store.get('selectedDeptName');
@@ -86,8 +100,8 @@ export function updateFocusVisuals() {
 
   // 1. Resolve active level ID
   let activeLvlId = focusedLevelId;
-  if (activeLvlId === null && selShardKey) {
-    const shard = placementData.shards.find(s => s.key === selShardKey);
+  if (activeLvlId === null && focusedShardKey) {
+    const shard = placementData.shards.find(s => s.key === focusedShardKey);
     if (shard) activeLvlId = shard.orbit;
   }
   if (activeLvlId === null && selectedDeptName) {
@@ -97,14 +111,14 @@ export function updateFocusVisuals() {
 
   // 2. Resolve active department name
   let activeDeptName = selectedDeptName;
-  if (activeDeptName === null && selShardKey) {
-    const shard = placementData.shards.find(s => s.key === selShardKey);
+  if (activeDeptName === null && focusedShardKey) {
+    const shard = placementData.shards.find(s => s.key === focusedShardKey);
     if (shard) activeDeptName = shard.dept;
   }
 
   const isLevelFocused = activeLvlId !== null;
   const isDeptFocused = activeDeptName !== null;
-  const isShardFocused = selShardKey !== null;
+  const isShardFocused = focusedShardKey !== null;
   const isAnyFocusActive = isLevelFocused || isDeptFocused || isShardFocused;
 
   // 3. Update Shards Focus using pre-cached materials
@@ -135,7 +149,7 @@ export function updateFocusVisuals() {
 
     if (isAnyFocusActive) {
       if (isShardFocused) {
-        if (selShardKey === key) {
+        if (focusedShardKey === key) {
           showLayers = true;
           labelOpacity = THEME.label.activeLevelOpacity;
           labelVisible = true;
@@ -211,14 +225,22 @@ export function updateFocusVisuals() {
       targetRenderOrder = RENDER_BINS.activeBody;
     }
 
+    const isSelected = (selShardKey === key || (selectedShardKeys && selectedShardKeys.has(key)));
+    if (isSelected && !showLayers) {
+      targetWireMat = greenWireMaterial;
+    }
+
     // Apply visibility layers recursively to handle camera masks
     mesh.layers.set(targetLayer);
     mesh.traverse(child => child.layers.set(targetLayer));
 
     // Update body/wireframe material, visibility, and render order
     if (showLayers) {
-      body.visible = false;
-      mainWire.visible = false;
+      body.visible = true;
+      body.material = bodyMaterials.invisible;
+      mainWire.visible = true;
+      mainWire.material = greenWireMaterial;
+      mainWire.renderOrder = targetRenderOrder;
 
       // Show internal layers and dividers
       mesh.children.forEach(child => {
@@ -287,6 +309,12 @@ store.on('selectedDeptName', () => {
   updateFocusVisuals();
 });
 store.on('selectedShardKey', () => {
+  updateFocusVisuals();
+});
+store.on('selectedShardKeys', () => {
+  updateFocusVisuals();
+});
+store.on('focusedShardKey', () => {
   updateFocusVisuals();
 });
 store.on('activeMode', () => {

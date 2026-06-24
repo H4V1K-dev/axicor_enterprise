@@ -221,7 +221,7 @@ export class ModeManager {
 
     switch (event.code) {
       case 'KeyQ':
-        this.setMode('select');
+        this.setMode('inspect');
         event.preventDefault();
         return;
       case 'KeyW':
@@ -253,15 +253,6 @@ export class ModeManager {
         this.setMode('add_shard');
         event.preventDefault();
         return;
-      case 'ControlLeft':
-      case 'ControlRight':
-        if (!this.ctrlHeld) {
-          if (this.activeModeName !== 'select') {
-            this.ctrlHeld = true;
-            this.setMode('select');
-          }
-        }
-        return;
       case 'Delete':
       case 'Backspace': {
         const deleteBtn = document.getElementById('delete-selected-btn');
@@ -287,13 +278,7 @@ export class ModeManager {
   }
 
   onKeyUp(event) {
-    if (store.get('modalActive')) return;
-    if (event.code === 'ControlLeft' || event.code === 'ControlRight') {
-      if (this.ctrlHeld) {
-        this.ctrlHeld = false;
-        this.popMode();
-      }
-    }
+    // Control handling is now managed on a per-mode basis for multi-selection click modifiers
   }
 
   /**

@@ -25,7 +25,6 @@ import {
 import { spawnSomasForShard, clearSomas } from './rendering/soma_renderer.js';
 import { ModeManager } from './editor/mode_manager.js';
 import { store } from './store/store.js';
-import { SelectMode } from './editor/modes/select_mode.js';
 import { TranslateMode } from './editor/modes/translate_mode.js';
 import { InspectMode } from './editor/modes/inspect_mode.js';
 import { ResizeMode } from './editor/modes/resize_mode.js';
@@ -56,7 +55,6 @@ export function initEditor() {
 
   modeManager = new ModeManager();
   modeManager.register('inspect', new InspectMode());
-  modeManager.register('select', new SelectMode());
   modeManager.register('translate', new TranslateMode());
   modeManager.register('resize', new ResizeMode());
   modeManager.register('add_shard', new AddShardMode());
