@@ -3,7 +3,6 @@
  */
 
 import { on, emit, EVENTS } from './store/event_bus.js';
-import { showSidebar, hideSidebar, saveAllLayoutChanges, renderLayersListItems } from './ui/sidebar.js';
 import { initToolbar } from './ui/toolbar.js';
 import { initHierarchyPanel } from './ui/hierarchy_panel.js';
 import { initValidatorPanel } from './ui/validator_panel.js';
@@ -14,7 +13,7 @@ import { store } from './store/store.js';
 import { modeManager } from './editor.js';
 import { initWorkspaces } from './ui/workspaces.js';
 
-export { showToast, showSidebar, hideSidebar, saveAllLayoutChanges };
+export { showToast };
 
 const SVG_FOLDEROPEN_FLAT = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px; vertical-align: middle;"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg>`;
 
@@ -207,28 +206,9 @@ export function initUI() {
     updateButtonsActiveState(modeManager.activeModeName);
   }
 
-  // Folding inspector sidebar logic
-  const sidebar = document.getElementById('sidebar');
-  const sidebarToggle = document.getElementById('sidebar-toggle-btn');
-  if (sidebar && sidebarToggle) {
-    sidebarToggle.addEventListener('click', () => {
-      sidebar.classList.toggle('closed');
-      sidebarToggle.textContent = sidebar.classList.contains('closed') ? '◀' : '▶';
-    });
-  }
-
-  // Subscribe to Event Bus selection changes
+  // Subscribe to Event Bus selection changes (inspector disabled)
   on(EVENTS.SELECTION_CHANGED, (payload) => {
-    if (payload.type) {
-      // Auto expand sidebar if closed upon selecting an object
-      if (sidebar && sidebar.classList.contains('closed')) {
-        sidebar.classList.remove('closed');
-        if (sidebarToggle) sidebarToggle.textContent = '▶';
-      }
-      showSidebar(payload.type, payload.data);
-    } else {
-      hideSidebar();
-    }
+    // Inspector is disabled. We still listen to selection updates if other components need them.
   });
 
   // Re-render layers list in inspector when layer boundaries / order changes

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initViewer, animateViewer, scene, getActiveCamera, renderer, controls } from './viewer.js';
-import { buildSceneData, drawRoutes, shardMeshes, socketMeshes, updateLevelsVisibility } from './scene_builder.js';
+import { buildSceneData, drawRoutes, shardMeshes, socketMeshes } from './scene_builder.js';
 import { initEditor, deselectAll, transformControls, updateHandlesScale, modeManager } from './editor.js';
 import { initUI } from './ui.js';
 import { store } from './store/store.js';
@@ -76,7 +76,7 @@ function setupHoverTooltip() {
       const key = bestHit.key;
       const placement = store.get('placementData');
       const data = placement ? placement.shards.find(s => s.key === key) : null;
-      
+
       if (data) {
         tooltip.style.display = 'block';
         tooltip.style.left = (e.clientX + 16) + 'px';
@@ -123,7 +123,7 @@ async function reloadVisualizer() {
     buildSceneData(data.placement, true);
     drawRoutes(data.routes);
     updateHUD(data.placement);
-    
+
     emit(EVENTS.DATA_RELOADED);
     emit(EVENTS.VALIDATION_REQ);
     console.log('Visualizer data updated dynamically.');
@@ -141,17 +141,10 @@ on('GRID_CONFIG_CHANGED', () => {
     buildSceneData(placement, true);
   }
 });
-store.on('hiddenLevelIds', () => {
-  updateLevelsVisibility();
-});
-store.on('focusedLevelId', () => {
-  updateLevelsVisibility();
-});
-// Orbit event listeners removed
 
 async function loadProject(project) {
   store.set('projectName', project);
-  
+
   // Update name in CAD panel
   const modelNameSpan = document.getElementById('cad-model-name');
   if (modelNameSpan) {
@@ -188,11 +181,11 @@ async function loadProject(project) {
     buildSceneData(data.placement);
     drawRoutes(data.routes);
     updateHUD(data.placement);
-    
+
     loading.style.display = 'none';
     emit(EVENTS.VALIDATION_REQ);
     emit(EVENTS.DATA_RELOADED); // Trigger panels update with new project data
-    
+
     console.log(`%c🧠 Axicor Visualizer project "${project}" ready`, 'color: #8b5cf6; font-size: 14px;');
   } catch (err) {
     loading.textContent = `Ошибка загрузки: ${err.message}`;
@@ -205,10 +198,10 @@ async function init() {
   document.body.dataset.theme = 'dark';
 
   const container = document.getElementById('canvas-container');
-  
+
   // 1. Initialize core viewport
   initViewer(container);
-  
+
   // 2. Initialize interactions & UI
   initEditor();
   initUI();

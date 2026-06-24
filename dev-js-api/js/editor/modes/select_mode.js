@@ -31,49 +31,7 @@ export class SelectMode {
   }
 
   applyModeVisuals() {
-    const selShardKey = store.get('selectedShardKey');
-    const selSocketKey = store.get('selectedSocketKey');
-
-    if (selShardKey || selSocketKey) {
-      updateFocusVisuals();
-      return;
-    }
-
-    this.dimAll();
-  }
-
-  dimAll() {
-    // Reset all shards to opaque matte state (since nothing is selected)
-    for (const mesh of Object.values(shardMeshes)) {
-      mesh.material.opacity = 1.0;
-      mesh.material.transparent = false;
-      mesh.material.needsUpdate = true;
-
-      const mainWire = mesh.children.find(c => c.name === "main_wireframe");
-      if (mainWire) {
-        mainWire.visible = true;
-        mainWire.material.opacity = 0.85;
-        mainWire.material.transparent = true;
-        mainWire.material.needsUpdate = true;
-      }
-    }
-
-    // Reset all sockets to standard fully opaque state
-    for (const group of Object.values(socketMeshes)) {
-      const backing = group.userData.backingMesh;
-      const instMesh = group.children.find(c => c.isInstancedMesh);
-      if (backing) {
-        backing.material.opacity = 0.7;
-        backing.material.color.setHex(group.userData.originalBackingColor || 0x050508);
-        backing.material.visible = (group.userData.originalBackingVisible !== false);
-        backing.material.needsUpdate = true;
-      }
-      if (instMesh) {
-        instMesh.material.opacity = 1.0;
-        instMesh.material.transparent = false;
-        instMesh.material.needsUpdate = true;
-      }
-    }
+    updateFocusVisuals();
   }
 
   highlightObject(key, type) {
@@ -149,28 +107,8 @@ export class SelectMode {
     if (this.hoveredType === 'shard') {
       const mesh = shardMeshes[this.hoveredKey];
       if (mesh) {
-        // Restore opacity according to current focus state
-        const selShardKey = store.get('selectedShardKey');
-        const selSocketKey = store.get('selectedSocketKey');
-        const selRouteKey = store.get('selectedRouteKey');
-        const isAnySelected = !!(selShardKey || selSocketKey || selRouteKey);
-
-        if (isAnySelected) {
-          // If something is selected, reset to focus states (dimmed)
-          updateFocusVisuals();
-        } else {
-          // If no selection, reset to default opaque state
-          mesh.material.opacity = 1.0;
-          mesh.material.transparent = false;
-          mesh.material.needsUpdate = true;
-          const mainWire = mesh.children.find(c => c.name === "main_wireframe");
-          if (mainWire) {
-            mainWire.visible = true;
-            mainWire.material.opacity = 0.85;
-            mainWire.material.transparent = true;
-            mainWire.material.needsUpdate = true;
-          }
-        }
+        // Restore opacity/visibility according to current focus and level state
+        updateFocusVisuals();
 
         // Hide inner layers & dividers
         mesh.children.forEach(child => {
@@ -180,12 +118,7 @@ export class SelectMode {
         });
       }
     } else if (this.hoveredType === 'socket') {
-      const key = this.hoveredKey;
-      const group = socketMeshes[key];
-      if (group) {
-        // Restore focus/dim state for this socket
-        updateFocusVisuals();
-      }
+      updateFocusVisuals();
     }
 
     this.hoveredKey = null;

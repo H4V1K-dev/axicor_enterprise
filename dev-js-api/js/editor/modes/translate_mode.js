@@ -57,44 +57,7 @@ export class TranslateMode {
   }
 
   applyModeVisuals() {
-    const selShardKey = store.get('selectedShardKey');
-    const selSocketKey = store.get('selectedSocketKey');
-
-    if (selShardKey || selSocketKey) {
-      updateFocusVisuals();
-      return;
-    }
-
-    this.dimAll();
-  }
-
-  dimAll() {
-    // Dim shards
-    for (const mesh of Object.values(shardMeshes)) {
-      mesh.material.opacity = 0.15;
-      mesh.material.transparent = true;
-      mesh.material.needsUpdate = true;
-
-      const mainWire = mesh.children.find(c => c.name === "main_wireframe");
-      if (mainWire) {
-        mainWire.material.opacity = 0.15;
-        mainWire.material.needsUpdate = true;
-      }
-    }
-
-    // Dim sockets
-    for (const group of Object.values(socketMeshes)) {
-      const backing = group.userData.backingMesh;
-      const instMesh = group.children.find(c => c.isInstancedMesh);
-      if (backing) {
-        backing.material.opacity = 0.1;
-        backing.material.needsUpdate = true;
-      }
-      if (instMesh) {
-        instMesh.material.opacity = 0.1;
-        instMesh.material.needsUpdate = true;
-      }
-    }
+    updateFocusVisuals();
   }
 
   highlightObject(key, type) {
@@ -137,28 +100,10 @@ export class TranslateMode {
     if (this.hoveredType === 'shard') {
       const mesh = shardMeshes[this.hoveredKey];
       if (mesh) {
-        mesh.material.opacity = 0.15;
-        mesh.material.needsUpdate = true;
-        const mainWire = mesh.children.find(c => c.name === "main_wireframe");
-        if (mainWire) {
-          mainWire.material.opacity = 0.15;
-          mainWire.material.needsUpdate = true;
-        }
+        updateFocusVisuals();
       }
     } else if (this.hoveredType === 'socket') {
-      const group = socketMeshes[this.hoveredKey];
-      if (group) {
-        const backing = group.userData.backingMesh;
-        const instMesh = group.children.find(c => c.isInstancedMesh);
-        if (backing) {
-          backing.material.opacity = 0.1;
-          backing.material.needsUpdate = true;
-        }
-        if (instMesh) {
-          instMesh.material.opacity = 0.1;
-          instMesh.material.needsUpdate = true;
-        }
-      }
+      updateFocusVisuals();
     }
 
     this.hoveredKey = null;

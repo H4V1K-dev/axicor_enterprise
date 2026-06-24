@@ -37,19 +37,11 @@ function getSidebarInnerElement() {
 }
 
 export function showSidebar(type, data) {
-  const el = getSidebarElement();
-  el.style.display = 'flex';
-  
-  if (type === 'shard') {
-    renderShardSidebar(data);
-  } else if (type === 'socket') {
-    renderSocketSidebar(data);
-  }
+  // Inspector panel disabled
 }
 
 export function hideSidebar() {
-  const el = getSidebarElement();
-  el.style.display = 'none';
+  // Inspector panel disabled
 }
 
 export function renderLayersListItems(data) {

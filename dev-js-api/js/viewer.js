@@ -21,6 +21,7 @@ export function initViewer(container) {
   // Perspective Camera
   perspCamera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
   perspCamera.position.set(40, 30, 40);
+  perspCamera.layers.enable(1);
 
   // Orthographic Camera
   const aspect = window.innerWidth / window.innerHeight;
@@ -33,6 +34,7 @@ export function initViewer(container) {
     3000
   );
   orthoCamera.position.copy(perspCamera.position);
+  orthoCamera.layers.enable(1);
 
   camera = perspCamera;
 

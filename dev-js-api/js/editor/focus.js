@@ -2,8 +2,9 @@
  * @fileoverview focus.js — Focus system dimming inactive elements and highlighting active selections.
  */
 
-import { shardMeshes, socketMeshes } from '../scene_builder.js';
+import { shardMeshes, socketMeshes, shardDataMap } from '../scene_builder.js';
 import { store } from '../store/store.js';
+import { THEME } from '../rendering/theme.js';
 
 function isSocketConnectedToSelection(socketKey) {
   const routes = store.get('routesData');
@@ -34,6 +35,10 @@ export function updateFocusVisuals() {
   const selShardKey = store.get('selectedShardKey');
   const selSocketKey = store.get('selectedSocketKey');
   const selRouteKey = store.get('selectedRouteKey');
+  const focusedLevelId = store.get('focusedLevelId');
+  const hiddenLevelIds = store.get('hiddenLevelIds') || new Set();
+  const activeMode = store.get('activeMode');
+  const data = store.get('placementData');
   
   let routeConn = null;
   if (selRouteKey) {
@@ -51,6 +56,27 @@ export function updateFocusVisuals() {
 
   // 1. Shards Focus
   for (const [key, mesh] of Object.entries(shardMeshes)) {
+    const sd = shardDataMap[mesh.uuid];
+    if (!sd) continue;
+
+    // A. Level hidden state
+    const isHidden = hiddenLevelIds.has(sd.orbit);
+    if (isHidden) {
+      mesh.visible = false;
+      continue;
+    }
+    mesh.visible = true;
+
+    // B. Level focused state
+    const isLevelFocused = (focusedLevelId === null || sd.orbit === focusedLevelId);
+
+    // Three.js layers filtering: active level gets layer 0, inactive gets layer 1
+    const targetLayer = isLevelFocused ? 0 : 1;
+    mesh.layers.set(targetLayer);
+    mesh.traverse(child => {
+      child.layers.set(targetLayer);
+    });
+
     const selSocketGroup = selSocketKey ? socketMeshes[selSocketKey] : null;
     const isFocused = (
       selShardKey === key || 
@@ -80,12 +106,39 @@ export function updateFocusVisuals() {
 
     const mainWire = mesh.children.find(c => c.name === "main_wireframe");
 
-    // Manage label opacity
+    // Manage label visibility & opacity
     if (mesh.userData.label) {
-      mesh.userData.label.material.opacity = isAnySelected ? ((isFocused || isConnectedShard) ? 0.75 : 0.12) : 0.65;
-      mesh.userData.label.material.needsUpdate = true;
+      mesh.userData.label.visible = isLevelFocused;
+      if (isLevelFocused) {
+        mesh.userData.label.material.opacity = isAnySelected 
+          ? ((isFocused || isConnectedShard) ? THEME.label.activeLevelOpacity : THEME.label.activeLevelOpacity * 0.18) 
+          : THEME.label.activeLevelOpacity;
+        mesh.userData.label.material.needsUpdate = true;
+      }
     }
 
+    if (!isLevelFocused) {
+      // Inactive level: dim completely
+      mesh.material.visible = true;
+      mesh.material.transparent = true;
+      mesh.material.opacity = THEME.shard.inactiveLevelOpacity;
+      mesh.material.needsUpdate = true;
+      if (mainWire) {
+        mainWire.visible = true;
+        mainWire.material.opacity = THEME.shard.inactiveLevelOpacity;
+        mainWire.material.needsUpdate = true;
+      }
+
+      // Hide child layers and dividers
+      mesh.children.forEach(child => {
+        if (child.userData && (child.userData.layerIndex !== undefined || child.userData.isDivider)) {
+          child.visible = false;
+        }
+      });
+      continue;
+    }
+
+    // Active level
     if (isFocused) {
       // Hide monolith container mesh completely and its wireframe when focused
       mesh.material.visible = false;
@@ -108,7 +161,7 @@ export function updateFocusVisuals() {
             }
           } else if (child.userData.isDivider) {
             child.visible = true;
-            child.material.opacity = 0.0; // Keep plane invisible, hover handles this
+            child.material.opacity = 0.0;
             child.material.needsUpdate = true;
             
             const border = child.children.find(c => c.name === "border");
@@ -125,7 +178,7 @@ export function updateFocusVisuals() {
       mesh.material.transparent = true;
       if (isAnySelected) {
         // Dimmed monolith state when another shard/socket is selected
-        mesh.material.opacity = isConnectedShard ? 0.5 : 0.08;
+        mesh.material.opacity = isConnectedShard ? THEME.shard.selectedConnectedOpacity : THEME.shard.selectedDimmedOpacity;
         mesh.material.needsUpdate = true;
         if (mainWire) {
           mainWire.visible = true;
@@ -134,9 +187,15 @@ export function updateFocusVisuals() {
         }
       } else {
         // Standard monolith state when nothing is selected
-        mesh.material.opacity = 1.0;
-        mesh.material.transparent = false;
+        if (activeMode === 'translate' || activeMode === 'resize') {
+          mesh.material.opacity = THEME.shard.modeDimmedOpacity;
+          mesh.material.transparent = true;
+        } else {
+          mesh.material.opacity = THEME.shard.activeLevelOpacity;
+          mesh.material.transparent = false;
+        }
         mesh.material.needsUpdate = true;
+
         if (mainWire) {
           mainWire.visible = true;
           mainWire.material.opacity = 0.85;
@@ -156,6 +215,24 @@ export function updateFocusVisuals() {
 
   // 2. Sockets Focus
   for (const [key, group] of Object.entries(socketMeshes)) {
+    const shardKey = group.userData?.shardKey;
+    const shard = shardKey && data ? data.shards.find(s => s.key === shardKey) : null;
+    const isLevelFocused = shard ? (focusedLevelId === null || shard.orbit === focusedLevelId) : true;
+    const isHidden = shard ? hiddenLevelIds.has(shard.orbit) : false;
+
+    if (isHidden) {
+      group.visible = false;
+      continue;
+    }
+    group.visible = true;
+
+    // Three.js layers filtering: active level gets layer 0, inactive gets layer 1
+    const targetLayer = isLevelFocused ? 0 : 1;
+    group.layers.set(targetLayer);
+    group.traverse(child => {
+      child.layers.set(targetLayer);
+    });
+
     const isFocused = (store.get('selectedSocketKey') === key);
     const backing = group.userData.backingMesh;
     const instMesh = group.children.find(c => c.isInstancedMesh);
@@ -165,9 +242,25 @@ export function updateFocusVisuals() {
       (routeConn && (`${routeConn.from}.${routeConn.from_socket}` === key || `${routeConn.to}.${routeConn.to_socket}` === key));
     const shouldHighlightSocket = isFocused || ((mode === 2 || mode === 3 || selRouteKey) && isConnected);
 
+    if (!isLevelFocused) {
+      // Sockets on inactive level: dim completely
+      if (backing) {
+        backing.material.opacity = THEME.socket.inactiveLevelOpacity;
+        backing.material.transparent = true;
+        backing.material.needsUpdate = true;
+      }
+      if (instMesh) {
+        instMesh.material.opacity = THEME.socket.inactiveLevelOpacity;
+        instMesh.material.transparent = true;
+        instMesh.material.needsUpdate = true;
+      }
+      continue;
+    }
+
+    // Sockets on active level
     if (isAnySelected) {
       if (backing) {
-        backing.material.opacity = shouldHighlightSocket ? 0.75 : 0.1;
+        backing.material.opacity = shouldHighlightSocket ? THEME.socket.highlightBackingOpacity : THEME.socket.dimmedBackingOpacity;
         const origColor = group.userData.originalBackingColor !== undefined ? group.userData.originalBackingColor : 0x050508;
         backing.material.color.setHex(shouldHighlightSocket ? 0x8b9cf7 : origColor);
         // Volumetric backing is always visible when highlighted, otherwise matches its original visibility state
@@ -176,24 +269,39 @@ export function updateFocusVisuals() {
       }
       if (instMesh) {
         // Active socket pins stay fully opaque, other sockets are dimmed/semi-transparent
-        instMesh.material.opacity = shouldHighlightSocket ? 1.0 : 0.12;
+        instMesh.material.opacity = shouldHighlightSocket ? THEME.socket.activeLevelOpacity : THEME.socket.dimmedOpacity;
         instMesh.material.transparent = !shouldHighlightSocket;
         instMesh.material.needsUpdate = true;
       }
     } else {
       // Restore standard states
       if (backing) {
-        backing.material.opacity = 0.7;
+        backing.material.opacity = THEME.socket.defaultBackingOpacity;
         const origColor = group.userData.originalBackingColor !== undefined ? group.userData.originalBackingColor : 0x050508;
         backing.material.color.setHex(origColor);
         backing.material.visible = (group.userData.originalBackingVisible !== false);
         backing.material.needsUpdate = true;
       }
       if (instMesh) {
-        instMesh.material.opacity = 1.0;
+        instMesh.material.opacity = THEME.socket.activeLevelOpacity;
         instMesh.material.transparent = false;
         instMesh.material.needsUpdate = true;
       }
     }
   }
 }
+
+// Self-subscribe to store changes
+store.on('focusedLevelId', () => {
+  updateFocusVisuals();
+});
+store.on('hiddenLevelIds', () => {
+  updateFocusVisuals();
+});
+store.on('activeMode', () => {
+  updateFocusVisuals();
+});
+store.on('placementData', () => {
+  updateFocusVisuals();
+});
+

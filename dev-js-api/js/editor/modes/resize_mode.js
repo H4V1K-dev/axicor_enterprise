@@ -87,48 +87,7 @@ export class ResizeMode {
   }
 
   applyModeVisuals() {
-    const selShardKey = store.get('selectedShardKey');
-    if (selShardKey) {
-      updateFocusVisuals();
-      return;
-    }
-    this.dimAll();
-  }
-
-  dimAll() {
-    // Dim all shards except the active one (which should be highlighted)
-    const selShardKey = store.get('selectedShardKey');
-    for (const [key, mesh] of Object.entries(shardMeshes)) {
-      if (key === selShardKey) {
-        mesh.material.opacity = 0.8;
-        mesh.material.transparent = true;
-        mesh.material.needsUpdate = true;
-        continue;
-      }
-      mesh.material.opacity = 0.15;
-      mesh.material.transparent = true;
-      mesh.material.needsUpdate = true;
-
-      const mainWire = mesh.children.find(c => c.name === "main_wireframe");
-      if (mainWire) {
-        mainWire.material.opacity = 0.15;
-        mainWire.material.needsUpdate = true;
-      }
-    }
-
-    // Dim all sockets
-    for (const group of Object.values(socketMeshes)) {
-      const backing = group.userData.backingMesh;
-      const instMesh = group.children.find(c => c.isInstancedMesh);
-      if (backing) {
-        backing.material.opacity = 0.1;
-        backing.material.needsUpdate = true;
-      }
-      if (instMesh) {
-        instMesh.material.opacity = 0.1;
-        instMesh.material.needsUpdate = true;
-      }
-    }
+    updateFocusVisuals();
   }
 
   spawnHandles() {
