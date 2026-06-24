@@ -18,7 +18,6 @@ export function layoutLevelsAndShards(levelsList, shards, oldZStarts = {}) {
   const nextShards = JSON.parse(JSON.stringify(shards));
   
   let currentZ = 0;
-  const gapBetweenLevels = 0;
 
   nextLevels.forEach((lvl) => {
     lvl.z_start = currentZ;
@@ -51,7 +50,8 @@ export function layoutLevelsAndShards(levelsList, shards, oldZStarts = {}) {
     });
 
     lvl.height = maxLvlH;
-    currentZ = lvl.z_start + lvl.height + gapBetweenLevels;
+    const padding = Math.max(0, parseInt(lvl.padding) || 0);
+    currentZ = lvl.z_start + lvl.height + padding;
   });
 
   return { levels: nextLevels, shards: nextShards };

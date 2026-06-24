@@ -49,8 +49,9 @@ export function initLayersPanel(layersBtn) {
     data.shards = layout.shards;
 
     store.set('placementData', data);
+    store.set('hasUnsavedChanges', true);
     buildSceneData(data, true);
-    saveAllLayoutChanges();
+    updateLayersList();
   };
 
   const updateLayersList = () => {
@@ -91,8 +92,12 @@ export function initLayersPanel(layersBtn) {
           <div style="width:12px; height:12px; border-radius:50%; background:${lvl.color || '#fff'}; flex-shrink:0;"></div>
           <input type="text" class="ax-input lvl-name-input" value="${lvl.name}" style="font-weight:600; font-size:13px; width:100%; background:transparent; border:none; padding:2px 4px; color:var(--ax-text); outline:none;">
         </div>
-        <div style="display:flex; align-items:center; gap:12px;">
+        <div style="display:flex; align-items:center; gap:10px;">
           <span style="color:var(--ax-text-faint); font-size:11px; white-space:nowrap;">H: ${Math.round(lvl.height)} vx (${shardCount} шт)</span>
+          <div style="display:flex; align-items:center; gap:4px; color:var(--ax-text-faint); font-size:11px;">
+            <span>Pad:</span>
+            <input type="number" class="ax-input lvl-padding-input" value="${lvl.padding || 0}" min="0" max="999" style="width:40px; text-align:center; height:20px; font-size:11px; padding:0; background:rgba(255,255,255,0.02); border:1px solid var(--ax-border-muted); border-radius:4px; color:var(--ax-text);">
+          </div>
           <button class="delete-lvl-btn" ${!canDelete ? 'disabled' : ''} style="background:transparent; border:none; color:${canDelete ? 'var(--ax-text-faint)' : 'rgba(255,255,255,0.05)'}; cursor:${canDelete ? 'pointer' : 'not-allowed'}; padding:4px; display:flex; align-items:center; justify-content:center;" title="${canDelete ? 'Удалить уровень' : 'Нельзя удалить уровень, пока на нем есть шарды'}">
             <span style="font-size:14px; font-weight:bold; color:${canDelete ? '#ff5f56' : '#555'};">🗑</span>
           </button>
@@ -114,7 +119,14 @@ export function initLayersPanel(layersBtn) {
       nameInput.addEventListener('change', (e) => {
         lvl.name = e.target.value;
         store.set('placementData', data);
-        saveAllLayoutChanges();
+        store.set('hasUnsavedChanges', true);
+        updateLayersList();
+      });
+
+      const paddingInput = card.querySelector('.lvl-padding-input');
+      paddingInput.addEventListener('change', (e) => {
+        lvl.padding = Math.max(0, parseInt(e.target.value) || 0);
+        updateLevelOrder(data.levels);
       });
 
       const deleteBtn = card.querySelector('.delete-lvl-btn');
@@ -179,6 +191,7 @@ export function initLayersPanel(layersBtn) {
       name: `Level ${newId}`,
       z_start: 0,
       height: 40,
+      padding: 0,
       color: newColor
     };
 

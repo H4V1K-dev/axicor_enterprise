@@ -310,8 +310,8 @@ function renderShardSidebar(data) {
       emit(EVENTS.VALIDATION_REQ);
     };
 
-    idx_d.addEventListener('change', () => { updateDeptCoords(); saveAllLayoutChanges(); });
-    idy_d.addEventListener('change', () => { updateDeptCoords(); saveAllLayoutChanges(); });
+    idx_d.addEventListener('change', () => { updateDeptCoords(); store.set('hasUnsavedChanges', true); });
+    idy_d.addEventListener('change', () => { updateDeptCoords(); store.set('hasUnsavedChanges', true); });
   }
 
   document.getElementById('deselect-btn').addEventListener('click', deselectAll);
@@ -383,7 +383,7 @@ function renderShardSidebar(data) {
         }
 
         // Save order change
-        saveAllLayoutChanges();
+        store.set('hasUnsavedChanges', true);
       }
     });
   }

@@ -18,7 +18,6 @@ def layout_levels_and_shards(levels_list, shards, old_z_starts=None):
     next_shards = copy.deepcopy(shards)
 
     current_z = 0
-    gap_between_levels = 0
 
     for lvl in next_levels:
         lvl_id = lvl["id"]
@@ -48,6 +47,7 @@ def layout_levels_and_shards(levels_list, shards, old_z_starts=None):
             s["position"]["z"] = lvl["z_start"] + local_z
 
         lvl["height"] = max_lvl_h
-        current_z = lvl["z_start"] + lvl["height"] + gap_between_levels
+        padding = max(0, int(lvl.get("padding", 0)))
+        current_z = lvl["z_start"] + lvl["height"] + padding
 
     return {"levels": next_levels, "shards": next_shards}
