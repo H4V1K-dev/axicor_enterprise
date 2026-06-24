@@ -42,6 +42,7 @@ const state = {
   focusedLevelId: null,
   hiddenLevelIds: new Set(),
   soloLevelId: null,
+  selectedDeptName: null,
   modalActive: false,
   editorSettings: cachedSettings ? { ...defaultEditorSettings, ...cachedSettings } : defaultEditorSettings
 };
@@ -69,6 +70,35 @@ export const store = {
       const oldValue = state[key];
       state[key] = value;
 
+      const set = listeners.get(key);
+      if (set) {
+        const callbacks = Array.from(set);
+        for (const cb of callbacks) {
+          try {
+            cb(value, oldValue);
+          } catch (err) {
+            console.error(`Error in store listener for "${key}":`, err);
+          }
+        }
+      }
+    }
+  },
+
+  /**
+   * Set multiple values in the state atomically, then notify listeners for changed keys.
+   * @param {Object<string, any>} updates
+   */
+  setMultiple(updates) {
+    const changes = [];
+    for (const [key, value] of Object.entries(updates)) {
+      if (state[key] !== value) {
+        const oldValue = state[key];
+        state[key] = value;
+        changes.push({ key, value, oldValue });
+      }
+    }
+    // Notify listeners after all updates are applied
+    for (const { key, value, oldValue } of changes) {
       const set = listeners.get(key);
       if (set) {
         const callbacks = Array.from(set);

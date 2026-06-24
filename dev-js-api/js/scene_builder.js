@@ -49,8 +49,10 @@ export function updateLevelsVisibility() {
 
   // 2. Department boundary visibility & opacity
   if (deptsGroup) {
+    const selectedDeptName = store.get('selectedDeptName');
     deptsGroup.children.forEach(deptMesh => {
       const lvlId = deptMesh.userData?.orbit;
+      const deptName = deptMesh.userData?.name;
       if (lvlId !== undefined) {
         const isHidden = hiddenLevelIds.has(lvlId);
         if (isHidden) {
@@ -63,7 +65,16 @@ export function updateLevelsVisibility() {
         if (focusedLevelId !== null) {
           const isCurrentLevel = (lvlId === focusedLevelId);
           deptMesh.material.transparent = true;
-          deptMesh.material.opacity = isCurrentLevel ? THEME.deptWireframe.activeOpacity : THEME.deptWireframe.inactiveOpacity;
+          if (isCurrentLevel) {
+            if (selectedDeptName !== null) {
+              const isCurrentDept = (deptName === selectedDeptName);
+              deptMesh.material.opacity = isCurrentDept ? THEME.deptWireframe.selectedOpacity : THEME.deptWireframe.dimmedOpacity;
+            } else {
+              deptMesh.material.opacity = THEME.deptWireframe.activeOpacity;
+            }
+          } else {
+            deptMesh.material.opacity = THEME.deptWireframe.inactiveOpacity;
+          }
         } else {
           deptMesh.material.transparent = true;
           deptMesh.material.opacity = THEME.deptWireframe.defaultOpacity;
@@ -78,6 +89,10 @@ export function updateLevelsVisibility() {
 export let shardMeshes = {};        // key -> mesh
 export let shardDataMap = {};       // mesh.uuid -> raw data
 export let socketMeshes = {};       // socketKey -> THREE.Group containing instanced mesh & backing
+export let shardsByLevel = {};      // levelId -> Array of meshes
+export let shardsByDept = {};       // deptName -> Array of meshes
+export let socketsByLevel = {};     // levelId -> Array of groups
+export let socketsByDept = {};      // deptName -> Array of groups
 export let VIS_SCALE = 1.0;
 
 export const SOMA_COLORS = {
@@ -118,6 +133,10 @@ export function buildSceneData(data, preserveCamera = false) {
   shardMeshes = {};
   shardDataMap = {};
   socketMeshes = {};
+  shardsByLevel = {};
+  shardsByDept = {};
+  socketsByLevel = {};
+  socketsByDept = {};
   
   // Calculate dynamic VIS_SCALE from shards bounding box to fit the camera cleanly
   let maxCoord = 1.0;
@@ -217,7 +236,7 @@ export function buildSceneData(data, preserveCamera = false) {
     wire.computeLineDistances();
     wire.position.set(x, y, z);
     wire.raycast = () => {}; // Disable raycasting interaction
-    wire.userData = { orbit: dept.orbit };
+    wire.userData = { orbit: dept.orbit, name: dept.name };
     deptsGroup.add(wire);
   });
 
@@ -264,6 +283,13 @@ export function buildSceneData(data, preserveCamera = false) {
     // Track for rendering and raycasting
     shardMeshes[sd.key] = mesh;
     shardDataMap[mesh.uuid] = sd;
+
+    // Cache in flat maps
+    if (!shardsByLevel[sd.orbit]) shardsByLevel[sd.orbit] = [];
+    shardsByLevel[sd.orbit].push(mesh);
+
+    if (!shardsByDept[sd.dept]) shardsByDept[sd.dept] = [];
+    shardsByDept[sd.dept].push(mesh);
 
     // Store references in mesh.userData
     mesh.userData = { label, originalColor: color };
@@ -530,5 +556,8 @@ store.on('focusedLevelId', () => {
   updateLevelsVisibility();
 });
 store.on('hiddenLevelIds', () => {
+  updateLevelsVisibility();
+});
+store.on('selectedDeptName', () => {
   updateLevelsVisibility();
 });

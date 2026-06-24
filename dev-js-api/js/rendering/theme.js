@@ -12,12 +12,15 @@ export const THEME = {
   deptWireframe: {
     activeOpacity: 0.7,
     inactiveOpacity: 0.03,
-    defaultOpacity: 0.25
+    defaultOpacity: 0.25,
+    selectedOpacity: 0.9,
+    dimmedOpacity: 0.05
   },
   shard: {
     // Opacity values for different focus states
     activeLevelOpacity: 1.0,
     inactiveLevelOpacity: 0.05,
+    inactiveDeptOpacity: 0.05,
     selectedDimmedOpacity: 0.08,
     selectedConnectedOpacity: 0.5,
     modeDimmedOpacity: 0.15

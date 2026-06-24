@@ -165,3 +165,30 @@ store.on('focusedLevelId', (lvlId) => {
     }
   }
 });
+
+// Sync selection with focused department changes
+store.on('selectedDeptName', (deptName) => {
+  if (deptName !== null) {
+    const selShardKey = store.get('selectedShardKey');
+    const selSocketKey = store.get('selectedSocketKey');
+    const placementData = store.get('placementData');
+    
+    let shouldDeselect = false;
+    if (selShardKey && placementData) {
+      const shard = placementData.shards.find(s => s.key === selShardKey);
+      if (shard && shard.dept !== deptName) {
+        shouldDeselect = true;
+      }
+    } else if (selSocketKey && placementData) {
+      const shardKey = selSocketKey.split('.')[0];
+      const shard = placementData ? placementData.shards.find(s => s.key === shardKey) : null;
+      if (shard && shard.dept !== deptName) {
+        shouldDeselect = true;
+      }
+    }
+    
+    if (shouldDeselect) {
+      deselectAll();
+    }
+  }
+});

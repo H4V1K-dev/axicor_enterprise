@@ -13,7 +13,7 @@ import { selectShard } from '../editor/selection.js';
 
 let activeGridHelper = null;
 let activeTab = 'layers'; // 'layers', 'depts', 'shards'
-let selectedDeptName = null;
+// selectedDeptName is now managed globally in store
 
 /**
  * Initializes the unified hierarchy drawer panel and hooks it to the toggle button.
@@ -101,6 +101,13 @@ export function initHierarchyPanel(hierarchyBtn) {
         scene.add(activeGridHelper);
       }
     }
+  });
+
+  store.on('focusedLevelId', () => {
+    renderHierarchyList();
+  });
+  store.on('selectedDeptName', () => {
+    renderHierarchyList();
   });
 
   // Helper for levels layout reordering
@@ -320,17 +327,9 @@ export function initHierarchyPanel(hierarchyBtn) {
         }
         const currentFocus = store.get('focusedLevelId');
         if (currentFocus === lvl.id) {
-          store.set('focusedLevelId', null);
-          selectedDeptName = null; // Сброс выбранного департамента
+          store.setMultiple({ focusedLevelId: null, selectedDeptName: null });
         } else {
-          store.set('focusedLevelId', lvl.id);
-          // Сброс выбранного департамента, если он на другом уровне
-          if (selectedDeptName && data && data.departments) {
-            const deptObj = data.departments.find(d => d.name === selectedDeptName);
-            if (deptObj && deptObj.orbit !== lvl.id) {
-              selectedDeptName = null;
-            }
-          }
+          store.setMultiple({ focusedLevelId: lvl.id, selectedDeptName: null });
         }
       });
 
@@ -402,6 +401,7 @@ export function initHierarchyPanel(hierarchyBtn) {
     }
 
     deptsToShow.forEach((dept) => {
+      const selectedDeptName = store.get('selectedDeptName');
       const shardCount = data.shards ? data.shards.filter(s => s.dept === dept.name).length : 0;
       const isActive = selectedDeptName === dept.name;
       const initials = dept.name.replace(/([A-Z])/g, ' $1').trim().split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase() || dept.name.slice(0, 2).toUpperCase();
@@ -423,12 +423,12 @@ export function initHierarchyPanel(hierarchyBtn) {
       `;
 
       card.addEventListener('click', () => {
-        if (selectedDeptName === dept.name) {
-          selectedDeptName = null;
+        const currentDept = store.get('selectedDeptName');
+        if (currentDept === dept.name) {
+          store.set('selectedDeptName', null);
         } else {
-          selectedDeptName = dept.name;
+          store.set('selectedDeptName', dept.name);
         }
-        renderHierarchyList();
       });
 
       listContainer.appendChild(card);
@@ -453,6 +453,7 @@ export function initHierarchyPanel(hierarchyBtn) {
       shardsToShow = shardsToShow.filter(s => s.orbit === focusedLevelId);
     }
 
+    const selectedDeptName = store.get('selectedDeptName');
     // 2. Сортируем шарды, если выбран департамент (шарды этого департамента идут первыми)
     if (selectedDeptName) {
       shardsToShow.sort((a, b) => {
