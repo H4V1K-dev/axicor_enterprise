@@ -149,28 +149,28 @@ on(EVENTS.MODE_CHANGED, () => {
 
 // Sync selection with focused level changes
 store.on('focusedLevelId', (lvlId) => {
-  if (lvlId !== null) {
-    const selShardKey = store.get('selectedShardKey');
-    const selSocketKey = store.get('selectedSocketKey');
-    const placementData = store.get('placementData');
-    
-    let shouldDeselect = false;
-    if (selShardKey && placementData) {
-      const shard = placementData.shards.find(s => s.key === selShardKey);
-      if (shard && shard.orbit !== lvlId) {
-        shouldDeselect = true;
-      }
-    } else if (selSocketKey && placementData) {
-      const shardKey = selSocketKey.split('.')[0];
-      const shard = placementData ? placementData.shards.find(s => s.key === shardKey) : null;
-      if (shard && shard.orbit !== lvlId) {
-        shouldDeselect = true;
-      }
+  const selShardKey = store.get('selectedShardKey');
+  const selSocketKey = store.get('selectedSocketKey');
+  
+  let shouldDeselect = false;
+  
+  if (selShardKey) {
+    const mesh = shardMeshes[selShardKey];
+    const shard = mesh ? shardDataMap[mesh.uuid] : null;
+    if (shard && (lvlId === null || Number(shard.orbit) !== Number(lvlId))) {
+      shouldDeselect = true;
     }
-    
-    if (shouldDeselect) {
-      deselectAll();
+  } else if (selSocketKey) {
+    const shardKey = selSocketKey.split('.')[0];
+    const mesh = shardMeshes[shardKey];
+    const shard = mesh ? shardDataMap[mesh.uuid] : null;
+    if (shard && (lvlId === null || Number(shard.orbit) !== Number(lvlId))) {
+      shouldDeselect = true;
     }
+  }
+  
+  if (shouldDeselect) {
+    deselectAll();
   }
 });
 

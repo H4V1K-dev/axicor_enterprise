@@ -50,12 +50,24 @@ export function initAdvancedObjPropPanel(type = 'shard') {
   socketPropConfig.height = settings.default_socket_h !== undefined ? settings.default_socket_h : 4;
   socketPropConfig.pitch = settings.default_socket_pitch !== undefined ? settings.default_socket_pitch : 2;
 
-  // Set default department to first available or 'default'
-  const depts = placement.departments || [];
-  if (depts.length > 0 && !advancedObjPropConfig.dept) {
-    advancedObjPropConfig.dept = depts[0].name;
-  } else if (!advancedObjPropConfig.dept) {
-    advancedObjPropConfig.dept = 'default';
+  // Set default department name and level filtering logic
+  const focusedLevelId = store.get('focusedLevelId') ?? 1;
+  const allDepts = placement.departments || [];
+  const levelDepts = allDepts.filter(d => d.orbit === focusedLevelId);
+
+  // If the currently cached department belongs to a different level, clear it
+  const currentDeptObj = allDepts.find(d => d.name === advancedObjPropConfig.dept);
+  if (currentDeptObj && currentDeptObj.orbit !== focusedLevelId) {
+    advancedObjPropConfig.dept = '';
+  }
+
+  // If no department is set for the current level, initialize it
+  if (!advancedObjPropConfig.dept) {
+    if (levelDepts.length > 0) {
+      advancedObjPropConfig.dept = levelDepts[0].name;
+    } else {
+      advancedObjPropConfig.dept = `l${focusedLevelId}_default`;
+    }
   }
 
   // Set default orbit to first available
@@ -191,15 +203,21 @@ function renderPanel() {
 
   // Shard rendering (default)
   const placement = store.get('placementData');
-  const depts = placement ? placement.departments || [] : [];
+  const focusedLevelId = store.get('focusedLevelId') ?? 1;
+  const depts = placement ? (placement.departments || []).filter(d => d.orbit === focusedLevelId) : [];
   const orbits = placement ? placement.orbits || [] : [];
 
   const orbitOptions = '';
 
-  const deptOptions = depts.map(d => {
+  const hasCurrentDept = depts.some(d => d.name === advancedObjPropConfig.dept);
+  let deptOptions = depts.map(d => {
     const selected = d.name === advancedObjPropConfig.dept ? 'selected' : '';
     return `<option value="${d.name}" ${selected}>${d.name}</option>`;
   }).join('');
+
+  if (!hasCurrentDept && advancedObjPropConfig.dept) {
+    deptOptions = `<option value="${advancedObjPropConfig.dept}" selected>${advancedObjPropConfig.dept}</option>` + deptOptions;
+  }
 
   panelElement.innerHTML = `
     <div style="font-weight: 600; font-size: 14px; border-bottom: 1px solid var(--ax-border-subtle); padding-bottom: 6px; display: flex; align-items: center; gap: 6px;">
@@ -249,14 +267,16 @@ function renderPanel() {
       const newName = prompt('Введите имя нового департамента:');
       if (newName && newName.trim()) {
         const cleanName = newName.trim();
-        // Check if already exists
-        const exists = depts.some(d => d.name.toLowerCase() === cleanName.toLowerCase());
+        // Check if already exists globally
+        const allDepts = placement ? (placement.departments || []) : [];
+        const exists = allDepts.some(d => d.name.toLowerCase() === cleanName.toLowerCase());
         if (exists) {
           alert('Департамент с таким именем уже существует.');
           deptSelect.value = advancedObjPropConfig.dept;
         } else {
           // Add to temporary list in placementData to render it
-          depts.push({ name: cleanName, orbit: advancedObjPropConfig.orbit });
+          const focusedLevelId = store.get('focusedLevelId') ?? 1;
+          depts.push({ name: cleanName, orbit: focusedLevelId });
           advancedObjPropConfig.dept = cleanName;
           renderPanel();
           triggerChange();

@@ -12,6 +12,7 @@ import { showToast } from './ui/toast.js';
 import { store } from './store/store.js';
 import { modeManager } from './editor.js';
 import { initWorkspaces } from './ui/workspaces.js';
+import { showSidebar, hideSidebar, renderLayersListItems } from './ui/sidebar.js';
 
 export { showToast };
 
@@ -200,10 +201,7 @@ export function initUI() {
     updateButtonsActiveState(modeManager.activeModeName);
   }
 
-  // Subscribe to Event Bus selection changes (inspector disabled)
-  on(EVENTS.SELECTION_CHANGED, (payload) => {
-    // Inspector is disabled. We still listen to selection updates if other components need them.
-  });
+
 
   // Re-render layers list in inspector when layer boundaries / order changes
   on(EVENTS.LAYERS_CHANGED, (sd) => {

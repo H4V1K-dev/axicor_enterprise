@@ -10,6 +10,21 @@ import { store } from '../store/store.js';
 import { emit, EVENTS } from '../store/event_bus.js';
 import { checkShardCollision } from './collision_adapter.js';
 
+let altPressed = false;
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Alt') {
+    altPressed = true;
+  }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Alt') {
+    altPressed = false;
+  }
+});
+window.addEventListener('blur', () => {
+  altPressed = false;
+});
+
 export let transformControls = null;
 
 /**
@@ -25,7 +40,7 @@ export function initTransformControls() {
     const selSocketKey = store.get('selectedSocketKey');
 
     const gridSnap = store.get('gridSnapStep') ?? 1;
-    const snapStep = gridSnap > 0 ? gridSnap : 1;
+    const snapStep = altPressed ? 1 : (gridSnap > 0 ? gridSnap : 1);
 
     if (selShardKey) {
       const mesh = shardMeshes[selShardKey];

@@ -14,6 +14,21 @@ import {
   isDragging as isDraggingHandle
 } from '../handle_drag.js';
 
+let altPressed = false;
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Alt') {
+    altPressed = true;
+  }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Alt') {
+    altPressed = false;
+  }
+});
+window.addEventListener('blur', () => {
+  altPressed = false;
+});
+
 export class ResizeMode {
   constructor() {
     this.hoveredHandle = null;
@@ -37,9 +52,9 @@ export class ResizeMode {
     const selSocketKey = store.get('selectedSocketKey');
     if (!selShardKey && !selSocketKey) {
       showToast("Выберите шард или сокет для изменения размера", "info");
-      // Fallback to select mode
+      // Fallback to inspect mode
       setTimeout(() => {
-        modeManager.setMode('select');
+        modeManager.setMode('inspect');
       }, 0);
       return;
     }
@@ -71,7 +86,7 @@ export class ResizeMode {
     const selShardKey = store.get('selectedShardKey');
     const selSocketKey = store.get('selectedSocketKey');
     if (!selShardKey && !selSocketKey) {
-      modeManager.setMode('select');
+      modeManager.setMode('inspect');
       return;
     }
 
@@ -346,7 +361,8 @@ export class ResizeMode {
         const deltaVoxels = Delta.dot(U) / VIS_SCALE;
 
         // Snap delta to step increment from store settings
-        const RESIZE_STEP = store.get('resizeSnapStep') || 10;
+        const gridSnap = store.get('gridSnapStep') ?? 1;
+        const RESIZE_STEP = altPressed ? 1 : (gridSnap > 0 ? gridSnap : 1);
         const steppedDelta = Math.round(deltaVoxels / RESIZE_STEP) * RESIZE_STEP;
 
         // Maintain highlighted green color on active handle during drag, other handles turquoise

@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { camera, scene, controls } from '../../viewer.js';
-import { shardMeshes, VIS_SCALE, shardDataMap, buildSceneData } from '../../scene_builder.js';
+import { shardMeshes, VIS_SCALE, shardDataMap, buildSceneData, shardsByLevel } from '../../scene_builder.js';
 import { deselectAll, selectShard } from '../selection.js';
 import { store } from '../../store/store.js';
 import { showToast } from '../../ui/toast.js';
@@ -268,61 +268,11 @@ export class AddShardMode {
     const localVoxX = localPoint.x / VIS_SCALE - gW / 2;
     const localVoxZ = localPoint.z / VIS_SCALE - gD / 2;
 
-    // Snap to neighbor math
-    const snapThreshold = 20.0; // snap trigger distance in voxels
-    let bestSnapX = null;
-    let bestSnapZ = null;
-    let minSnapDistX = snapThreshold;
-    let minSnapDistZ = snapThreshold;
-
-    for (const [key, mesh] of Object.entries(shardMeshes)) {
-      const sd = shardDataMap[mesh.uuid];
-      if (!sd) continue;
-
-      // Other mesh bounds in AABB min coordinates (Three.js coordinates: Y is height, Z is depth)
-      const otherMinX = sd.position.x;
-      const otherMaxX = sd.position.x + sd.size.w;
-      const otherMinZ = sd.position.z;
-      const otherMaxZ = sd.position.z + sd.size.d;
-
-      // check boundaries alignment distances
-      const dist1 = Math.abs(localVoxX - otherMinX);
-      if (dist1 < minSnapDistX) {
-        minSnapDistX = dist1;
-        bestSnapX = otherMinX;
-      }
-      const dist2 = Math.abs(localVoxX - otherMaxX);
-      if (dist2 < minSnapDistX) {
-        minSnapDistX = dist2;
-        bestSnapX = otherMaxX;
-      }
-      const dist3 = Math.abs(localVoxZ - otherMinZ);
-      if (dist3 < minSnapDistZ) {
-        minSnapDistZ = dist3;
-        bestSnapZ = otherMinZ;
-      }
-      const dist4 = Math.abs(localVoxZ - otherMaxZ);
-      if (dist4 < minSnapDistZ) {
-        minSnapDistZ = dist4;
-        bestSnapZ = otherMaxZ;
-      }
-    }
-
     const gridSnap = store.get('gridSnapStep') ?? 1;
     const snapStep = gridSnap > 0 ? gridSnap : 1;
 
-    let finalVoxX, finalVoxZ;
-    if (bestSnapX !== null) {
-      finalVoxX = bestSnapX;
-    } else {
-      finalVoxX = Math.round(localVoxX / snapStep) * snapStep;
-    }
-
-    if (bestSnapZ !== null) {
-      finalVoxZ = bestSnapZ;
-    } else {
-      finalVoxZ = Math.round(localVoxZ / snapStep) * snapStep;
-    }
+    const finalVoxX = Math.round(localVoxX / snapStep) * snapStep;
+    const finalVoxZ = Math.round(localVoxZ / snapStep) * snapStep;
 
     // Set position local to level floor (Three.js center coordinates)
     this.ghostMesh.position.set(
@@ -388,6 +338,16 @@ export class AddShardMode {
     }
 
     const deptName = advancedObjPropConfig.dept;
+    
+    // Ensure the department exists in placementData.departments
+    if (!placementData.departments) {
+      placementData.departments = [];
+    }
+    const deptExists = placementData.departments.some(d => d.name === deptName && Number(d.orbit) === Number(orbitIndex));
+    if (!deptExists) {
+      placementData.departments.push({ name: deptName, orbit: orbitIndex });
+    }
+
     const orbitLabel = `l${orbitIndex}`;
     const deptClean = deptName.toLowerCase().replace(/[^a-z0-9]/g, '_');
 

@@ -31,8 +31,9 @@ def compute_department_bounds(shards_out):
         sw = s["size"]["w"]
         sd = s["size"]["d"]
 
-        if dname not in resolved_depts:
-            resolved_depts[dname] = {
+        key = f"{dname}@{lvl_id}"
+        if key not in resolved_depts:
+            resolved_depts[key] = {
                 "name": dname,
                 "orbit": lvl_id,
                 "x_min": px,
@@ -41,7 +42,7 @@ def compute_department_bounds(shards_out):
                 "y_max": py + sd
             }
         else:
-            d_obj = resolved_depts[dname]
+            d_obj = resolved_depts[key]
             d_obj["x_min"] = min(d_obj["x_min"], px)
             d_obj["x_max"] = max(d_obj["x_max"], px + sw)
             d_obj["y_min"] = min(d_obj["y_min"], py)

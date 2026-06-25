@@ -409,21 +409,61 @@ export function initHierarchyPanel(hierarchyBtn) {
       const isActive = selectedDeptName === dept.name;
       const initials = dept.name.replace(/([A-Z])/g, ' $1').trim().split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase() || dept.name.slice(0, 2).toUpperCase();
 
+      const levels = data.levels || [];
+      const orbitOptionsHtml = levels.map(lvl => {
+        const selected = lvl.id === dept.orbit ? 'selected' : '';
+        return `<option value="${lvl.id}" ${selected}>l${lvl.id}</option>`;
+      }).join('');
+
       const card = document.createElement('div');
       card.className = 'panel-card' + (isActive ? ' active' : '');
 
       card.innerHTML = `
-        <div style="display:flex; align-items:center; gap:10px;">
+        <div style="display:flex; align-items:center; gap:10px; width:100%;">
           <div class="panel-card__icon">${initials}</div>
           <div style="flex:1; min-width:0;">
             <div class="panel-card__title">${dept.name}</div>
-            <div class="panel-card__meta">
-              <span>Уровень l${dept.orbit}</span>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-top:4px;">
+              <div style="display:flex; align-items:center; gap:4px; font-size:10px; color:var(--ax-text-faint);">
+                <span>Уровень:</span>
+                <select class="dept-level-select ax-select" style="background:var(--ax-bg-input); border:1px solid var(--ax-border-subtle); color:var(--ax-text); font-size:10px; padding:1px 3px; border-radius:3px; outline:none; cursor:pointer;" onclick="event.stopPropagation();">
+                  ${orbitOptionsHtml}
+                </select>
+              </div>
               <span class="panel-card__badge">${shardCount} шд</span>
             </div>
           </div>
         </div>
       `;
+
+      // Level dropdown select change listener
+      const lvlSelect = card.querySelector('.dept-level-select');
+      lvlSelect.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const newOrbit = parseInt(e.target.value);
+        if (newOrbit === dept.orbit) return;
+
+        const pData = store.get('placementData');
+        if (!pData) return;
+
+        const targetDept = pData.departments.find(d => d.name === dept.name);
+        if (targetDept) {
+          targetDept.orbit = newOrbit;
+        }
+
+        // Batch update orbit for all member shards
+        pData.shards.forEach(s => {
+          if (s.dept === dept.name) {
+            s.orbit = newOrbit;
+          }
+        });
+
+        // Trigger stacking layout calculation and visual scene refresh
+        updateLevelOrder(pData.levels);
+        renderHierarchyList();
+
+        showToast(`Департамент ${dept.name} перемещен на Уровень ${newOrbit}`, "success");
+      });
 
       card.addEventListener('click', () => {
         const currentDept = store.get('selectedDeptName');

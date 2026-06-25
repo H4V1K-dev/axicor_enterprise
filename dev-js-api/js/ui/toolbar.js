@@ -80,20 +80,13 @@ export function initToolbar() {
   snapPanel.style.padding = '0 12px';
   snapPanel.style.height = '36px';
   snapPanel.style.boxSizing = 'border-box';
+  snapPanel.style.padding = '0 12px';
+  snapPanel.style.height = '36px';
+  snapPanel.style.boxSizing = 'border-box';
   snapPanel.innerHTML = `
     <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--ax-text-faint); white-space:nowrap;">
       <span>Сетка:</span>
       <select id="snap-grid-select" class="ax-input" style="background:var(--ax-bg-input); border:1px solid var(--ax-border-subtle); color:var(--ax-text); font-size:11px; padding:2px 4px; border-radius:4px; outline:none; cursor:pointer;">
-        <option value="0">Off</option>
-        <option value="1">1 vx</option>
-        <option value="5">5 vx</option>
-        <option value="10">10 vx</option>
-        <option value="50">50 vx</option>
-      </select>
-    </div>
-    <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--ax-text-faint); white-space:nowrap; margin-left:4px; border-left:1px solid var(--ax-border-subtle); padding-left:8px;">
-      <span>Размер:</span>
-      <select id="snap-resize-select" class="ax-input" style="background:var(--ax-bg-input); border:1px solid var(--ax-border-subtle); color:var(--ax-text); font-size:11px; padding:2px 4px; border-radius:4px; outline:none; cursor:pointer;">
         <option value="1">1 vx</option>
         <option value="5">5 vx</option>
         <option value="10">10 vx</option>
@@ -104,26 +97,18 @@ export function initToolbar() {
   leftContainer.appendChild(snapPanel);
 
   const gridSelect = snapPanel.querySelector('#snap-grid-select');
-  const resizeSelect = snapPanel.querySelector('#snap-resize-select');
 
   // Initialize values from store
   gridSelect.value = String(store.get('gridSnapStep') ?? 1);
-  resizeSelect.value = String(store.get('resizeSnapStep') ?? 10);
 
   // Sync from UI to store
   gridSelect.addEventListener('change', (e) => {
-    store.set('gridSnapStep', parseInt(e.target.value) || 0);
-  });
-  resizeSelect.addEventListener('change', (e) => {
-    store.set('resizeSnapStep', parseInt(e.target.value) || 1);
+    store.set('gridSnapStep', parseInt(e.target.value) || 1);
   });
 
   // Sync from store to UI
   store.on('gridSnapStep', (val) => {
     gridSelect.value = String(val);
-  });
-  store.on('resizeSnapStep', (val) => {
-    resizeSelect.value = String(val);
   });
  
   document.body.appendChild(leftContainer);

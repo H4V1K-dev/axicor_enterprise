@@ -122,7 +122,7 @@ def compute_placement(model, overrides_path=None):
 
             target_dept = None
             for dept in model.departments:
-                if dept.name == dept_name:
+                if dept.name == dept_name and int(dept.orbit) == int(orbit):
                     target_dept = dept
                     break
 

@@ -28,8 +28,9 @@ export function computeDepartmentBounds(shardsOut) {
 
   shardsOut.forEach(s => {
     const lvlId = s.orbit;
-    if (!resolvedDepts[s.dept]) {
-      resolvedDepts[s.dept] = {
+    const key = `${s.dept}@${lvlId}`;
+    if (!resolvedDepts[key]) {
+      resolvedDepts[key] = {
         name: s.dept,
         orbit: lvlId,
         x_min: s.position.x,
@@ -38,7 +39,7 @@ export function computeDepartmentBounds(shardsOut) {
         y_max: s.position.y + s.size.d
       };
     } else {
-      const dObj = resolvedDepts[s.dept];
+      const dObj = resolvedDepts[key];
       dObj.x_min = Math.min(dObj.x_min, s.position.x);
       dObj.x_max = Math.max(dObj.x_max, s.position.x + s.size.w);
       dObj.y_min = Math.min(dObj.y_min, s.position.y);

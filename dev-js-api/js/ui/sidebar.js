@@ -20,6 +20,7 @@ function getSidebarElement() {
     if (!sidebar) {
       sidebar = document.createElement('div');
       sidebar.id = 'sidebar';
+      sidebar.className = 'ax-panel';
       document.body.appendChild(sidebar);
     }
   }
@@ -38,11 +39,19 @@ function getSidebarInnerElement() {
 }
 
 export function showSidebar(type, data) {
-  // Inspector panel disabled
+  const el = getSidebarElement();
+  el.style.display = 'flex';
+  
+  if (type === 'shard') {
+    renderShardSidebar(data);
+  } else if (type === 'socket') {
+    renderSocketSidebar(data);
+  }
 }
 
 export function hideSidebar() {
-  // Inspector panel disabled
+  const el = getSidebarElement();
+  el.style.display = 'none';
 }
 
 export function renderLayersListItems(data) {
@@ -111,12 +120,38 @@ function renderShardSidebar(data) {
     `;
   }
 
-  const inner = getSidebarInnerElement();
+  const levels = placementData ? placementData.levels || [] : [];
+  const levelOptions = levels.map(lvl => {
+    const selected = lvl.id === data.orbit ? 'selected' : '';
+    return `<option value="${lvl.id}" ${selected}>l${lvl.id} (${lvl.name})</option>`;
+  }).join('');
+
+  const levelDepts = placementData ? (placementData.departments || []).filter(d => d.orbit === data.orbit) : [];
+  let deptOptions = levelDepts.map(d => {
+    const selected = d.name === data.dept ? 'selected' : '';
+    return `<option value="${d.name}" ${selected}>${d.name}</option>`;
+  }).join('');
+  
+  if (!levelDepts.some(d => d.name === data.dept) && data.dept) {
+    deptOptions = `<option value="${data.dept}" selected>${data.dept}</option>` + deptOptions;
+  }
 
   inner.innerHTML = `
     <h3 class="ax-section-title">${data.shard}</h3>
     <div class="sb-section">
-      <div class="sb-row"><label>Департамент:</label> <span>${data.dept}</span></div>
+      <div class="sb-row">
+        <label>Уровень:</label>
+        <select id="shard-orbit-select" class="ax-select" style="width: 160px; background:var(--ax-bg-input); border:1px solid var(--ax-border-subtle); color:var(--ax-text); padding:2px 4px; border-radius:4px; font-size:11px;">
+          ${levelOptions}
+        </select>
+      </div>
+      <div class="sb-row">
+        <label>Департамент:</label>
+        <select id="shard-dept-select" class="ax-select" style="width: 160px; background:var(--ax-bg-input); border:1px solid var(--ax-border-subtle); color:var(--ax-text); padding:2px 4px; border-radius:4px; font-size:11px;">
+          ${deptOptions}
+          <option value="__new__">+ Создать новый...</option>
+        </select>
+      </div>
       <div class="sb-row"><label>Толщина:</label> <span>${data.size.h} vx</span></div>
       <div class="sb-row"><label>Размеры:</label> <span>${data.size.w} × ${data.size.d}</span></div>
     </div>
@@ -305,6 +340,147 @@ function renderShardSidebar(data) {
 
     idx_d.addEventListener('change', () => { updateDeptCoords(); store.set('hasUnsavedChanges', true); });
     idy_d.addEventListener('change', () => { updateDeptCoords(); store.set('hasUnsavedChanges', true); });
+  }
+
+  // Bind level and department selector event listeners
+  const orbitSelect = document.getElementById('shard-orbit-select');
+  const deptSelect = document.getElementById('shard-dept-select');
+
+  if (orbitSelect && deptSelect) {
+    orbitSelect.addEventListener('change', (e) => {
+      const newOrbit = parseInt(e.target.value);
+      if (newOrbit === data.orbit) return;
+
+      const pData = store.get('placementData');
+      if (!pData) return;
+
+      const shard = pData.shards.find(s => s.key === data.key);
+      if (shard) {
+        const oldKey = shard.key;
+        shard.orbit = newOrbit;
+
+        // Auto-assign to default department of new orbit
+        const depts = pData.departments || [];
+        const newOrbitDepts = depts.filter(d => d.orbit === newOrbit);
+        
+        let newDeptName = '';
+        if (newOrbitDepts.length > 0) {
+          newDeptName = newOrbitDepts[0].name;
+        } else {
+          newDeptName = `l${newOrbit}_default`;
+          // Add this new department automatically to placementData so layout is resolved
+          depts.push({ name: newDeptName, orbit: newOrbit });
+        }
+
+        // Rename the shard key to reflect new department
+        const shortName = oldKey.split('.').pop() || oldKey;
+        const newKey = `${newDeptName}.${shortName}`;
+
+        shard.dept = newDeptName;
+        shard.key = newKey;
+
+        // Update connections referencing this shard key
+        if (pData.connections) {
+          pData.connections.forEach(c => {
+            if (c.from === oldKey) c.from = newKey;
+            if (c.to === oldKey) c.to = newKey;
+          });
+        }
+        if (pData.deleted_shards) {
+          pData.deleted_shards = pData.deleted_shards.map(k => k === oldKey ? newKey : k);
+        }
+
+        store.set('placementData', pData);
+        store.set('hasUnsavedChanges', true);
+
+        // Record history action
+        import('../store/history_manager.js').then(({ historyManager }) => {
+          historyManager.pushAction('move_level', 'shard', oldKey, `Перенос шарда ${shortName} на Уровень ${newOrbit}`, initialShardState, JSON.parse(JSON.stringify(shard)));
+        });
+
+        // Clear select shard so rebuild works cleanly and re-select new key
+        import('../../scene_builder.js').then(({ buildSceneData }) => {
+          buildSceneData(pData, true);
+          import('../selection.js').then(({ selectShard }) => {
+            selectShard(newKey);
+          });
+        });
+      }
+    });
+
+    deptSelect.addEventListener('change', (e) => {
+      const pData = store.get('placementData');
+      if (!pData) return;
+
+      const shard = pData.shards.find(s => s.key === data.key);
+      if (shard) {
+        const oldKey = shard.key;
+        const shortName = oldKey.split('.').pop() || oldKey;
+
+        if (e.target.value === '__new__') {
+          const newName = prompt('Введите имя нового департамента:');
+          if (newName && newName.trim()) {
+            const cleanName = newName.trim();
+            const allDepts = pData.departments || [];
+            const exists = allDepts.some(d => d.name.toLowerCase() === cleanName.toLowerCase());
+            if (exists) {
+              alert('Департамент с таким именем уже существует.');
+              deptSelect.value = shard.dept;
+            } else {
+              // Add to placementData.departments
+              pData.departments.push({ name: cleanName, orbit: shard.orbit });
+              shard.dept = cleanName;
+              
+              const newKey = `${cleanName}.${shortName}`;
+              shard.key = newKey;
+
+              // Update connections
+              if (pData.connections) {
+                pData.connections.forEach(c => {
+                  if (c.from === oldKey) c.from = newKey;
+                  if (c.to === oldKey) c.to = newKey;
+                });
+              }
+
+              store.set('placementData', pData);
+              store.set('hasUnsavedChanges', true);
+
+              import('../../scene_builder.js').then(({ buildSceneData }) => {
+                buildSceneData(pData, true);
+                import('../selection.js').then(({ selectShard }) => {
+                  selectShard(newKey);
+                });
+              });
+            }
+          } else {
+            deptSelect.value = shard.dept;
+          }
+        } else {
+          const newDeptName = e.target.value;
+          shard.dept = newDeptName;
+          const newKey = `${newDeptName}.${shortName}`;
+          shard.key = newKey;
+
+          // Update connections
+          if (pData.connections) {
+            pData.connections.forEach(c => {
+              if (c.from === oldKey) c.from = newKey;
+              if (c.to === oldKey) c.to = newKey;
+            });
+          }
+
+          store.set('placementData', pData);
+          store.set('hasUnsavedChanges', true);
+
+          import('../../scene_builder.js').then(({ buildSceneData }) => {
+            buildSceneData(pData, true);
+            import('../selection.js').then(({ selectShard }) => {
+              selectShard(newKey);
+            });
+          });
+        }
+      }
+    });
   }
 
   document.getElementById('deselect-btn').addEventListener('click', deselectAll);
@@ -655,3 +831,31 @@ export async function saveAllLayoutChanges() {
     console.error(err);
   }
 }
+
+function updateSidebarVisibility() {
+  const selShardKey = store.get('selectedShardKey');
+  const selSocketKey = store.get('selectedSocketKey');
+  
+  if (selShardKey) {
+    const mesh = shardMeshes[selShardKey];
+    const shardData = mesh ? shardDataMap[mesh.uuid] : null;
+    if (shardData) {
+      showSidebar('shard', shardData);
+    } else {
+      hideSidebar();
+    }
+  } else if (selSocketKey) {
+    const group = socketMeshes[selSocketKey];
+    if (group && group.userData) {
+      showSidebar('socket', group.userData);
+    } else {
+      hideSidebar();
+    }
+  } else {
+    hideSidebar();
+  }
+}
+
+store.on('selectedShardKey', updateSidebarVisibility);
+store.on('selectedSocketKey', updateSidebarVisibility);
+
