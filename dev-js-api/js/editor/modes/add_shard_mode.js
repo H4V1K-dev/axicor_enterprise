@@ -308,8 +308,8 @@ export class AddShardMode {
       }
     }
 
-    const editorSettings = store.get('editorSettings') || {};
-    const snapStep = editorSettings.snap_step || 1;
+    const gridSnap = store.get('gridSnapStep') ?? 1;
+    const snapStep = gridSnap > 0 ? gridSnap : 1;
 
     let finalVoxX, finalVoxZ;
     if (bestSnapX !== null) {
@@ -443,13 +443,19 @@ export class AddShardMode {
     // Incremental visual scene update via Event Bus
     emit(EVENTS.SHARD_ADDED, newShard);
 
-    // Auto-select the newly added shard
-    selectShard(finalKey);
+    if (event.shiftKey) {
+      deselectAll();
+      // Refresh validity since a shard was just placed at this position
+      this.onPointerMove(event, raycaster);
+      showToast(`Шард ${finalShardName} успешно создан! (Серийное создание)`, "success");
+    } else {
+      // Auto-select the newly added shard
+      selectShard(finalKey);
+      // Auto-transition to translate mode with transform gizmo active
+      modeManager.setMode('translate');
+      showToast(`Шард ${finalShardName} успешно создан!`, "success");
+    }
 
-    // Auto-transition to translate mode with transform gizmo active
-    modeManager.setMode('translate');
-
-    showToast(`Шард ${finalShardName} успешно создан!`, "success");
     return true;
   }
 

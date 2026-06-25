@@ -24,8 +24,8 @@ export function initTransformControls() {
     const selShardKey = store.get('selectedShardKey');
     const selSocketKey = store.get('selectedSocketKey');
 
-    const editorSettings = store.get('editorSettings') || {};
-    const snapStep = editorSettings.snap_step || 1;
+    const gridSnap = store.get('gridSnapStep') ?? 1;
+    const snapStep = gridSnap > 0 ? gridSnap : 1;
 
     if (selShardKey) {
       const mesh = shardMeshes[selShardKey];

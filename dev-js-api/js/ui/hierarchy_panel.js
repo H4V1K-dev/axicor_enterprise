@@ -536,6 +536,10 @@ export function initHierarchyPanel(hierarchyBtn) {
 
     const newLevels = [...data.levels, newLevel];
     updateLevelOrder(newLevels);
+    store.setMultiple({
+      focusedLevelId: newId,
+      selectedDeptName: null
+    });
   });
 
   // Calculate drawer viewport layout positions dynamically

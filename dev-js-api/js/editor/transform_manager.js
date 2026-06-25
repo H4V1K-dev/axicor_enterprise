@@ -7,6 +7,19 @@ import { transformControls } from './transform.js';
 import { shardMeshes, socketMeshes, VIS_SCALE } from '../scene_builder.js';
 
 /**
+ * Reactively evaluates and updates the snap setting on TransformControls.
+ */
+function updateTransformSnap() {
+  if (!transformControls) return;
+  const gridSnapStep = store.get('gridSnapStep');
+  if (gridSnapStep > 0) {
+    transformControls.translationSnap = gridSnapStep * VIS_SCALE;
+  } else {
+    transformControls.translationSnap = null;
+  }
+}
+
+/**
  * Reactively evaluates and updates the attachment state of TransformControls.
  */
 function updateTransformControlsAttachment() {
@@ -26,12 +39,9 @@ function updateTransformControlsAttachment() {
           transformControls.attach(mesh);
           transformControls.space = 'world';
           transformControls.showX = true;
-          transformControls.showY = true;
+          transformControls.showY = false; // Floor Lock
           transformControls.showZ = true;
-
-          const editorSettings = store.get('editorSettings') || {};
-          const snapStep = editorSettings.snap_step || 1;
-          transformControls.translationSnap = snapStep * VIS_SCALE;
+          updateTransformSnap();
         }
         return;
       }
@@ -45,10 +55,7 @@ function updateTransformControlsAttachment() {
           transformControls.showX = true;
           transformControls.showY = true;
           transformControls.showZ = true;
-
-          const editorSettings = store.get('editorSettings') || {};
-          const snapStep = editorSettings.snap_step || 1;
-          transformControls.translationSnap = snapStep * VIS_SCALE;
+          updateTransformSnap();
         }
         return;
       }
@@ -68,4 +75,5 @@ export function initTransformManager() {
   store.on('selectedShardKey', updateTransformControlsAttachment);
   store.on('selectedSocketKey', updateTransformControlsAttachment);
   store.on('activeMode', updateTransformControlsAttachment);
+  store.on('gridSnapStep', updateTransformSnap);
 }

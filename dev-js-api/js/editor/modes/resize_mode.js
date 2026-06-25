@@ -100,16 +100,14 @@ export class ResizeMode {
     const h = shardMesh.geometry.parameters.height; // Three Y height
     const d = shardMesh.geometry.parameters.depth;  // Three Z depth
 
-    const handleGeo = new THREE.BoxGeometry(1.2 * VIS_SCALE, 1.2 * VIS_SCALE, 1.2 * VIS_SCALE);
+    const handleGeo = new THREE.PlaneGeometry(1.2 * VIS_SCALE, 1.2 * VIS_SCALE);
     
     // Vibrant cyan/teal glowing material
-    const handleMat = new THREE.MeshStandardMaterial({
+    const handleMat = new THREE.MeshBasicMaterial({
       color: 0x00ffcc,
-      emissive: 0x003322,
-      roughness: 0.1,
-      metalness: 0.8,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
       depthTest: false,
       depthWrite: false
     });
@@ -126,6 +124,11 @@ export class ResizeMode {
     normals.forEach(info => {
       const mesh = new THREE.Mesh(handleGeo, handleMat.clone());
       mesh.position.copy(info.pos);
+      if (info.axis === 'x') {
+        mesh.rotateY(Math.PI / 2);
+      } else if (info.axis === 'y') {
+        mesh.rotateX(Math.PI / 2);
+      }
       mesh.name = `resize_handle_${info.name}`;
       mesh.renderOrder = 9999;
       mesh.userData = {
@@ -305,9 +308,10 @@ export class ResizeMode {
         });
 
         const hits = raycaster.intersectObjects(handles);
+        let hoveredObj = null;
         if (hits.length > 0) {
-          const hoverH = hits[0].object;
-          const axis = hoverH.userData.axis;
+          hoveredObj = hits[0].object;
+          const axis = hoveredObj.userData.axis;
           if (axis === 'x') {
             document.body.style.cursor = 'col-resize';
           } else if (axis === 'y') {
@@ -318,6 +322,15 @@ export class ResizeMode {
         } else {
           document.body.style.cursor = 'default';
         }
+
+        // Apply hover colors (Emerald Green when hovered, Turquoise when idle)
+        handles.forEach(h => {
+          if (h === hoveredObj) {
+            h.material.color.setHex(0x10b981);
+          } else {
+            h.material.color.setHex(0x00ffcc);
+          }
+        });
         return;
       }
 
@@ -332,10 +345,24 @@ export class ResizeMode {
         const Delta = new THREE.Vector3().subVectors(intersectPoint, this.dragStartPoint);
         const deltaVoxels = Delta.dot(U) / VIS_SCALE;
 
-        // Snap delta to step increment from settings
-        const editorSettings = store.get('editorSettings') || {};
-        const RESIZE_STEP = editorSettings.resize_step || 10;
+        // Snap delta to step increment from store settings
+        const RESIZE_STEP = store.get('resizeSnapStep') || 10;
         const steppedDelta = Math.round(deltaVoxels / RESIZE_STEP) * RESIZE_STEP;
+
+        // Maintain highlighted green color on active handle during drag, other handles turquoise
+        const handles = [];
+        shardMesh.traverse(child => {
+          if (child.userData && child.userData.isResizeHandle) {
+            handles.push(child);
+          }
+        });
+        handles.forEach(h => {
+          if (h === this.activeHandle) {
+            h.material.color.setHex(0x10b981);
+          } else {
+            h.material.color.setHex(0x00ffcc);
+          }
+        });
 
         // Iterative step verification to prevent tunnel collision issues
         let finalDelta = 0;

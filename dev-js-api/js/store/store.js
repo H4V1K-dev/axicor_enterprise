@@ -47,7 +47,9 @@ const state = {
   focusedShardKey: null,
   visScale: 1.0,
   modalActive: false,
-  editorSettings: cachedSettings ? { ...defaultEditorSettings, ...cachedSettings } : defaultEditorSettings
+  editorSettings: cachedSettings ? { ...defaultEditorSettings, ...cachedSettings } : defaultEditorSettings,
+  gridSnapStep: (cachedSettings ? cachedSettings.snap_step : null) ?? 1,
+  resizeSnapStep: (cachedSettings ? cachedSettings.resize_step : null) ?? 10
 };
 
 /** @type {Map<string, Set<Function>>} */
@@ -143,3 +145,37 @@ export const store = {
     }
   }
 };
+
+// Auto-sync store values to localStorage editorSettings
+store.on('gridSnapStep', (val) => {
+  const settings = { ...store.get('editorSettings'), snap_step: val };
+  state.editorSettings = settings; // Update in-place to avoid redundant state events, or call store.set if needed. We update direct to avoid cycles.
+  try {
+    localStorage.setItem('axicor_editor_settings', JSON.stringify(settings));
+  } catch (e) {
+    console.warn('Failed to save snap_step to localStorage:', e);
+  }
+});
+
+store.on('resizeSnapStep', (val) => {
+  const settings = { ...store.get('editorSettings'), resize_step: val };
+  state.editorSettings = settings;
+  try {
+    localStorage.setItem('axicor_editor_settings', JSON.stringify(settings));
+  } catch (e) {
+    console.warn('Failed to save resize_step to localStorage:', e);
+  }
+});
+
+// Update snap/resize steps if settings object is modified/replaced (e.g. from Settings panel modal)
+store.on('editorSettings', (settings) => {
+  if (settings) {
+    if (settings.snap_step !== undefined && settings.snap_step !== state.gridSnapStep) {
+      store.set('gridSnapStep', settings.snap_step);
+    }
+    if (settings.resize_step !== undefined && settings.resize_step !== state.resizeSnapStep) {
+      store.set('resizeSnapStep', settings.resize_step);
+    }
+  }
+});
+
