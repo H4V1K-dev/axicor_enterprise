@@ -250,11 +250,6 @@ function renderPanel() {
           <input type="number" id="ghost-h-input" class="ax-input" style="width: 100%;" min="1" step="1" value="${advancedObjPropConfig.h}">
         </div>
       </div>
-
-      <div style="display: flex; flex-direction: column; gap: 4px;">
-        <label style="font-size: 11px; opacity: 0.7;">Количество популяций (слоёв)</label>
-        <input type="number" id="ghost-pop-input" class="ax-input" style="width: 100%;" min="1" max="10" step="1" value="${advancedObjPropConfig.populations}">
-      </div>
     </div>
   `;
 
@@ -313,16 +308,6 @@ function renderPanel() {
     let val = parseInt(e.target.value);
     if (isNaN(val) || val < 1) val = 1;
     advancedObjPropConfig.h = val;
-    e.target.value = val;
-    triggerChange();
-  });
-
-  const popInput = panelElement.querySelector('#ghost-pop-input');
-  popInput.addEventListener('change', (e) => {
-    let val = parseInt(e.target.value);
-    if (isNaN(val) || val < 1) val = 1;
-    if (val > 10) val = 10;
-    advancedObjPropConfig.populations = val;
     e.target.value = val;
     triggerChange();
   });

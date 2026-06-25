@@ -55,7 +55,7 @@ export function onPointerDown(event) {
 
   // Check if click hit a resizer handle (which is visible)
   const handlesList = [];
-  for (const group of Object.values(socketMeshes)) {
+  for (const group of socketMeshes.values()) {
     group.traverse(child => {
       if (child.name && child.name.startsWith("handle_") && child.visible) {
         handlesList.push(child);
@@ -96,7 +96,7 @@ export function onPointerDown(event) {
     
     // Get initial local intersection coordinate
     if (raycaster.ray.intersectPlane(dragPlane, dragPlaneIntersection)) {
-      const shardMesh = shardMeshes[draggedSocketGroup.userData.shardKey];
+      const shardMesh = shardMeshes.get(draggedSocketGroup.userData.shardKey);
       initialLocalX = (dragPlaneIntersection.x - shardMesh.position.x) / VIS_SCALE;
       initialLocalY = -(dragPlaneIntersection.z - shardMesh.position.z) / VIS_SCALE;
     }
@@ -121,7 +121,7 @@ export function onPointerMove(event) {
   if (!isDraggingHandle || !draggedSocketGroup) return;
 
   if (raycaster.ray.intersectPlane(dragPlane, dragPlaneIntersection)) {
-    const shardMesh = shardMeshes[draggedSocketGroup.userData.shardKey];
+    const shardMesh = shardMeshes.get(draggedSocketGroup.userData.shardKey);
     if (shardMesh) {
       const currentLocalX = (dragPlaneIntersection.x - shardMesh.position.x) / VIS_SCALE;
       const currentLocalY = -(dragPlaneIntersection.z - shardMesh.position.z) / VIS_SCALE;
@@ -256,7 +256,7 @@ export function onPointerUp() {
 export function updateSelectedSocket(width, height, pitch, offset, rotation, faceSign) {
   const selSocketKey = store.get('selectedSocketKey');
   if (!selSocketKey) return;
-  const group = socketMeshes[selSocketKey];
+  const group = socketMeshes.get(selSocketKey);
   if (!group) return;
 
   const { shardKey, socketName } = group.userData;
@@ -299,7 +299,7 @@ export function updateSelectedSocket(width, height, pitch, offset, rotation, fac
 export function updateHandlesScale() {
   const selSocketKey = store.get('selectedSocketKey');
   if (!selSocketKey) return;
-  const group = socketMeshes[selSocketKey];
+  const group = socketMeshes.get(selSocketKey);
   if (!group) return;
 
   const camPos = getActiveCamera().position;

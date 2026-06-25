@@ -7,6 +7,8 @@ import {
   rebuildSocket
 } from './rendering/mesh_factory.js';
 import { THEME, RENDER_BINS } from './rendering/theme.js';
+import { recomputeSpatialLayout, recomputeSpatialLayoutFromMeshes, levelAABBs, deptAABBs } from './algorithms/placement/spatial_manager.js';
+
 
 // Stub drawRoutes since connections and routes are disabled in Composition mode
 export function drawRoutes() {}
@@ -145,13 +147,13 @@ export function updateLevelsVisibility() {
 }
 
 // Scene elements tracking
-export let shardMeshes = {};        // key -> mesh
-export let shardDataMap = {};       // mesh.uuid -> raw data
-export let socketMeshes = {};       // socketKey -> THREE.Group containing instanced mesh & backing
-export let shardsByLevel = {};      // levelId -> Array of meshes
-export let shardsByDept = {};       // deptName -> Array of meshes
-export let socketsByLevel = {};     // levelId -> Array of groups
-export let socketsByDept = {};      // deptName -> Array of groups
+export const shardMeshes = new Map();        // key -> mesh
+export const shardDataMap = new Map();       // mesh.uuid -> raw data
+export const socketMeshes = new Map();       // socketKey -> THREE.Group containing instanced mesh & backing
+export const shardsByLevel = new Map();      // levelId -> Array of meshes
+export const shardsByDept = new Map();       // deptName -> Array of meshes
+export const socketsByLevel = new Map();     // levelId -> Array of groups
+export const socketsByDept = new Map();      // deptName -> Array of groups
 export let VIS_SCALE = 1.0;
 
 export const SOMA_COLORS = {
@@ -171,8 +173,9 @@ let deptsGroup = null;
 // Re-export rebuildSocket for consumer modules
 export { rebuildSocket };
 
-export let levelsMeshes = {};
-export let deptsMeshes = {};
+export const levelsMeshes = new Map();
+export const deptsMeshes = new Map();
+
 
 let unitGeo = null;
 let unitEdgeGeo = null;
@@ -402,15 +405,15 @@ export function buildSceneData(data, preserveCamera = false) {
   scene.add(levelsGroup);
   scene.add(deptsGroup);
 
-  shardMeshes = {};
-  shardDataMap = {};
-  socketMeshes = {};
-  shardsByLevel = {};
-  shardsByDept = {};
-  socketsByLevel = {};
-  socketsByDept = {};
-  levelsMeshes = {};
-  deptsMeshes = {};
+  shardMeshes.clear();
+  shardDataMap.clear();
+  socketMeshes.clear();
+  shardsByLevel.clear();
+  shardsByDept.clear();
+  socketsByLevel.clear();
+  socketsByDept.clear();
+  levelsMeshes.clear();
+  deptsMeshes.clear();
   
   // Calculate dynamic VIS_SCALE from shards bounding box to fit the camera cleanly
   let maxCoord = 1.0;
@@ -431,45 +434,18 @@ export function buildSceneData(data, preserveCamera = false) {
 
   const levels = data.levels || [];
   const depts = data.departments || [];
-  const levelsMap = {};
+  const levelsMap = new Map();
   levels.forEach(lvl => {
-    levelsMap[lvl.id] = lvl;
+    levelsMap.set(Number(lvl.id), lvl);
   });
 
-  // Calculate dynamic AABB for each level based on its shards
-  const levelAABB = {}; // levelId -> { xMin, xMax, yMin, yMax }
-  if (data.shards) {
-    data.shards.forEach(sd => {
-      const lvlId = sd.orbit;
-      if (!levelAABB[lvlId]) {
-        levelAABB[lvlId] = {
-          xMin: sd.position.x,
-          xMax: sd.position.x + sd.size.w,
-          yMin: sd.position.z, // Three.js Z
-          yMax: sd.position.z + sd.size.d // Three.js D
-        };
-      } else {
-        const box = levelAABB[lvlId];
-        box.xMin = Math.min(box.xMin, sd.position.x);
-        box.xMax = Math.max(box.xMax, sd.position.x + sd.size.w);
-        box.yMin = Math.min(box.yMin, sd.position.z);
-        box.yMax = Math.max(box.yMax, sd.position.z + sd.size.d);
-      }
-    });
-  }
+  // Calculate dynamic AABBs for levels and departments using spatial_manager
+  recomputeSpatialLayout(data, VIS_SCALE);
 
   // Draw 3D bounds for Levels (using single unitEdgeGeo box scaled)
   levels.forEach(lvl => {
-    const box = levelAABB[lvl.id];
+    const box = levelAABBs.get(lvl.id);
     if (!box) return;
-
-    const x = (box.xMin + box.xMax) / 2 * VIS_SCALE;
-    const y = (lvl.z_start + lvl.height / 2) * VIS_SCALE;
-    const z = (box.yMin + box.yMax) / 2 * VIS_SCALE;
-
-    const w = (box.xMax - box.xMin) * VIS_SCALE;
-    const h = lvl.height * VIS_SCALE;
-    const d = (box.yMax - box.yMin) * VIS_SCALE;
 
     const lvlColor = new THREE.Color(lvl.color || "#ffffff");
     const mat = new THREE.LineBasicMaterial({
@@ -478,27 +454,23 @@ export function buildSceneData(data, preserveCamera = false) {
       opacity: 0.18,
     });
     const wire = new THREE.LineSegments(unitEdgeGeo, mat);
-    wire.position.set(x, y, z);
-    wire.scale.set(w, h, d);
+    wire.position.set(box.x, box.y, box.z);
+    wire.scale.set(box.w, box.h, box.d);
     wire.raycast = () => {};
     wire.renderOrder = RENDER_BINS.wireframes;
     wire.userData = { levelId: lvl.id };
     levelsGroup.add(wire);
-    levelsMeshes[lvl.id] = wire;
+    levelsMeshes.set(lvl.id, wire);
   });
 
   // Draw 3D bounds for Departments (using cloned unitEdgeGeo boxes)
   depts.forEach(dept => {
-    const lvl = levelsMap[dept.orbit];
+    const lvl = levelsMap.get(dept.orbit);
     if (!lvl) return;
 
-    const x = (dept.position.x + dept.size.w / 2) * VIS_SCALE;
-    const y = (lvl.z_start + lvl.height / 2) * VIS_SCALE;
-    const z = (dept.position.z + dept.size.d / 2) * VIS_SCALE; // Three.js Z
-
-    const w = dept.size.w * VIS_SCALE;
-    const h = lvl.height * VIS_SCALE;
-    const d = dept.size.d * VIS_SCALE;
+    const key = `${dept.name}@${dept.orbit}`;
+    const box = deptAABBs.get(key);
+    if (!box) return;
 
     const deptGeo = unitEdgeGeo.clone();
 
@@ -510,14 +482,14 @@ export function buildSceneData(data, preserveCamera = false) {
       opacity: 0.25
     });
     const wire = new THREE.LineSegments(deptGeo, mat);
-    wire.position.set(x, y, z);
-    wire.scale.set(w, h, d);
+    wire.position.set(box.x, box.y, box.z);
+    wire.scale.set(box.w, box.h, box.d);
     wire.computeLineDistances();
     wire.raycast = () => {};
     wire.renderOrder = RENDER_BINS.wireframes;
     wire.userData = { orbit: dept.orbit, name: dept.name };
     deptsGroup.add(wire);
-    deptsMeshes[dept.name] = wire;
+    deptsMeshes.set(dept.name, wire);
   });
 
   // Build shards
@@ -526,15 +498,15 @@ export function buildSceneData(data, preserveCamera = false) {
     shardsGroup.add(shardGroup);
 
     // Track for rendering and raycasting
-    shardMeshes[sd.key] = shardGroup;
-    shardDataMap[shardGroup.uuid] = sd;
+    shardMeshes.set(sd.key, shardGroup);
+    shardDataMap.set(shardGroup.uuid, sd);
 
     // Cache in flat maps
-    if (!shardsByLevel[sd.orbit]) shardsByLevel[sd.orbit] = [];
-    shardsByLevel[sd.orbit].push(shardGroup);
+    if (!shardsByLevel.has(sd.orbit)) shardsByLevel.set(sd.orbit, []);
+    shardsByLevel.get(sd.orbit).push(shardGroup);
 
-    if (!shardsByDept[sd.dept]) shardsByDept[sd.dept] = [];
-    shardsByDept[sd.dept].push(shardGroup);
+    if (!shardsByDept.has(sd.dept)) shardsByDept.set(sd.dept, []);
+    shardsByDept.get(sd.dept).push(shardGroup);
   });
 
   // Compute auto-camera fit
@@ -571,14 +543,14 @@ export function addShard(shardData) {
   shardsGroup.add(shardGroup);
 
   const key = shardData.key;
-  shardMeshes[key] = shardGroup;
-  shardDataMap[shardGroup.uuid] = shardData;
+  shardMeshes.set(key, shardGroup);
+  shardDataMap.set(shardGroup.uuid, shardData);
 
-  if (!shardsByLevel[shardData.orbit]) shardsByLevel[shardData.orbit] = [];
-  shardsByLevel[shardData.orbit].push(shardGroup);
+  if (!shardsByLevel.has(shardData.orbit)) shardsByLevel.set(shardData.orbit, []);
+  shardsByLevel.get(shardData.orbit).push(shardGroup);
 
-  if (!shardsByDept[shardData.dept]) shardsByDept[shardData.dept] = [];
-  shardsByDept[shardData.dept].push(shardGroup);
+  if (!shardsByDept.has(shardData.dept)) shardsByDept.set(shardData.dept, []);
+  shardsByDept.get(shardData.dept).push(shardGroup);
 
   updateLevelsVisibility();
   updateContainerWires();
@@ -589,7 +561,7 @@ export function addShard(shardData) {
  * @param {string} shardKey 
  */
 export function deleteShard(shardKey) {
-  const shardGroup = shardMeshes[shardKey];
+  const shardGroup = shardMeshes.get(shardKey);
   if (!shardGroup) return;
 
   disposeHierarchy(shardGroup);
@@ -598,14 +570,14 @@ export function deleteShard(shardKey) {
   }
 
   const uuid = shardGroup.uuid;
-  delete shardMeshes[shardKey];
-  delete shardDataMap[uuid];
+  shardMeshes.delete(shardKey);
+  shardDataMap.delete(uuid);
 
-  for (const lvlId of Object.keys(shardsByLevel)) {
-    shardsByLevel[lvlId] = shardsByLevel[lvlId].filter(m => m !== shardGroup);
+  for (const [lvlId, arr] of shardsByLevel.entries()) {
+    shardsByLevel.set(lvlId, arr.filter(m => m !== shardGroup));
   }
-  for (const deptName of Object.keys(shardsByDept)) {
-    shardsByDept[deptName] = shardsByDept[deptName].filter(m => m !== shardGroup);
+  for (const [deptName, arr] of shardsByDept.entries()) {
+    shardsByDept.set(deptName, arr.filter(m => m !== shardGroup));
   }
 
   updateLevelsVisibility();
@@ -617,7 +589,7 @@ export function deleteShard(shardKey) {
  * @param {{ key: string, position: any, size: any }} payload 
  */
 export function updateShardTransform({ key, position, size }) {
-  const shardGroup = shardMeshes[key];
+  const shardGroup = shardMeshes.get(key);
   if (!shardGroup) return;
 
   const w = size.w * VIS_SCALE;
@@ -730,10 +702,10 @@ export function updateShardTransform({ key, position, size }) {
  * @param {{ key: string, position: any }} payload 
  */
 export function updateShardDragging({ key, position }) {
-  const shardGroup = shardMeshes[key];
+  const shardGroup = shardMeshes.get(key);
   if (!shardGroup) return;
 
-  const sd = shardDataMap[shardGroup.uuid];
+  const sd = shardDataMap.get(shardGroup.uuid);
   if (!sd) return;
 
   const x = (position.x + sd.size.w / 2) * VIS_SCALE;
@@ -760,105 +732,37 @@ export function updateContainerWires() {
   if (!placement) return;
 
   const levels = placement.levels || [];
-  const levelsMap = {};
-  levels.forEach(lvl => {
-    levelsMap[lvl.id] = lvl;
-  });
+  const depts = placement.departments || [];
 
-  const levelAABB = {}; // levelId -> { xMin, xMax, yMin, yMax }
-  const resolvedDepts = {}; // deptName -> { xMin, xMax, yMin, yMax, orbit }
-
-  // Inspect current mesh positions on the scene to calculate actual boundary boxes
-  for (const [key, shardGroup] of Object.entries(shardMeshes)) {
-    const sd = shardDataMap[shardGroup.uuid];
-    if (!sd) continue;
-
-    const w = sd.size.w;
-    const d = sd.size.d;
-    const h = sd.size.h;
-
-    // Decode current AABB min in voxels
-    const px = shardGroup.position.x / VIS_SCALE - w / 2;
-    const py = shardGroup.position.y / VIS_SCALE - h / 2; // Three.js Y -> height
-    const pz = shardGroup.position.z / VIS_SCALE - d / 2; // Three.js Z -> depth
-
-    const lvlId = sd.orbit;
-
-    // Track level bounds
-    if (!levelAABB[lvlId]) {
-      levelAABB[lvlId] = {
-        xMin: px,
-        xMax: px + w,
-        yMin: pz, // depth
-        yMax: pz + d
-      };
-    } else {
-      const box = levelAABB[lvlId];
-      box.xMin = Math.min(box.xMin, px);
-      box.xMax = Math.max(box.xMax, px + w);
-      box.yMin = Math.min(box.yMin, pz);
-      box.yMax = Math.max(box.yMax, pz + d);
-    }
-
-    // Track department bounds
-    const dname = sd.dept;
-    if (!resolvedDepts[dname]) {
-      resolvedDepts[dname] = {
-        xMin: px,
-        xMax: px + w,
-        yMin: pz, // depth
-        yMax: pz + d,
-        orbit: lvlId
-      };
-    } else {
-      const dObj = resolvedDepts[dname];
-      dObj.xMin = Math.min(dObj.xMin, px);
-      dObj.xMax = Math.max(dObj.xMax, px + w);
-      dObj.yMin = Math.min(dObj.yMin, pz);
-      dObj.yMax = Math.max(dObj.yMax, pz + d);
-    }
-  }
+  // Compute boundaries dynamically based on current mesh positions
+  recomputeSpatialLayoutFromMeshes(shardMeshes, shardDataMap, levels, depts, VIS_SCALE);
 
   // Adjust level wireframe scales
   levels.forEach(lvl => {
-    const box = levelAABB[lvl.id];
-    const wire = levelsMeshes[lvl.id];
+    const box = levelAABBs.get(lvl.id);
+    const wire = levelsMeshes.get(lvl.id);
     if (!box || !wire) {
       if (wire) wire.visible = false;
       return;
     }
 
-    const x = (box.xMin + box.xMax) / 2 * VIS_SCALE;
-    const y = (lvl.z_start + lvl.height / 2) * VIS_SCALE;
-    const z = (box.yMin + box.yMax) / 2 * VIS_SCALE;
-
-    const w = (box.xMax - box.xMin) * VIS_SCALE;
-    const h = lvl.height * VIS_SCALE;
-    const d = (box.yMax - box.yMin) * VIS_SCALE;
-
-    wire.position.set(x, y, z);
-    wire.scale.set(w, h, d);
+    wire.position.set(box.x, box.y, box.z);
+    wire.scale.set(box.w, box.h, box.d);
     wire.visible = true;
   });
 
   // Adjust department wireframe scales and line distances
-  Object.entries(resolvedDepts).forEach(([dname, dObj]) => {
-    const wire = deptsMeshes[dname];
-    if (!wire) return;
+  depts.forEach(dept => {
+    const key = `${dept.name}@${dept.orbit}`;
+    const box = deptAABBs.get(key);
+    const wire = deptsMeshes.get(dept.name);
+    if (!box || !wire) {
+      if (wire) wire.visible = false;
+      return;
+    }
 
-    const lvl = levelsMap[dObj.orbit];
-    if (!lvl) return;
-
-    const x = (dObj.xMin + dObj.xMax) / 2 * VIS_SCALE;
-    const y = (lvl.z_start + lvl.height / 2) * VIS_SCALE;
-    const z = (dObj.yMin + dObj.yMax) / 2 * VIS_SCALE;
-
-    const w = (dObj.xMax - dObj.xMin) * VIS_SCALE;
-    const h = lvl.height * VIS_SCALE;
-    const d = (dObj.yMax - dObj.yMin) * VIS_SCALE;
-
-    wire.position.set(x, y, z);
-    wire.scale.set(w, h, d);
+    wire.position.set(box.x, box.y, box.z);
+    wire.scale.set(box.w, box.h, box.d);
     wire.computeLineDistances();
     wire.visible = true;
   });

@@ -43,8 +43,8 @@ export function initTransformControls() {
     const snapStep = altPressed ? 1 : (gridSnap > 0 ? gridSnap : 1);
 
     if (selShardKey) {
-      const mesh = shardMeshes[selShardKey];
-      const sd = shardDataMap[mesh.uuid];
+      const mesh = shardMeshes.get(selShardKey);
+      const sd = shardDataMap.get(mesh.uuid);
       if (mesh && sd) {
         const w = sd.size.w;
         const d = sd.size.d;
@@ -92,9 +92,9 @@ export function initTransformControls() {
         });
       }
     } else if (selSocketKey) {
-      const group = socketMeshes[selSocketKey];
+      const group = socketMeshes.get(selSocketKey);
       if (group) {
-        const shardMesh = shardMeshes[group.userData.shardKey];
+        const shardMesh = shardMeshes.get(group.userData.shardKey);
         if (shardMesh) {
           // Snap position relative to shard face to exactly snapStep grid
           let localX = Math.round(group.position.x / (snapStep * VIS_SCALE)) * snapStep;
@@ -178,10 +178,10 @@ export function initTransformControls() {
       if (!placementData) return;
 
       if (selShardKey) {
-        const mesh = shardMeshes[selShardKey];
+        const mesh = shardMeshes.get(selShardKey);
         const shard = placementData.shards.find(s => s.key === selShardKey);
         if (mesh && shard) {
-          const sd = shardDataMap[mesh.uuid];
+          const sd = shardDataMap.get(mesh.uuid);
 
           const w = sd.size.w;
           const d = sd.size.d;
@@ -215,7 +215,7 @@ export function initTransformControls() {
           }
         }
       } else if (selSocketKey) {
-        const group = socketMeshes[selSocketKey];
+        const group = socketMeshes.get(selSocketKey);
         if (group) {
           const { shardKey, socketName } = group.userData;
           const shard = placementData.shards.find(s => s.key === shardKey);

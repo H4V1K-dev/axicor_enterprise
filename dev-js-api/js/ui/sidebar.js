@@ -41,7 +41,7 @@ function getSidebarInnerElement() {
 export function showSidebar(type, data) {
   const el = getSidebarElement();
   el.style.display = 'flex';
-  
+
   if (type === 'shard') {
     renderShardSidebar(data);
   } else if (type === 'socket') {
@@ -75,7 +75,7 @@ export function renderLayersListItems(data) {
 }
 
 function renderShardSidebar(data) {
-  const mesh = shardMeshes[data.key];
+  const mesh = shardMeshes.get(data.key);
   if (!mesh) return;
 
   const px = data.position.x;
@@ -89,11 +89,11 @@ function renderShardSidebar(data) {
   // Group sockets for the list
   const topSocks = [];
   const bottomSocks = [];
-  
+
   if (data.sockets) {
     data.sockets.forEach(sock => {
       const socketKey = `${data.key}.${sock.name}`;
-      const socketGroup = socketMeshes[socketKey];
+      const socketGroup = socketMeshes.get(socketKey);
       if (socketGroup) {
         if (socketGroup.userData.faceSign === 1) {
           topSocks.push({ name: sock.name, key: socketKey });
@@ -131,7 +131,7 @@ function renderShardSidebar(data) {
     const selected = d.name === data.dept ? 'selected' : '';
     return `<option value="${d.name}" ${selected}>${d.name}</option>`;
   }).join('');
-  
+
   if (!levelDepts.some(d => d.name === data.dept) && data.dept) {
     deptOptions = `<option value="${data.dept}" selected>${data.dept}</option>` + deptOptions;
   }
@@ -213,7 +213,7 @@ function renderShardSidebar(data) {
     mesh.position.x = (valX + w / 2) * VIS_SCALE;
     mesh.position.z = (valY + d / 2) * VIS_SCALE;
     mesh.position.y = (valZ + h / 2) * VIS_SCALE;
-    
+
     // Collision check: check overlap and revert if necessary
     if (checkShardCollision(data.key, mesh.position)) {
       mesh.position.copy(mesh.userData.lastValidPosition);
@@ -230,22 +230,22 @@ function renderShardSidebar(data) {
       const shard = pData.shards.find(s => s.key === data.key);
       if (shard) {
         shard.position.x = Math.round(mesh.position.x / VIS_SCALE - w / 2);
-        shard.position.y = Math.round(mesh.position.z / VIS_SCALE - d / 2);
-        shard.position.z = Math.round(mesh.position.y / VIS_SCALE - h / 2);
-        
+        shard.position.y = Math.round(mesh.position.y / VIS_SCALE - h / 2);
+        shard.position.z = Math.round(mesh.position.z / VIS_SCALE - d / 2);
+
         // Recalculate department position in UI
         const dObj = pData.departments.find(d => d.name === data.dept);
         if (dObj) {
           const deptShards = pData.shards.filter(s => s.dept === data.dept);
           const xMin = Math.min(...deptShards.map(s => s.position.x));
-          const yMin = Math.min(...deptShards.map(s => s.position.y));
+          const zMin = Math.min(...deptShards.map(s => s.position.z));
           dObj.position.x = xMin;
-          dObj.position.y = yMin;
-          
+          dObj.position.z = zMin;
+
           const idx_d = document.getElementById('dept-px');
           const idy_d = document.getElementById('dept-py');
           if (idx_d) idx_d.value = xMin;
-          if (idy_d) idy_d.value = yMin;
+          if (idy_d) idy_d.value = zMin;
         }
 
         store.set('placementData', pData);
@@ -264,9 +264,9 @@ function renderShardSidebar(data) {
     const shard = pData.shards.find(s => s.key === data.key);
     if (!shard) return;
 
-    if (initialShardState.position.x !== shard.position.x || 
-        initialShardState.position.y !== shard.position.y || 
-        initialShardState.position.z !== shard.position.z) {
+    if (initialShardState.position.x !== shard.position.x ||
+      initialShardState.position.y !== shard.position.y ||
+      initialShardState.position.z !== shard.position.z) {
       const undoState = JSON.parse(JSON.stringify(initialShardState));
       const redoState = JSON.parse(JSON.stringify(shard));
 
@@ -291,10 +291,10 @@ function renderShardSidebar(data) {
     const updateDeptCoords = () => {
       const valX = parseFloat(idx_d.value);
       const valY = parseFloat(idy_d.value);
-      
+
       const deltaX = valX - lastDeptX;
       const deltaY = valY - lastDeptY;
-      
+
       if (deltaX === 0 && deltaY === 0) return;
 
       const pData = store.get('placementData');
@@ -303,9 +303,9 @@ function renderShardSidebar(data) {
       pData.shards.forEach(s => {
         if (s.dept === data.dept) {
           s.position.x += deltaX;
-          s.position.y += deltaY;
-          
-          const m = shardMeshes[s.key];
+          s.position.z += deltaY;
+
+          const m = shardMeshes.get(s.key);
           if (m) {
             m.position.x += deltaX * VIS_SCALE;
             m.position.z += deltaY * VIS_SCALE;
@@ -317,7 +317,7 @@ function renderShardSidebar(data) {
       const dObj = pData.departments.find(d => d.name === data.dept);
       if (dObj) {
         dObj.position.x = valX;
-        dObj.position.y = valY;
+        dObj.position.z = valY;
       }
 
       store.set('placementData', pData);
@@ -362,7 +362,7 @@ function renderShardSidebar(data) {
         // Auto-assign to default department of new orbit
         const depts = pData.departments || [];
         const newOrbitDepts = depts.filter(d => d.orbit === newOrbit);
-        
+
         let newDeptName = '';
         if (newOrbitDepts.length > 0) {
           newDeptName = newOrbitDepts[0].name;
@@ -430,7 +430,7 @@ function renderShardSidebar(data) {
               // Add to placementData.departments
               pData.departments.push({ name: cleanName, orbit: shard.orbit });
               shard.dept = cleanName;
-              
+
               const newKey = `${cleanName}.${shortName}`;
               shard.key = newKey;
 
@@ -530,17 +530,17 @@ function renderShardSidebar(data) {
 
     layersListContainer.addEventListener('drop', (e) => {
       e.preventDefault();
-      
+
       const items = Array.from(layersListContainer.querySelectorAll('.layer-list-item'));
       const newOrderNames = items.map(item => item.dataset.name);
-      
-      const shardMesh = shardMeshes[data.key];
-      const sd = shardDataMap[shardMesh.uuid];
+
+      const shardMesh = shardMeshes.get(data.key);
+      const sd = shardDataMap.get(shardMesh.uuid);
       if (sd && sd.layers) {
         const layerMap = {};
         sd.layers.forEach(l => { layerMap[l.name] = l; });
         sd.layers = newOrderNames.map(name => layerMap[name]);
-        
+
         // Dynamically update the 3D meshes order
         if (window.updateLayersOrderIn3D) {
           window.updateLayersOrderIn3D(shardMesh, newOrderNames);
@@ -645,7 +645,7 @@ function renderSocketSidebar(data) {
     const h = parseInt(sh.value);
     const r = parseInt(rot.value);
     const fs = parseInt(faceSelect.value);
-    
+
     // Read current offset.z from placementData to avoid wiping it out
     const placementData = store.get('placementData');
     let zVal = 0;
@@ -682,14 +682,14 @@ function renderSocketSidebar(data) {
     const currZ = currOffset.z !== undefined ? currOffset.z : 0;
 
     if (initialSocketState.width !== socket.width ||
-        initialSocketState.height !== socket.height ||
-        initialSocketState.pitch !== socket.pitch ||
-        initOffset.x !== currOffset.x ||
-        initOffset.y !== currOffset.y ||
-        initZ !== currZ ||
-        initialSocketState.rotation !== socket.rotation ||
-        initialSocketState.faceSign !== socket.faceSign) {
-      
+      initialSocketState.height !== socket.height ||
+      initialSocketState.pitch !== socket.pitch ||
+      initOffset.x !== currOffset.x ||
+      initOffset.y !== currOffset.y ||
+      initZ !== currZ ||
+      initialSocketState.rotation !== socket.rotation ||
+      initialSocketState.faceSign !== socket.faceSign) {
+
       const undoState = JSON.parse(JSON.stringify(initialSocketState));
       const redoState = JSON.parse(JSON.stringify(socket));
       const socketKey = `${data.shardKey}.${data.socketName}`;
@@ -760,13 +760,13 @@ export async function saveAllLayoutChanges() {
   };
 
   // 1. Gather all shard position, size and layer overrides
-  for (const [key, mesh] of Object.entries(shardMeshes)) {
+  for (const [key, mesh] of shardMeshes.entries()) {
     // Retrieve current size from the modified mesh geometry parameters
     const currentW = Math.round(mesh.geometry.parameters.width / VIS_SCALE);
     const currentH = Math.round(mesh.geometry.parameters.height / VIS_SCALE); // height is now h (Three Y)
     const currentD = Math.round(mesh.geometry.parameters.depth / VIS_SCALE);  // depth is now d (Three Z)
 
-    const sd = shardDataMap[mesh.uuid];
+    const sd = shardDataMap.get(mesh.uuid);
     payload.shards[key] = {
       position: {
         x: Math.round(mesh.position.x / VIS_SCALE - currentW / 2),
@@ -811,7 +811,7 @@ export async function saveAllLayoutChanges() {
 
     const resData = await response.json();
     showToast('Конфигурация сохранена! Обновление связей...', 'success');
-    
+
     // Clear deleted trackers
     const pData = store.get('placementData');
     if (pData) {
@@ -835,17 +835,17 @@ export async function saveAllLayoutChanges() {
 function updateSidebarVisibility() {
   const selShardKey = store.get('selectedShardKey');
   const selSocketKey = store.get('selectedSocketKey');
-  
+
   if (selShardKey) {
-    const mesh = shardMeshes[selShardKey];
-    const shardData = mesh ? shardDataMap[mesh.uuid] : null;
+    const mesh = shardMeshes.get(selShardKey);
+    const shardData = mesh ? shardDataMap.get(mesh.uuid) : null;
     if (shardData) {
       showSidebar('shard', shardData);
     } else {
       hideSidebar();
     }
   } else if (selSocketKey) {
-    const group = socketMeshes[selSocketKey];
+    const group = socketMeshes.get(selSocketKey);
     if (group && group.userData) {
       showSidebar('socket', group.userData);
     } else {

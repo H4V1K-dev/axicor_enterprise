@@ -108,7 +108,7 @@ export class ResizeMode {
   spawnHandles() {
     const selShardKey = store.get('selectedShardKey');
     if (!selShardKey) return;
-    const shardMesh = shardMeshes[selShardKey];
+    const shardMesh = shardMeshes.get(selShardKey);
     if (!shardMesh) return;
 
     const w = shardMesh.geometry.parameters.width;
@@ -158,7 +158,7 @@ export class ResizeMode {
   }
 
   removeHandles() {
-    for (const mesh of Object.values(shardMeshes)) {
+    for (const mesh of shardMeshes.values()) {
       const toRemove = [];
       mesh.traverse(child => {
         if (child.userData && child.userData.isResizeHandle) {
@@ -186,7 +186,7 @@ export class ResizeMode {
   onUpdate(dt) {
     const selShardKey = store.get('selectedShardKey');
     if (!selShardKey) return;
-    const shardMesh = shardMeshes[selShardKey];
+    const shardMesh = shardMeshes.get(selShardKey);
     if (!shardMesh) return;
 
     const camPos = camera.position;
@@ -224,9 +224,9 @@ export class ResizeMode {
     }
 
     if (selShardKey) {
-      const shardMesh = shardMeshes[selShardKey];
+      const shardMesh = shardMeshes.get(selShardKey);
       if (!shardMesh) return false;
-      const sd = shardDataMap[shardMesh.uuid];
+      const sd = shardDataMap.get(shardMesh.uuid);
       if (!sd) return false;
 
       // Collect active handles
@@ -259,7 +259,7 @@ export class ResizeMode {
         if (sd.sockets) {
           sd.sockets.forEach(sock => {
             const socketKey = `${sd.key}.${sock.name}`;
-            const socketGroup = socketMeshes[socketKey];
+            const socketGroup = socketMeshes.get(socketKey);
             if (socketGroup) {
               const defaultZ = socketGroup.userData.faceSign * (this.initialH / 2);
               this.initialSocketOffsets[socketKey] = {
@@ -308,9 +308,9 @@ export class ResizeMode {
     }
 
     if (selShardKey) {
-      const shardMesh = shardMeshes[selShardKey];
+      const shardMesh = shardMeshes.get(selShardKey);
       if (!shardMesh) return;
-      const sd = shardDataMap[shardMesh.uuid];
+      const sd = shardDataMap.get(shardMesh.uuid);
       if (!sd) return;
 
       if (!this.isDragging || !this.activeHandle) {
@@ -509,9 +509,9 @@ export class ResizeMode {
 
       const selShardKey = store.get('selectedShardKey');
       if (!selShardKey) return;
-      const shardMesh = shardMeshes[selShardKey];
+      const shardMesh = shardMeshes.get(selShardKey);
       if (!shardMesh) return;
-      const sd = shardDataMap[shardMesh.uuid];
+      const sd = shardDataMap.get(shardMesh.uuid);
       if (!sd) return;
 
       // Retrieve new dimensions from the modified mesh
@@ -580,7 +580,7 @@ export class ResizeMode {
         // Rollback current drag session changes
         const selShardKey = store.get('selectedShardKey');
         if (selShardKey) {
-          const shardMesh = shardMeshes[selShardKey];
+          const shardMesh = shardMeshes.get(selShardKey);
           if (shardMesh) {
             shardMesh.position.copy(this.initialPosition);
             this.updateMeshGeometry(shardMesh, this.initialW, this.initialD, this.initialH);

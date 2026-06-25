@@ -363,12 +363,7 @@ export class AddShardMode {
     }
 
     // Build layers data
-    const popsCount = advancedObjPropConfig.populations;
-    const layers = Array.from({ length: popsCount }, (_, i) => ({
-      name: `layer_${i}`,
-      height_pct: 1.0 / popsCount,
-      density: 1.0
-    }));
+    const layers = [{ name: 'layer_0', height_pct: 1.0, density: 1.0 }];
 
     // Create the shard data object (Three.js coordinates: Y is height, Z is depth)
     const newShard = {

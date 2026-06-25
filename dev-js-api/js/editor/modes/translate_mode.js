@@ -55,7 +55,7 @@ export class TranslateMode {
     this.hoveredType = type;
 
     if (type === 'shard') {
-      const mesh = shardMeshes[key];
+      const mesh = shardMeshes.get(key);
       if (mesh) {
         const mainWire = mesh.userData.mainWire;
         if (mainWire) {
@@ -63,7 +63,7 @@ export class TranslateMode {
         }
       }
     } else if (type === 'socket') {
-      const group = socketMeshes[key];
+      const group = socketMeshes.get(key);
       if (group) {
         const backing = group.userData.backingMesh;
         const instMesh = group.children.find(c => c.isInstancedMesh);
@@ -83,7 +83,7 @@ export class TranslateMode {
     if (!this.hoveredKey) return;
 
     if (this.hoveredType === 'shard') {
-      const mesh = shardMeshes[this.hoveredKey];
+      const mesh = shardMeshes.get(this.hoveredKey);
       if (mesh) {
         updateFocusVisuals();
       }
@@ -201,7 +201,7 @@ export class TranslateMode {
     // 2. Cursor styling if something IS selected (e.g. handles/dividers resizing hover)
     if (!transformControls.dragging) {
       const dividersList = [];
-      for (const mesh of Object.values(shardMeshes)) {
+      for (const mesh of shardMeshes.values()) {
         mesh.traverse(child => {
           if (child.userData && child.userData.isDivider && child.visible) {
             dividersList.push(child);

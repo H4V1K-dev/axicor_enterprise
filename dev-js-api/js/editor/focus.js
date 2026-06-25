@@ -122,8 +122,8 @@ export function updateFocusVisuals() {
   const isAnyFocusActive = isLevelFocused || isDeptFocused || isShardFocused;
 
   // 3. Update Shards Focus using pre-cached materials
-  for (const [key, mesh] of Object.entries(shardMeshes)) {
-    const sd = shardDataMap[mesh.uuid];
+  for (const [key, mesh] of shardMeshes.entries()) {
+    const sd = shardDataMap.get(mesh.uuid);
     if (!sd) continue;
 
     const isHidden = hiddenLevelIds.has(sd.orbit);
@@ -293,7 +293,7 @@ export function updateFocusVisuals() {
   }
 
   // 4. Inactivate all socket visuals (not used in Composition mode)
-  for (const [key, group] of Object.entries(socketMeshes)) {
+  for (const [key, group] of socketMeshes.entries()) {
     group.visible = false;
   }
 }

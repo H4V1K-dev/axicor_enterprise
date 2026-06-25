@@ -32,7 +32,7 @@ function updateTransformControlsAttachment() {
   // We only attach gizmo axes in translate mode
   if (activeMode === 'translate') {
     if (selShardKey) {
-      const mesh = shardMeshes[selShardKey];
+      const mesh = shardMeshes.get(selShardKey);
       if (mesh) {
         if (transformControls.object !== mesh) {
           transformControls.detach();
@@ -46,7 +46,7 @@ function updateTransformControlsAttachment() {
         return;
       }
     } else if (selSocketKey) {
-      const group = socketMeshes[selSocketKey];
+      const group = socketMeshes.get(selSocketKey);
       if (group) {
         if (transformControls.object !== group) {
           transformControls.detach();

@@ -45,7 +45,7 @@ export function selectShard(key, isMulti = false) {
   });
 
   if (activeKey) {
-    const mesh = shardMeshes[activeKey];
+    const mesh = shardMeshes.get(activeKey);
     if (mesh) {
       // Record current position as valid for collision checks
       mesh.userData.lastValidPosition = mesh.position.clone();
@@ -61,7 +61,7 @@ export function selectShard(key, isMulti = false) {
       spawnSomasForShard(activeKey);
 
       // Emit selection changed event (UI panel listens to this)
-      const shardData = shardDataMap[mesh.uuid];
+      const shardData = shardDataMap.get(mesh.uuid);
       emit(EVENTS.SELECTION_CHANGED, { type: 'shard', data: shardData });
     }
   } else {
@@ -85,7 +85,7 @@ export function selectSocket(key) {
     connectionMode: 2
   });
 
-  const group = socketMeshes[key];
+  const group = socketMeshes.get(key);
   if (group) {
     // Show resizer handles if in resize mode
     updateSocketHandlesVisibility();
@@ -132,7 +132,7 @@ export function updateSocketHandlesVisibility() {
   const activeMode = store.get('activeMode');
   const isResizeMode = (activeMode === 'resize');
   
-  for (const [key, group] of Object.entries(socketMeshes)) {
+  for (const [key, group] of socketMeshes.entries()) {
     const isSelected = (key === selSocketKey);
     group.traverse(child => {
       if (child.name && child.name.startsWith("handle_")) {
@@ -155,15 +155,15 @@ store.on('focusedLevelId', (lvlId) => {
   let shouldDeselect = false;
   
   if (selShardKey) {
-    const mesh = shardMeshes[selShardKey];
-    const shard = mesh ? shardDataMap[mesh.uuid] : null;
+    const mesh = shardMeshes.get(selShardKey);
+    const shard = mesh ? shardDataMap.get(mesh.uuid) : null;
     if (shard && (lvlId === null || Number(shard.orbit) !== Number(lvlId))) {
       shouldDeselect = true;
     }
   } else if (selSocketKey) {
     const shardKey = selSocketKey.split('.')[0];
-    const mesh = shardMeshes[shardKey];
-    const shard = mesh ? shardDataMap[mesh.uuid] : null;
+    const mesh = shardMeshes.get(shardKey);
+    const shard = mesh ? shardDataMap.get(mesh.uuid) : null;
     if (shard && (lvlId === null || Number(shard.orbit) !== Number(lvlId))) {
       shouldDeselect = true;
     }

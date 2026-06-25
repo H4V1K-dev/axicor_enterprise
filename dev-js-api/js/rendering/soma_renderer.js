@@ -38,10 +38,10 @@ function getSomaColor(type) {
 export function spawnSomasForShard(shardKey) {
   clearSomas();
 
-  const shardMesh = shardMeshes[shardKey];
+  const shardMesh = shardMeshes.get(shardKey);
   if (!shardMesh) return;
 
-  const sd = shardDataMap[shardMesh.uuid];
+  const sd = shardDataMap.get(shardMesh.uuid);
   if (!sd) return;
 
   somaGroup = new THREE.Group();

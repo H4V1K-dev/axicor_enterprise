@@ -43,7 +43,7 @@ export function onPointerDown(event) {
 
   // Check if click hit a layer divider
   const dividersList = [];
-  for (const mesh of Object.values(shardMeshes)) {
+  for (const mesh of shardMeshes.values()) {
     mesh.traverse(child => {
       if (child.userData && child.userData.isDivider && child.visible) {
         dividersList.push(child);
@@ -70,7 +70,7 @@ export function onPointerDown(event) {
 
     // Record initial intersection local coordinates and position to prevent jumping
     if (raycaster.ray.intersectPlane(dragPlane, dragPlaneIntersection)) {
-      const shardMesh = shardMeshes[hitDivider.userData.shardKey];
+      const shardMesh = shardMeshes.get(hitDivider.userData.shardKey);
       if (shardMesh) {
         shardMesh.updateMatrixWorld(true);
         const localIntersection = shardMesh.worldToLocal(dragPlaneIntersection.clone());
@@ -99,9 +99,9 @@ export function onPointerMove(event) {
   if (!isDraggingDivider || !draggedDivider) return;
 
   if (raycaster.ray.intersectPlane(dragPlane, dragPlaneIntersection)) {
-    const shardMesh = shardMeshes[draggedDivider.userData.shardKey];
+    const shardMesh = shardMeshes.get(draggedDivider.userData.shardKey);
     if (shardMesh) {
-      const sd = shardDataMap[shardMesh.uuid];
+      const sd = shardDataMap.get(shardMesh.uuid);
       if (!sd) return;
       const idx = draggedDivider.userData.dividerIndex;
       
@@ -163,9 +163,9 @@ export function onPointerMove(event) {
 
 export function onPointerUp() {
   if (isDraggingDivider && draggedDivider) {
-    const shardMesh = shardMeshes[draggedDivider.userData.shardKey];
+    const shardMesh = shardMeshes.get(draggedDivider.userData.shardKey);
     if (shardMesh) {
-      const sd = shardDataMap[shardMesh.uuid];
+      const sd = shardDataMap.get(shardMesh.uuid);
       if (sd && sd.layers) {
         const idx = draggedDivider.userData.dividerIndex;
         
@@ -228,7 +228,7 @@ export function onPointerUp() {
 }
 
 export function updateLayersFromDividers(shardMesh) {
-  const sd = shardDataMap[shardMesh.uuid];
+  const sd = shardDataMap.get(shardMesh.uuid);
   if (!sd) return;
 
   const h = sd.size.h * VIS_SCALE;
@@ -286,7 +286,7 @@ export function updateLayersFromDividers(shardMesh) {
 }
 
 export function updateLayersOrderIn3D(shardMesh, newOrder) {
-  const sd = shardDataMap[shardMesh.uuid];
+  const sd = shardDataMap.get(shardMesh.uuid);
   if (!sd) return;
   const h = sd.size.h * VIS_SCALE;
 

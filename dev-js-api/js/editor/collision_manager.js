@@ -16,8 +16,8 @@ import { store } from '../store/store.js';
  * @returns {Object|null} Selected interactive target or null
  */
 export function resolveRaycastHit(raycaster) {
-  const socketsList = Object.values(socketMeshes);
-  const shardsList = Object.values(shardMeshes);
+  const socketsList = Array.from(socketMeshes.values());
+  const shardsList = Array.from(shardMeshes.values());
   
   // Construct list of intersectable objects
   const intersectTargets = [...socketsList, ...shardsList];
@@ -81,7 +81,7 @@ export function resolveRaycastHit(raycaster) {
     if (socketGroupObj) {
       const faceSign = socketGroupObj.userData.faceSign || 1;
       const shardKey = socketGroupObj.userData.shardKey;
-      const shardMeshObj = shardMeshes[shardKey];
+      const shardMeshObj = shardMeshes.get(shardKey);
 
       if (shardMeshObj) {
         // Calculate world normal of the socket face based on its faceSign (direction along local Z)
@@ -119,12 +119,12 @@ export function resolveRaycastHit(raycaster) {
     }
 
     if (shardMeshObj) {
-      const key = Object.keys(shardMeshes).find(k => shardMeshes[k] === shardMeshObj);
+      const key = shardMeshObj.userData.shardKey;
       if (key) {
         // Determine opacity based on selection focus. A shard is physically opaque unless it is selected (or has a selected socket) and we are viewing its inner layers.
         const selShardKey = store.get('selectedShardKey');
         const selSocketKey = store.get('selectedSocketKey');
-        const selSocketGroup = selSocketKey ? socketMeshes[selSocketKey] : null;
+        const selSocketGroup = selSocketKey ? socketMeshes.get(selSocketKey) : null;
         const isFocused = (
           selShardKey === key || 
           (selSocketGroup && selSocketGroup.userData.shardKey === key)

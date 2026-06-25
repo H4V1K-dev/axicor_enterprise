@@ -4,6 +4,7 @@ import { saveAllLayoutChanges } from './sidebar.js';
 import { store } from '../store/store.js';
 import { on, emit, EVENTS } from '../store/event_bus.js';
 import { lintScene } from '../algorithms/toml/index.js';
+import { toRustCoords } from '../editor/coordinate_adapter.js';
 
 /**
  * Constructs a live model placement data structure using the active 3D mesh states.
@@ -18,13 +19,13 @@ function getLivePlacementData() {
 
   // Overwrite coordinates, sockets, and layers from the live 3D scene elements
   liveData.shards.forEach(shard => {
-    const mesh = shardMeshes[shard.key];
+    const mesh = shardMeshes.get(shard.key);
     if (mesh) {
       shard.position.x = Math.round(mesh.position.x / VIS_SCALE - shard.size.w / 2);
-      shard.position.y = Math.round(mesh.position.z / VIS_SCALE - shard.size.d / 2); // Rust Y (depth)
-      shard.position.z = Math.round(mesh.position.y / VIS_SCALE - shard.size.h / 2); // Rust Z (height)
+      shard.position.y = Math.round(mesh.position.y / VIS_SCALE - shard.size.h / 2); // Three.js Y (height)
+      shard.position.z = Math.round(mesh.position.z / VIS_SCALE - shard.size.d / 2); // Three.js Z (depth)
 
-      const rawData = shardDataMap[mesh.uuid];
+      const rawData = shardDataMap.get(mesh.uuid);
       if (rawData && rawData.layers) {
         shard.layers = JSON.parse(JSON.stringify(rawData.layers));
       }
@@ -32,7 +33,7 @@ function getLivePlacementData() {
 
     (shard.sockets || []).forEach(socket => {
       const socketKey = `${shard.key}.${socket.name}`;
-      const group = socketMeshes[socketKey];
+      const group = socketMeshes.get(socketKey);
       if (group) {
         socket.width = group.userData.width;
         socket.height = group.userData.height;
@@ -76,7 +77,7 @@ export function initValidatorPanel(validatorBtn) {
   const applyIssueFix = async (issue) => {
     if (!issue.fixable) return;
     const { actionType, socketKey, width, height, pitch, offset, faceSign, rotation } = issue.fixData;
-    const group = socketMeshes[socketKey];
+    const group = socketMeshes.get(socketKey);
     if (!group) return;
 
     if (actionType === 'resize_socket') {
@@ -232,7 +233,8 @@ export function initValidatorPanel(validatorBtn) {
     // 2. Run SDK TOML Linter validation on the live placement coordinates representation
     const livePlacement = getLivePlacementData();
     if (livePlacement) {
-      const lintIssues = lintScene(livePlacement);
+      const rustPlacement = toRustCoords(livePlacement);
+      const lintIssues = lintScene(rustPlacement);
       lintIssues.forEach(issue => {
         currentIssues.push({
           type: issue.severity, // 'error' or 'warning'

@@ -242,7 +242,7 @@ export function makeTextSprite(text, color) {
  */
 export function rebuildSocket(shardKey, socketName, width, height, pitch, offset, faceSign, rotation = 0) {
   const socketKey = `${shardKey}.${socketName}`;
-  const shardMesh = shardMeshes[shardKey];
+  const shardMesh = shardMeshes.get(shardKey);
   if (!shardMesh) return;
 
   const h = shardMesh.geometry.parameters.depth; // local depth
@@ -441,5 +441,5 @@ export function rebuildSocket(shardKey, socketName, width, height, pitch, offset
 
   addResizerHandles(socketGroup, backingW, backingH);
   shardMesh.add(socketGroup);
-  socketMeshes[socketKey] = socketGroup;
+  socketMeshes.set(socketKey, socketGroup);
 }
