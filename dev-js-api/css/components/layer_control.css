@@ -1,0 +1,82 @@
+/* Shard Layer & Orbit Color Control Component */
+
+.layer-control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ax-border-subtle);
+  font-size: var(--ax-text-base);
+}
+
+.layer-control-row:last-child {
+  border-bottom: none;
+}
+
+.layer-control-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-grow: 1;
+}
+
+.layer-control-name {
+  font-weight: 600;
+  color: var(--ax-text);
+  white-space: nowrap;
+}
+
+.layer-rename-btn {
+  background: transparent;
+  border: none;
+  padding: 2px;
+  color: var(--ax-text-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  transition: color var(--ax-duration-fast) var(--ax-ease);
+}
+
+.layer-rename-btn:hover {
+  color: var(--ax-accent) !important;
+}
+
+.orbit-color-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.orbit-color-square {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  transition: border-color var(--ax-duration-fast) var(--ax-ease);
+}
+
+.orbit-color-container:hover .orbit-color-square {
+  border-color: var(--ax-accent);
+}
+
+.orbit-color-picker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  border: none;
+  box-sizing: border-box;
+}

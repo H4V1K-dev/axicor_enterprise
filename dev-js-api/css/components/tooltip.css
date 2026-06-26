@@ -1,0 +1,34 @@
+/* Interactive 3D Tooltip Component */
+
+#tooltip {
+  position: fixed;
+  background: var(--ax-bg-surface);
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-radius-md);
+  padding: 10px 14px;
+  font-size: var(--ax-text-sm);
+  pointer-events: none;
+  display: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 20;
+  max-width: 280px;
+  box-shadow: var(--ax-shadow-md);
+  font-family: var(--ax-font-sans);
+}
+
+#tooltip .tt-title {
+  color: var(--ax-accent);
+  font-weight: 700;
+  font-family: var(--ax-font-mono);
+  margin-bottom: 4px;
+}
+
+#tooltip .tt-row {
+  color: var(--ax-text-muted);
+}
+
+#tooltip .tt-row span {
+  color: var(--ax-text);
+  font-weight: 500;
+}

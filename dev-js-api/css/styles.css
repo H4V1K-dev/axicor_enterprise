@@ -18,6 +18,17 @@
 @import url('components/accordion.css');
 @import url('components/toast.css');
 
+/* New decomposed components */
+@import url('components/stats_panel.css');
+@import url('components/viewcube.css');
+@import url('components/tooltip.css');
+@import url('components/object_properties.css');
+@import url('components/validator.css');
+@import url('components/physics.css');
+@import url('components/layer_control.css');
+@import url('components/history_panel.css');
+@import url('components/settings_modal.css');
+
 /* === Layouts === */
 @import url('layouts/hub.css');
 @import url('layouts/editor.css');

@@ -1,0 +1,75 @@
+/* Floating Stats Panel & Orbit Legend Component */
+
+.interactive-panel {
+  cursor: pointer;
+  background: var(--ax-bg-surface);
+  color: var(--ax-text-secondary);
+  border: 1px solid var(--ax-border);
+  transition: all var(--ax-duration-normal) var(--ax-ease);
+  font-weight: 600;
+  outline: none;
+}
+
+.interactive-panel:hover {
+  background: var(--ax-bg-hover);
+  border-color: var(--ax-scrollbar-hover);
+  color: var(--ax-text);
+}
+
+.interactive-panel.active {
+  background: var(--ax-bg-active);
+  color: var(--ax-accent);
+  border-color: var(--ax-border-active);
+}
+
+.explorer-text {
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+/* Floating Stats Panel */
+#stats-overlay {
+  position: fixed;
+  top: 60px;
+  width: 280px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-10px);
+  transition: all var(--ax-duration-normal) var(--ax-ease);
+  padding: var(--ax-space-4);
+  z-index: 999;
+}
+
+#stats-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+#stats-overlay .stat {
+  color: var(--ax-text-muted);
+  margin-top: 4px;
+  font-size: var(--ax-text-base);
+}
+
+#stats-overlay .stat span {
+  color: var(--ax-text);
+  font-weight: 600;
+}
+
+.orbit-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--ax-space-2);
+  margin: 4px 0;
+  font-family: var(--ax-font-sans);
+  font-size: var(--ax-text-sm);
+  color: var(--ax-text-secondary);
+}
+
+.orbit-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

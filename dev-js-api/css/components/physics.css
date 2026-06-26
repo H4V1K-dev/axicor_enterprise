@@ -1,0 +1,29 @@
+/* Simulator Physics Sliders Component */
+
+.physics-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.physics-slider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: var(--ax-text-base);
+}
+
+.physics-slider-row label {
+  color: var(--ax-text-muted);
+  width: 180px;
+  flex-shrink: 0;
+}
+
+.physics-slider-row span {
+  color: var(--ax-accent);
+  width: 50px;
+  text-align: right;
+  font-family: var(--ax-font-mono);
+  font-weight: bold;
+}

@@ -1,0 +1,155 @@
+/* History Undo/Redo Action Timeline Component */
+
+#history-panel-container {
+  position: fixed;
+  top: 16px;
+  right: 170px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  height: 36px;
+  box-sizing: border-box;
+  z-index: 1000;
+  border-radius: var(--ax-radius-lg);
+  background: var(--ax-bg-surface);
+  border: 1px solid var(--ax-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--ax-shadow-md);
+}
+
+#history-panel-container .ax-btn {
+  background: transparent;
+  color: var(--ax-text-secondary);
+  border: none;
+  border-radius: var(--ax-radius-md);
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  font-size: var(--ax-text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--ax-duration-normal) var(--ax-ease);
+}
+
+#history-panel-container .ax-btn:hover:not(:disabled) {
+  background: var(--ax-bg-hover);
+  color: var(--ax-text);
+}
+
+#history-dropdown-panel {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  z-index: 998;
+  display: flex;
+  flex-direction: row; /* Old on left, new on right */
+  gap: 6px;
+  max-width: 600px;
+  overflow-x: auto;
+  padding: 6px 10px;
+  background: var(--ax-bg-surface);
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-radius-xl);
+  box-shadow: var(--ax-shadow-lg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: opacity var(--ax-duration-normal) var(--ax-ease), transform var(--ax-duration-normal) var(--ax-ease);
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+}
+
+#history-dropdown-panel.open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.history-card {
+  flex: 0 0 auto;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: var(--ax-radius-lg);
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--ax-duration-normal) var(--ax-ease);
+  box-sizing: border-box;
+  border: 2px solid transparent;
+}
+
+.history-card:hover {
+  filter: brightness(1.2);
+}
+
+.history-card.active-state {
+  opacity: 1;
+}
+
+.history-card.undone-state {
+  opacity: 0.35;
+}
+
+/* White outline for currently active state */
+.history-card.current-state {
+  border-color: #ffffff !important;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+}
+
+.history-card.previewing {
+  border-color: #10b981 !important;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+/* Abbreviations text */
+.history-card-abbr {
+  font-family: var(--ax-font-sans);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+/* Ago time text */
+.history-card-time {
+  font-family: var(--ax-font-mono);
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/* Red: deletion */
+.history-card--red {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #fca5a5 !important;
+}
+
+/* Yellow: connection break */
+.history-card--yellow {
+  background: rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  color: #fde047 !important;
+}
+
+/* Green: resize */
+.history-card--green {
+  background: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  color: #a7f3d0 !important;
+}
+
+/* Blue: move, add */
+.history-card--blue {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  color: #bfdbfe !important;
+}

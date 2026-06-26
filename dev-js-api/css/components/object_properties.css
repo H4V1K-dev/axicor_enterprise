@@ -1,0 +1,75 @@
+/* Object Properties & Advanced Object Properties Sidebar Panels */
+
+/* --- Sidebar Panel (Folding) --- */
+#sidebar {
+  position: fixed;
+  top: 66px;
+  left: 16px;
+  width: 280px;
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  gap: var(--ax-space-3);
+  max-height: calc(50vh - 80px);
+  height: max-content;
+  overflow-y: auto;
+}
+
+#sidebar .sb-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#sidebar .sb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--ax-text-base);
+}
+
+#sidebar .sb-row label {
+  color: var(--ax-text-muted);
+}
+
+#sidebar .sb-row span {
+  color: var(--ax-text);
+  font-weight: 500;
+}
+
+#sidebar .sb-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#sidebar .sb-input-group label {
+  font-size: var(--ax-text-sm);
+  color: var(--ax-text-muted);
+}
+
+#sidebar .sb-inputs-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* --- Advanced Object Properties Panel (#advanced-obj-prop) --- */
+#advanced-obj-prop {
+  position: fixed;
+  left: 16px;
+  bottom: 64px;
+  width: 320px;
+  z-index: 999;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(15px);
+  box-sizing: border-box;
+  transition: opacity var(--ax-duration-normal) var(--ax-ease),
+    transform var(--ax-duration-normal) var(--ax-ease);
+}
+
+#advanced-obj-prop.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}

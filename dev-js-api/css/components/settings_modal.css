@@ -1,0 +1,347 @@
+/* Settings Trigger & Premium Modal Window Styles */
+
+#settings-trigger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+/* --- Premium Settings Modal --- */
+.settings-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 11, 14, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.settings-modal-box {
+  width: 720px;
+  height: 540px;
+  background: rgba(26, 27, 32, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--ax-radius-xl, 16px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--ax-font-sans), system-ui, sans-serif;
+  color: var(--ax-text, #ffffff);
+}
+
+.settings-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-modal-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--ax-text, #ffffff);
+  opacity: 0.9;
+}
+
+.settings-modal-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar with vertical tabs */
+.settings-modal-sidebar {
+  width: 180px;
+  background: rgba(20, 21, 25, 0.5);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 8px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.settings-modal-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--ax-text-faint, rgba(255, 255, 255, 0.4));
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-radius: var(--ax-radius-md, 8px);
+  transition: all var(--ax-duration-normal) var(--ax-ease);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  outline: none;
+}
+
+.settings-modal-tab-btn:hover {
+  color: var(--ax-text, #ffffff);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-modal-tab-btn.active {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  box-shadow: inset 0 0 6px rgba(16, 185, 129, 0.1);
+}
+
+/* Content Area */
+.settings-modal-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  overflow-y: auto;
+  gap: 20px;
+  box-sizing: border-box;
+}
+
+.settings-modal-tab-content {
+  display: none;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-modal-tab-content.active {
+  display: flex;
+}
+
+/* Sections */
+.settings-modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.settings-modal-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ax-text-faint, rgba(255, 255, 255, 0.4));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding-bottom: 6px;
+}
+
+/* Input Styles */
+.settings-modal-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.settings-modal-field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ax-text-secondary, rgba(255, 255, 255, 0.7));
+}
+
+/* Stepper Component */
+.settings-stepper {
+  display: flex;
+  align-items: center;
+  background: rgba(18, 19, 22, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--ax-radius-md, 8px);
+  overflow: hidden;
+  height: 32px;
+  width: 140px;
+  transition: border-color var(--ax-duration-normal) var(--ax-ease);
+}
+
+.settings-stepper:focus-within {
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.settings-stepper-btn {
+  background: transparent;
+  border: none;
+  color: #10b981;
+  font-size: 16px;
+  width: 32px;
+  height: 100%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--ax-duration-normal) var(--ax-ease);
+  user-select: none;
+  outline: none;
+}
+
+.settings-stepper-btn:hover {
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.settings-stepper-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ax-text, #ffffff);
+  font-family: var(--ax-font-mono), monospace;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  width: 100%;
+  padding: 0 4px;
+}
+
+/* Remove default spin buttons */
+.settings-stepper-input::-webkit-outer-spin-button,
+.settings-stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.settings-stepper-input[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Inline Inputs Row (W, D, H) */
+.settings-inline-inputs {
+  display: flex;
+  align-items: center;
+  background: rgba(18, 19, 22, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--ax-radius-md, 8px);
+  padding: 2px 8px;
+  height: 32px;
+  box-sizing: border-box;
+}
+
+.settings-inline-inputs input {
+  width: 36px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ax-text, #ffffff);
+  font-family: var(--ax-font-mono), monospace;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Remove spinners for inline inputs too */
+.settings-inline-inputs input::-webkit-outer-spin-button,
+.settings-inline-inputs input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.settings-inline-inputs input[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.settings-inline-inputs span.separator {
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0 6px;
+  user-select: none;
+}
+
+/* Slider */
+.settings-slider-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 180px;
+}
+
+.settings-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #10b981;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+  transition: transform 0.1s ease;
+}
+
+.settings-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.settings-slider-value {
+  font-family: var(--ax-font-mono), monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ax-text-secondary, rgba(255, 255, 255, 0.7));
+  min-width: 48px;
+  text-align: right;
+}
+
+/* Dropdown styling */
+.settings-select {
+  background: rgba(18, 19, 22, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--ax-radius-md, 8px);
+  color: var(--ax-text, #ffffff);
+  font-family: var(--ax-font-sans), sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--ax-duration-normal) var(--ax-ease);
+}
+
+.settings-select:focus {
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+/* Buttons in footer */
+.settings-modal-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(20, 21, 25, 0.3);
+}
+
+/* Action Buttons (Import/Export) */
+.settings-action-btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
