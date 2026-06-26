@@ -1,4 +1,5 @@
 import { store } from '../store/store.js';
+import { api } from '../services/api.js';
 
 // Inline SVGs for beautiful Lucide-style visual layout icons
 const SVG_SUN = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M6.34 17.66l-1.41 1.41"/><path d="M19.07 4.93l-1.41 1.41"/></svg>`;
@@ -32,8 +33,7 @@ export async function showProjectSelector() {
     createBtn.innerHTML = `${SVG_PLUS}<span>Создать проект</span>`;
     createBtn.onclick = async () => {
       try {
-        const resp = await fetch('/api/projects');
-        const data = await resp.json();
+        const data = await api.listProjects();
         const existingLocalNames = (data.local || []).map(p => p.name);
 
         let index = 0;
@@ -47,12 +47,7 @@ export async function showProjectSelector() {
           index++;
         }
 
-        const createResp = await fetch('/api/projects/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newProjName })
-        });
-        const res = await createResp.json();
+        const res = await api.createProject(newProjName);
         if (res.status === 'success') {
           window.newlyCreatedProject = newProjName;
           alert(`Проект "${newProjName}" успешно создан! ✓`);
@@ -204,12 +199,7 @@ export async function showProjectSelector() {
       reader.onload = async (event) => {
         try {
           const content = event.target.result;
-          const resp = await fetch('/api/projects/import', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename: file.name, content })
-          });
-          const res = await resp.json();
+          const res = await api.importProject(file.name, content);
           if (res.status === 'success') {
             alert('Скрипт импортирован успешно! ✓');
             await renderLists();
@@ -235,12 +225,7 @@ export async function showProjectSelector() {
       }
 
       try {
-        const resp = await fetch('/api/projects/rename', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ oldName, newName })
-        });
-        const res = await resp.json();
+        const res = await api.renameProject(oldName, newName);
         if (res.status === 'success') {
           alert('Проект переименован! ✓');
           await renderLists();
@@ -260,12 +245,7 @@ export async function showProjectSelector() {
       }
 
       try {
-        const resp = await fetch('/api/projects/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name })
-        });
-        const res = await resp.json();
+        const res = await api.deleteProject(name);
         if (res.status === 'success') {
           alert('Проект успешно удален! ✓');
           await renderLists();
@@ -278,8 +258,7 @@ export async function showProjectSelector() {
     }
 
     async function renderLists() {
-      const resp = await fetch('/api/projects');
-      const data = await resp.json();
+      const data = await api.listProjects();
 
       const scriptsList = document.getElementById('scripts-list');
       const modelsList = document.getElementById('models-list');
@@ -331,12 +310,7 @@ export async function showProjectSelector() {
             document.getElementById('loading').style.display = 'block';
             document.getElementById('loading').textContent = 'Компиляция проекта...';
             try {
-              const loadResp = await fetch('/api/projects/load', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'script', name: script })
-              });
-              const loadRes = await loadResp.json();
+              const loadRes = await api.loadProject('script', script);
               if (loadRes.status === 'success') {
                 closeModal(loadRes.project);
               } else {

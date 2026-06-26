@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { getActiveCamera, renderer } from '../viewer.js';
 import { store } from '../store/store.js';
 import { emit, EVENTS } from '../store/event_bus.js';
+import { setActiveModeAction } from '../store/actions.js';
 
 export class ModeManager {
   constructor() {
@@ -69,7 +70,7 @@ export class ModeManager {
     this.activeMode = this.modes[name];
 
     // Synchronize to the central store
-    store.set('activeMode', name);
+    setActiveModeAction(name);
 
     this.activeMode.enter(ctx);
 
@@ -126,18 +127,7 @@ export class ModeManager {
       return true;
     }
 
-    return !!(
-      target.closest('#hud') ||
-      target.closest('#sidebar') ||
-      target.closest('#tools-sidebar') ||
-      target.closest('#tooltip') ||
-      target.closest('#project-selector-modal') ||
-      target.closest('.bottom-floating-panel') ||
-      target.closest('#bottom-left-container') ||
-      target.closest('#bottom-right-container') ||
-      target.closest('#ax-confirm-modal') ||
-      target.closest('#ax-settings-modal')
-    );
+    return !!target.closest('.ax-ui-overlay');
   }
 
   /**

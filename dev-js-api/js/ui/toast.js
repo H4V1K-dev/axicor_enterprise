@@ -10,10 +10,10 @@ function getToastElement() {
     if (!toastElement) {
       toastElement = document.createElement('div');
       toastElement.id = 'toast';
-      toastElement.className = 'ax-toast';
+      toastElement.className = 'ax-toast ax-ui-overlay';
       document.body.appendChild(toastElement);
     } else {
-      toastElement.className = 'ax-toast';
+      toastElement.className = 'ax-toast ax-ui-overlay';
     }
   }
   return toastElement;
@@ -30,7 +30,7 @@ export function showToast(message, type = 'success', duration = 3000) {
   el.textContent = message;
   
   // Reset states
-  el.className = 'ax-toast';
+  el.className = 'ax-toast ax-ui-overlay';
   
   if (type === 'success') {
     el.classList.add('ax-toast--success');

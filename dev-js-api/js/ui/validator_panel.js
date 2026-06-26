@@ -1,6 +1,6 @@
 import { shardMeshes, socketMeshes, shardDataMap, VIS_SCALE, drawRoutes, rebuildSocket, updateAllSocketVisuals } from '../scene_builder.js';
 import { runValidation } from '../validator.js';
-import { saveAllLayoutChanges } from './sidebar.js';
+import { saveAllLayoutChanges } from '../store/actions.js';
 import { store } from '../store/store.js';
 import { on, emit, EVENTS } from '../store/event_bus.js';
 import { lintScene } from '../algorithms/toml/index.js';
@@ -55,7 +55,7 @@ function getLivePlacementData() {
 export function initValidatorPanel(validatorBtn) {
   const validatorDrawer = document.createElement('div');
   validatorDrawer.id = 'validator-drawer';
-  validatorDrawer.className = 'ax-drawer';
+  validatorDrawer.className = 'ax-drawer ax-ui-overlay';
   validatorDrawer.innerHTML = `
     <div class="drawer-header">
       <h3 class="drawer-title">Стек ошибок</h3>

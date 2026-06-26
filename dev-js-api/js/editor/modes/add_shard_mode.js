@@ -11,6 +11,7 @@ import { showToast } from '../../ui/toast.js';
 import { emit, EVENTS } from '../../store/event_bus.js';
 import { modeManager, checkShardCollision } from '../../editor.js';
 import { initAdvancedObjPropPanel, destroyAdvancedObjPropPanel, advancedObjPropConfig, updateAdvancedPanelHeight } from '../../ui/advanced_obj_prop.js';
+import { showLevelAction, addShardAction } from '../../store/actions.js';
 
 export class AddShardMode {
   constructor() {
@@ -33,9 +34,7 @@ export class AddShardMode {
     if (focusedLevelId !== null) {
       const hiddenLevelIds = store.get('hiddenLevelIds') || new Set();
       if (hiddenLevelIds.has(focusedLevelId)) {
-        const newHidden = new Set(hiddenLevelIds);
-        newHidden.delete(focusedLevelId);
-        store.set('hiddenLevelIds', newHidden);
+        showLevelAction(focusedLevelId);
         showToast("Выбранный уровень автоматически сделан видимым", "info");
       }
     }
@@ -330,24 +329,9 @@ export class AddShardMode {
     }
 
     // Ensure target level is not hidden/soloed out
-    const hiddenLevelIds = store.get('hiddenLevelIds') || new Set();
-    if (hiddenLevelIds.has(orbitIndex)) {
-      const newHidden = new Set(hiddenLevelIds);
-      newHidden.delete(orbitIndex);
-      store.set('hiddenLevelIds', newHidden);
-    }
+    showLevelAction(orbitIndex);
 
     const deptName = advancedObjPropConfig.dept;
-    
-    // Ensure the department exists in placementData.departments
-    if (!placementData.departments) {
-      placementData.departments = [];
-    }
-    const deptExists = placementData.departments.some(d => d.name === deptName && Number(d.orbit) === Number(orbitIndex));
-    if (!deptExists) {
-      placementData.departments.push({ name: deptName, orbit: orbitIndex });
-    }
-
     const orbitLabel = `l${orbitIndex}`;
     const deptClean = deptName.toLowerCase().replace(/[^a-z0-9]/g, '_');
 
@@ -385,10 +369,8 @@ export class AddShardMode {
       sockets: []
     };
 
-    // Store modifications in local cache
-    placementData.shards.push(newShard);
-    store.set('placementData', placementData);
-    store.set('hasUnsavedChanges', true);
+    // Add new shard using the action
+    addShardAction(newShard);
 
     // Push creation to history
     import('../../store/history_manager.js').then(({ historyManager }) => {

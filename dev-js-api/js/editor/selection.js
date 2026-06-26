@@ -8,6 +8,7 @@ import { shardMeshes, socketMeshes, shardDataMap, drawRoutes, VIS_SCALE } from '
 import { updateFocusVisuals } from './focus.js';
 import { store } from '../store/store.js';
 import { on, emit, EVENTS } from '../store/event_bus.js';
+import { selectShardAction, selectSocketAction, deselectAllAction } from '../store/actions.js';
 
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
@@ -16,114 +17,15 @@ let mouse = new THREE.Vector2();
 import { spawnSomasForShard, clearSomas } from '../rendering/soma_renderer.js';
 
 export function selectShard(key, isMulti = false) {
-  // Clean up previous selection artifacts directly
-  updateSocketHandlesVisibility();
-  clearSomas();
-
-  const currentKeys = store.get('selectedShardKeys') || new Set();
-  let newKeys;
-
-  if (isMulti) {
-    newKeys = new Set(currentKeys);
-    if (newKeys.has(key)) {
-      newKeys.delete(key);
-    } else {
-      newKeys.add(key);
-    }
-  } else {
-    newKeys = new Set([key]);
-  }
-
-  const activeKey = newKeys.size > 0 ? Array.from(newKeys)[newKeys.size - 1] : null;
-
-  // Set the new selected shard keys and clear socket selection atomically
-  store.setMultiple({
-    selectedShardKeys: newKeys,
-    selectedShardKey: activeKey,
-    selectedSocketKey: null,
-    connectionMode: 1
-  });
-
-  if (activeKey) {
-    const mesh = shardMeshes.get(activeKey);
-    if (mesh) {
-      // Record current position as valid for collision checks
-      mesh.userData.lastValidPosition = mesh.position.clone();
-
-      // Apply Focus opacity states
-      updateFocusVisuals();
-
-      // Redraw routes to highlight active ones
-      const routes = store.get('routesData');
-      if (routes) drawRoutes(routes);
-
-      // Spawn 3D somas for this active shard
-      spawnSomasForShard(activeKey);
-
-      // Emit selection changed event (UI panel listens to this)
-      const shardData = shardDataMap.get(mesh.uuid);
-      emit(EVENTS.SELECTION_CHANGED, { type: 'shard', data: shardData });
-    }
-  } else {
-    updateFocusVisuals();
-    const routes = store.get('routesData');
-    if (routes) drawRoutes(routes);
-    emit(EVENTS.SELECTION_CHANGED, { type: null, data: null });
-  }
+  selectShardAction(key, isMulti);
 }
 
 export function selectSocket(key) {
-  // Clean up previous selection artifacts directly
-  updateSocketHandlesVisibility();
-  clearSomas();
-
-  // Set the new selected socket key and clear shard selection atomically
-  store.setMultiple({
-    selectedSocketKey: key,
-    selectedShardKey: null,
-    selectedShardKeys: new Set(),
-    connectionMode: 2
-  });
-
-  const group = socketMeshes.get(key);
-  if (group) {
-    // Show resizer handles if in resize mode
-    updateSocketHandlesVisibility();
-
-    // Apply Focus opacity states
-    updateFocusVisuals();
-
-    // Redraw routes to highlight active ones
-    const routes = store.get('routesData');
-    if (routes) drawRoutes(routes);
-    
-    // Emit selection changed event (UI panel listens to this)
-    emit(EVENTS.SELECTION_CHANGED, { type: 'socket', data: group.userData });
-  }
+  selectSocketAction(key);
 }
 
 export function deselectAll() {
-  updateSocketHandlesVisibility();
-
-  store.setMultiple({
-    selectedShardKey: null,
-    selectedShardKeys: new Set(),
-    selectedSocketKey: null,
-    selectedRouteKey: null,
-    connectionMode: 1
-  });
-
-  updateFocusVisuals();
-
-  // Redraw routes to clear highlight
-  const routes = store.get('routesData');
-  if (routes) drawRoutes(routes);
-
-  // Clear somas
-  clearSomas();
-
-  // Emit selection changed event
-  emit(EVENTS.SELECTION_CHANGED, { type: null, data: null });
+  deselectAllAction();
   document.body.style.cursor = 'auto';
 }
 
@@ -200,3 +102,56 @@ store.on('selectedDeptName', (deptName) => {
     }
   }
 });
+
+// Reactive listeners to handle side effects of selection changes
+store.on('selectedShardKeys', () => {
+  updateFocusVisuals();
+  const routes = store.get('routesData');
+  if (routes) drawRoutes(routes);
+});
+
+store.on('selectedSocketKey', () => {
+  updateFocusVisuals();
+  const routes = store.get('routesData');
+  if (routes) drawRoutes(routes);
+  updateSocketHandlesVisibility();
+});
+
+store.on('activeMode', () => {
+  updateSocketHandlesVisibility();
+});
+
+store.on('selectedShardKey', (activeKey) => {
+  clearSomas();
+  
+  if (activeKey) {
+    const mesh = shardMeshes.get(activeKey);
+    if (mesh) {
+      // Record current position as valid for collision checks
+      mesh.userData.lastValidPosition = mesh.position.clone();
+      
+      // Spawn 3D somas for this active shard
+      spawnSomasForShard(activeKey);
+    }
+  }
+});
+
+// Selection changed event helper
+function triggerSelectionChanged() {
+  const selShardKey = store.get('selectedShardKey');
+  const selSocketKey = store.get('selectedSocketKey');
+
+  if (selShardKey) {
+    const mesh = shardMeshes.get(selShardKey);
+    const shardData = mesh ? shardDataMap.get(mesh.uuid) : null;
+    emit(EVENTS.SELECTION_CHANGED, { type: 'shard', data: shardData });
+  } else if (selSocketKey) {
+    const group = socketMeshes.get(selSocketKey);
+    emit(EVENTS.SELECTION_CHANGED, { type: 'socket', data: group ? group.userData : null });
+  } else {
+    emit(EVENTS.SELECTION_CHANGED, { type: null, data: null });
+  }
+}
+
+store.on('selectedShardKey', triggerSelectionChanged);
+store.on('selectedSocketKey', triggerSelectionChanged);

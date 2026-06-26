@@ -17,7 +17,7 @@
   <div id="loading" style="display:none">Загрузка структуры placement.json...</div>
 
   <!-- Modal for project selection -->
-  <div id="project-selector-modal" style="display: none;">
+  <div id="project-selector-modal" class="ax-ui-overlay" style="display: none;">
     <div class="project-selector-container">
       <div class="project-selector-header">
         <div style="display: flex; align-items: center; gap: 12px;">
@@ -92,7 +92,7 @@
   <!-- Top Header Bar Container -->
   <div id="top-header-bar">
     <!-- Left Panel: Logo, Project, Explorer -->
-    <div id="top-left-container" class="ax-panel floating-header-panel">
+    <div id="top-left-container" class="ax-panel floating-header-panel ax-ui-overlay">
       <div class="cad-brand">
         <span class="cad-logo">AxiCAD</span>
       </div>
@@ -106,7 +106,7 @@
     </div>
 
     <!-- Center Panel: The Brow (Workspaces layout only) -->
-    <div id="top-center-brow" class="ax-panel floating-header-panel">
+    <div id="top-center-brow" class="ax-panel floating-header-panel ax-ui-overlay">
       <div id="workspace-tabs" style="display: none;">
         <button class="workspace-tab active" data-workspace="model-composition">Composition</button>
         <button class="workspace-tab" data-workspace="neuron-lab">Neuron Lab</button>
@@ -118,7 +118,7 @@
   </div>
 
   <!-- Floating stats overlay -->
-  <div id="stats-overlay" class="ax-panel floating-overlay">
+  <div id="stats-overlay" class="ax-panel floating-overlay ax-ui-overlay">
     <div id="orbit-legends"></div>
     <hr style="border:none;border-top:1px solid var(--ax-border-subtle);margin:10px 0">
     <div class="stat">Департаментов: <span id="stat-depts">0</span></div>
@@ -127,12 +127,12 @@
   </div>
 
   <!-- ViewCube Camera Gizmo -->
-  <div id="viewcube-container">
+  <div id="viewcube-container" class="ax-ui-overlay">
     <canvas id="viewcube-canvas"></canvas>
   </div>
 
   <!-- Left center floating tools sidebar -->
-  <div id="tools-sidebar" class="ax-panel closed">
+  <div id="tools-sidebar" class="ax-panel closed ax-ui-overlay">
     <div class="panel-content" id="tools-content">
       <div class="ax-list">
         <!-- Tools header toggle button integrated as a list item -->
@@ -221,7 +221,7 @@
 
 
   <!-- Growth Simulator Playback Panel (Bottom Center) -->
-  <div id="growth-playback-panel">
+  <div id="growth-playback-panel" class="ax-ui-overlay">
     <button class="playback-btn" id="growth-play-btn" title="Запуск роста">
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="lucide lucide-play"><polygon points="6 3 20 12 6 21 6 3"/></svg>
     </button>
@@ -236,7 +236,7 @@
   </div>
 
   <!-- Inference Mode Playback Panel (Bottom Center) -->
-  <div id="inference-playback-panel">
+  <div id="inference-playback-panel" class="ax-ui-overlay">
     <button class="playback-btn" id="inference-play-btn" title="Запустить инференс">
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="lucide lucide-play"><polygon points="6 3 20 12 6 21 6 3"/></svg>
     </button>
@@ -250,7 +250,7 @@
     <span class="playback-label" id="inference-status-label">Инференс: Такт 0</span>
   </div>
 
-  <div id="tooltip">
+  <div id="tooltip" class="ax-ui-overlay">
     <div class="tt-title" id="tt-title"></div>
     <div class="tt-row">Департамент: <span id="tt-dept"></span></div>
     <div class="tt-row">Орбита: <span id="tt-orbit"></span></div>

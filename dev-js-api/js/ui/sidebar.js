@@ -7,10 +7,6 @@ import { shardMeshes, socketMeshes, VIS_SCALE, shardDataMap } from '../scene_bui
 import { deselectAll, selectSocket, checkShardCollision, updateSelectedSocket } from '../editor.js';
 import { showToast } from './toast.js';
 import { store } from '../store/store.js';
-import { emit, EVENTS } from '../store/event_bus.js';
-import { renderer } from '../viewer.js';
-import { historyManager } from '../store/history_manager.js';
-import { historyToRust } from '../editor/coordinate_adapter.js';
 
 let sidebar = null;
 
@@ -20,7 +16,7 @@ function getSidebarElement() {
     if (!sidebar) {
       sidebar = document.createElement('div');
       sidebar.id = 'sidebar';
-      sidebar.className = 'ax-panel';
+      sidebar.className = 'ax-panel ax-ui-overlay';
       document.body.appendChild(sidebar);
     }
   }
@@ -738,99 +734,7 @@ function renderSocketSidebar(data) {
   document.getElementById('deselect-btn').addEventListener('click', deselectAll);
 }
 
-export async function saveAllLayoutChanges() {
-  const placementData = store.get('placementData');
-  const payload = {
-    project: store.get('projectName') || 'octopus',
-    levels: placementData ? placementData.levels || [] : [],
-    shards: {},
-    sockets: {},
-    connections: placementData ? placementData.connections || [] : [],
-    deleted_shards: placementData ? placementData.deleted_shards || [] : [],
-    deleted_sockets: placementData ? placementData.deleted_sockets || [] : [],
-    deleted_connections: placementData ? placementData.deleted_connections || [] : [],
-    simulation: placementData ? placementData.simulation || {} : {},
-    world: placementData ? placementData.world || {} : {},
-    preview: renderer ? renderer.domElement.toDataURL('image/png') : null,
-    history: historyToRust({
-      globalStack: historyManager.globalStack,
-      globalIndex: historyManager.globalIndex,
-      objectHistory: historyManager.objectHistory
-    })
-  };
 
-  // 1. Gather all shard position, size and layer overrides
-  for (const [key, mesh] of shardMeshes.entries()) {
-    // Retrieve current size from the modified mesh geometry parameters
-    const currentW = Math.round(mesh.geometry.parameters.width / VIS_SCALE);
-    const currentH = Math.round(mesh.geometry.parameters.height / VIS_SCALE); // height is now h (Three Y)
-    const currentD = Math.round(mesh.geometry.parameters.depth / VIS_SCALE);  // depth is now d (Three Z)
-
-    const sd = shardDataMap.get(mesh.uuid);
-    payload.shards[key] = {
-      position: {
-        x: Math.round(mesh.position.x / VIS_SCALE - currentW / 2),
-        y: Math.round(mesh.position.z / VIS_SCALE - currentD / 2), // Rust Y (depth)
-        z: Math.round(mesh.position.y / VIS_SCALE - currentH / 2) // Rust Z (height)
-      },
-      size: {
-        w: currentW,
-        d: currentD,
-        h: currentH
-      },
-      orbit: sd ? sd.orbit : undefined,
-      dept: sd ? sd.dept : undefined,
-      shard: sd ? sd.shard : undefined,
-      layers: sd ? sd.layers : undefined,
-      sockets: []
-    };
-    if (sd && sd.layers && sd.layers.length > 0) {
-      const layerProps = {};
-      sd.layers.forEach(l => {
-        layerProps[l.name] = Number(l.height_pct.toFixed(4));
-      });
-      payload.shards[key].layer_proportions = layerProps;
-    }
-  }
-
-  // 2. Sockets are disabled in Composition mode
-  payload.sockets = {};
-
-  showToast('Сохранение топологии...', 'info');
-
-  try {
-    const response = await fetch('/api/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Ошибка сервера: ${response.status}`);
-    }
-
-    const resData = await response.json();
-    showToast('Конфигурация сохранена! Обновление связей...', 'success');
-
-    // Clear deleted trackers
-    const pData = store.get('placementData');
-    if (pData) {
-      pData.deleted_shards = [];
-      pData.deleted_sockets = [];
-      pData.deleted_connections = [];
-      store.set('placementData', pData);
-    }
-
-    store.set('hasUnsavedChanges', false);
-
-    // Reload updated placement and curves statically from server
-    emit(EVENTS.RELOAD_REQ);
-
-  } catch (err) {
-    showToast(`Не удалось сохранить: ${err.message}`, 'error');
-    console.error(err);
-  }
-}
 
 function updateSidebarVisibility() {
   const selShardKey = store.get('selectedShardKey');

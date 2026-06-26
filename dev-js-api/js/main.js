@@ -9,22 +9,14 @@ import { showProjectSelector } from './ui/project_hub.js';
 import { historyManager } from './store/history_manager.js';
 import { resolveRaycastHit } from './editor/collision_manager.js';
 import { toThreeCoords } from './editor/coordinate_adapter.js';
+import { api } from './services/api.js';
 
 async function loadData() {
   const projectName = store.get('projectName') || 'octopus';
-  const placementPath = `./projects/local/${projectName}/placement.json`;
-  const routesPath = `./projects/local/${projectName}/routes.json`;
-
-  const [placementResp, routesResp] = await Promise.all([
-    fetch(placementPath),
-    fetch(routesPath)
+  const [placement, routes] = await Promise.all([
+    api.loadPlacement(projectName),
+    api.loadRoutes(projectName)
   ]);
-
-  if (!placementResp.ok) throw new Error(`Failed to load ${placementPath}: ${placementResp.status}`);
-  if (!routesResp.ok) throw new Error(`Failed to load ${routesPath}: ${routesResp.status}`);
-
-  const placement = await placementResp.json();
-  const routes = await routesResp.json();
   return { placement, routes };
 }
 
@@ -107,11 +99,7 @@ async function reloadVisualizer() {
     const projectName = store.get('projectName') || 'octopus';
     let historyData = null;
     try {
-      const historyPath = `./projects/local/${projectName}/history_cache.json`;
-      const historyResp = await fetch(historyPath);
-      if (historyResp.ok) {
-        historyData = await historyResp.json();
-      }
+      historyData = await api.loadHistoryCache(projectName);
     } catch (e) {
       console.warn('Failed to load history cache:', e);
     }
@@ -167,11 +155,7 @@ async function loadProject(project) {
     // Load history cache
     let historyData = null;
     try {
-      const historyPath = `./projects/local/${project}/history_cache.json`;
-      const historyResp = await fetch(historyPath);
-      if (historyResp.ok) {
-        historyData = await historyResp.json();
-      }
+      historyData = await api.loadHistoryCache(project);
     } catch (e) {
       console.warn('Failed to load history cache:', e);
     }

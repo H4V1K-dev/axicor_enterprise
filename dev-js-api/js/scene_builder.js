@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { scene, fitCameraToScene } from './viewer.js';
+import { sceneManager } from './rendering/scene_manager.js';
 import { store } from './store/store.js';
 import { 
   initSharedResources, 
@@ -146,14 +147,17 @@ export function updateLevelsVisibility() {
   }
 }
 
-// Scene elements tracking
-export const shardMeshes = new Map();        // key -> mesh
-export const shardDataMap = new Map();       // mesh.uuid -> raw data
-export const socketMeshes = new Map();       // socketKey -> THREE.Group containing instanced mesh & backing
-export const shardsByLevel = new Map();      // levelId -> Array of meshes
-export const shardsByDept = new Map();       // deptName -> Array of meshes
-export const socketsByLevel = new Map();     // levelId -> Array of groups
-export const socketsByDept = new Map();      // deptName -> Array of groups
+// Scene elements tracking (bound to SceneManager collections)
+export const shardMeshes = sceneManager.shardMeshes;
+export const shardDataMap = sceneManager.shardDataMap;
+export const socketMeshes = sceneManager.socketMeshes;
+export const shardsByLevel = sceneManager.shardsByLevel;
+export const shardsByDept = sceneManager.shardsByDept;
+export const socketsByLevel = sceneManager.socketsByLevel;
+export const socketsByDept = sceneManager.socketsByDept;
+export const levelsMeshes = sceneManager.levelsMeshes;
+export const deptsMeshes = sceneManager.deptsMeshes;
+
 export let VIS_SCALE = 1.0;
 
 export const SOMA_COLORS = {
@@ -165,16 +169,13 @@ export const SOMA_COLORS = {
   "bio/motor/spinal_motor": 0xf472b6
 };
 
-// Reusable groups to prevent memory leaks and duplicate objects
-let shardsGroup = null;
-let levelsGroup = null;
-let deptsGroup = null;
+// Reusable groups bound to SceneManager
+const shardsGroup = sceneManager.shardsGroup;
+const levelsGroup = sceneManager.levelsGroup;
+const deptsGroup = sceneManager.deptsGroup;
 
 // Re-export rebuildSocket for consumer modules
 export { rebuildSocket };
-
-export const levelsMeshes = new Map();
-export const deptsMeshes = new Map();
 
 
 let unitGeo = null;
@@ -192,23 +193,7 @@ function initUnitGeometry() {
  * @param {THREE.Object3D} obj
  */
 export function disposeHierarchy(obj) {
-  if (!obj) return;
-  obj.traverse(child => {
-    if (child.geometry) {
-      child.geometry.dispose();
-    }
-    if (child.material) {
-      if (Array.isArray(child.material)) {
-        child.material.forEach(mat => {
-          if (mat.map) mat.map.dispose();
-          mat.dispose();
-        });
-      } else {
-        if (child.material.map) child.material.map.dispose();
-        child.material.dispose();
-      }
-    }
-  });
+  sceneManager.disposeHierarchy(obj);
 }
 
 /**
@@ -384,36 +369,7 @@ export function createShard3D(sd) {
  */
 export function buildSceneData(data, preserveCamera = false) {
   // Clear any existing groups to avoid duplication and GPU leaks
-  if (shardsGroup) {
-    disposeHierarchy(shardsGroup);
-    scene.remove(shardsGroup);
-  }
-  if (levelsGroup) {
-    disposeHierarchy(levelsGroup);
-    scene.remove(levelsGroup);
-  }
-  if (deptsGroup) {
-    disposeHierarchy(deptsGroup);
-    scene.remove(deptsGroup);
-  }
-
-  shardsGroup = new THREE.Group();
-  levelsGroup = new THREE.Group();
-  deptsGroup = new THREE.Group();
-
-  scene.add(shardsGroup);
-  scene.add(levelsGroup);
-  scene.add(deptsGroup);
-
-  shardMeshes.clear();
-  shardDataMap.clear();
-  socketMeshes.clear();
-  shardsByLevel.clear();
-  shardsByDept.clear();
-  socketsByLevel.clear();
-  socketsByDept.clear();
-  levelsMeshes.clear();
-  deptsMeshes.clear();
+  sceneManager.clearScene();
   
   // Calculate dynamic VIS_SCALE from shards bounding box to fit the camera cleanly
   let maxCoord = 1.0;
@@ -428,6 +384,7 @@ export function buildSceneData(data, preserveCamera = false) {
     });
   }
   VIS_SCALE = 35.0 / Math.max(maxCoord, 1.0);
+  sceneManager.visScale = VIS_SCALE;
   store.set('visScale', VIS_SCALE);
   initSharedResources(VIS_SCALE);
   initUnitGeometry();

@@ -9,6 +9,7 @@ import { store } from '../store/store.js';
 import { selectSocket } from './selection.js';
 import { rebuildSocket, drawRoutes } from '../scene_builder.js';
 import { emit, EVENTS } from '../store/event_bus.js';
+import { updateSocketDimensionsAction } from '../store/actions.js';
 
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
@@ -268,23 +269,7 @@ export function updateSelectedSocket(width, height, pitch, offset, rotation, fac
   // Dynamic mesh update
   rebuildSocket(shardKey, socketName, width, height, pitch, finalOffset, finalFaceSign, finalRotation);
   
-  // Update placementData in store so it stays in sync
-  const placementData = store.get('placementData');
-  if (placementData) {
-    const shard = placementData.shards.find(s => s.key === shardKey);
-    if (shard && shard.sockets) {
-      const socket = shard.sockets.find(s => s.name === socketName);
-      if (socket) {
-        socket.width = width;
-        socket.height = height;
-        socket.pitch = pitch;
-        socket.offset = finalOffset;
-        socket.rotation = finalRotation;
-        socket.faceSign = finalFaceSign;
-        store.set('placementData', placementData);
-      }
-    }
-  }
+  updateSocketDimensionsAction(selSocketKey, width, height, pitch, finalOffset, finalRotation, finalFaceSign);
 
   // Reselect newly built socket to preserve highlights and controls
   selectSocket(selSocketKey);

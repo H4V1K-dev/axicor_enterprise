@@ -2,7 +2,7 @@
  * @fileoverview toolbar.js — Bottom panel toolbar, mode switching, and layout saving coordination.
  */
 
-import { saveAllLayoutChanges } from './sidebar.js';
+import { saveAllLayoutChanges } from '../store/actions.js';
 import { updateFocusVisuals } from '../editor.js';
 import { drawRoutes, buildSceneData } from '../scene_builder.js';
 import { store } from '../store/store.js';

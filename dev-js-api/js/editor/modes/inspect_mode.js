@@ -5,6 +5,7 @@ import { store } from '../../store/store.js';
 import { resolveRaycastHit } from '../collision_manager.js';
 import { transformControls } from '../transform.js';
 import { shardMeshes, socketMeshes } from '../../scene_builder.js';
+import { drillDownToShardAction, focusDeptAction, focusLevelAction, drillUpAction } from '../../store/actions.js';
 
 const hoverWireMaterial = new THREE.LineBasicMaterial({
   color: 0x10b981, // Emerald Green
@@ -170,13 +171,7 @@ export class InspectMode {
           const shard = placementData?.shards.find(s => s.key === hit.key);
           if (shard) {
             console.log("[InspectMode] Double click -> Drill-Down to Shard:", shard.key);
-            store.setMultiple({
-              focusedLevelId: shard.orbit,
-              selectedDeptName: shard.dept,
-              focusedShardKey: shard.key,
-              selectedShardKey: shard.key
-            });
-            selectShard(shard.key, false);
+            drillDownToShardAction(shard);
           }
           return true;
         } else if (hit.type === 'socket') {
@@ -185,23 +180,11 @@ export class InspectMode {
           return true;
         } else if (hit.type === 'dept') {
           console.log("[InspectMode] Double click -> Focus Dept:", hit.name);
-          store.setMultiple({
-            focusedLevelId: hit.orbit,
-            selectedDeptName: hit.name,
-            focusedShardKey: null,
-            selectedShardKey: null
-          });
-          deselectAll();
+          focusDeptAction(hit.name, hit.orbit);
           return true;
         } else if (hit.type === 'level') {
           console.log("[InspectMode] Double click -> Focus Level:", hit.levelId);
-          store.setMultiple({
-            focusedLevelId: hit.levelId,
-            selectedDeptName: null,
-            focusedShardKey: null,
-            selectedShardKey: null
-          });
-          deselectAll();
+          focusLevelAction(hit.levelId);
           return true;
         }
       } else {
@@ -212,13 +195,7 @@ export class InspectMode {
 
         console.log("[InspectMode] Double click in empty space -> Drill-Up | current state:", { focusedShardKey, selectedDeptName, focusedLevelId });
 
-        if (focusedShardKey) {
-          store.set('focusedShardKey', null);
-        } else if (selectedDeptName) {
-          store.set('selectedDeptName', null);
-        } else if (focusedLevelId !== null) {
-          store.set('focusedLevelId', null);
-        }
+        drillUpAction();
         return true;
       }
     } else {
@@ -309,12 +286,8 @@ export class InspectMode {
 
       if (selShardKey || selSocketKey) {
         deselectAll();
-      } else if (focusedShardKey) {
-        store.set('focusedShardKey', null);
-      } else if (selectedDeptName) {
-        store.set('selectedDeptName', null);
-      } else if (focusedLevelId !== null) {
-        store.set('focusedLevelId', null);
+      } else {
+        drillUpAction();
       }
       return true; // Handled Escape locally, prevent popping modes
     }

@@ -9,6 +9,7 @@ import { shardMeshes, socketMeshes, VIS_SCALE, shardDataMap, updateContainerWire
 import { store } from '../store/store.js';
 import { emit, EVENTS } from '../store/event_bus.js';
 import { checkShardCollision } from './collision_adapter.js';
+import { updateShardPositionAction, updateSocketOffsetAction } from '../store/actions.js';
 
 let altPressed = false;
 window.addEventListener('keydown', (e) => {
@@ -195,23 +196,7 @@ export function initTransformControls() {
           };
 
           if (oldPosition.x !== newPosition.x || oldPosition.y !== newPosition.y || oldPosition.z !== newPosition.z) {
-            const undoState = JSON.parse(JSON.stringify(shard));
-            
-            // Save coordinates to placementData in store
-            shard.position = newPosition;
-            store.set('placementData', placementData);
-            
-            emit(EVENTS.SHARD_TRANSFORMED, {
-              key: selShardKey,
-              position: newPosition,
-              size: shard.size
-            });
-            
-            const redoState = JSON.parse(JSON.stringify(shard));
-
-            import('../store/history_manager.js').then(({ historyManager }) => {
-              historyManager.pushAction('move', 'shard', selShardKey, `Перемещение шарда ${selShardKey}`, undoState, redoState);
-            });
+            updateShardPositionAction(selShardKey, newPosition);
           }
         }
       } else if (selSocketKey) {
@@ -232,20 +217,8 @@ export function initTransformControls() {
               const newEntryZ = group.userData.entry_z || socket.entry_z;
 
               if (oldOffset.x !== newOffset.x || oldOffset.y !== newOffset.y || oldOffset.z !== newOffset.z || oldEntryZ !== newEntryZ) {
-                const undoState = JSON.parse(JSON.stringify(socket));
-                
-                socket.offset = newOffset;
-                if (newEntryZ) {
-                  socket.entry_z = newEntryZ;
-                }
-                store.set('placementData', placementData);
-            updateContainerWires();
-                
-                const redoState = JSON.parse(JSON.stringify(socket));
-
-                import('../store/history_manager.js').then(({ historyManager }) => {
-                  historyManager.pushAction('move', 'socket', selSocketKey, `Перемещение сокета ${socketName}`, undoState, redoState);
-                });
+                updateSocketOffsetAction(selSocketKey, newOffset, newEntryZ);
+                updateContainerWires();
               }
             }
           }

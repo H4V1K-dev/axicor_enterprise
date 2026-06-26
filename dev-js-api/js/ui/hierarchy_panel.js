@@ -7,7 +7,7 @@ import { store } from '../store/store.js';
 import { on, emit, EVENTS } from '../store/event_bus.js';
 import { buildSceneData, VIS_SCALE } from '../scene_builder.js';
 import { scene } from '../viewer.js';
-import { saveAllLayoutChanges } from './sidebar.js';
+import { saveAllLayoutChanges } from '../store/actions.js';
 import { layoutLevelsAndShards } from '../algorithms/placement/levels.js';
 import { selectShard } from '../editor/selection.js';
 
@@ -22,7 +22,7 @@ let activeTab = 'layers'; // 'layers', 'depts', 'shards'
 export function initHierarchyPanel(hierarchyBtn) {
   const hierarchyDrawer = document.createElement('div');
   hierarchyDrawer.id = 'hierarchy-drawer';
-  hierarchyDrawer.className = 'ax-drawer';
+  hierarchyDrawer.className = 'ax-drawer ax-ui-overlay';
   hierarchyDrawer.innerHTML = `
     <div class="drawer-header" style="flex-direction: column; align-items: stretch; gap: 8px; border-bottom: none; margin-bottom: 8px; padding-bottom: 0;">
       <div class="drawer-tabs">
