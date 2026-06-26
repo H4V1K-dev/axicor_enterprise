@@ -1,1 +1,0 @@
-# Axicor SDK Algorithms Package

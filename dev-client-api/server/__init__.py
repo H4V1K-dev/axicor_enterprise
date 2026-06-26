@@ -1,1 +1,0 @@
-# Axicor Visualizer Server Package
