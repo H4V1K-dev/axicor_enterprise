@@ -35,6 +35,8 @@
 | [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) | Draft | Спецификация геометрического и пространственного сервиса |
 | [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) | Draft | Спецификация ядра проверки ограничений (Constraint Engine) |
 | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md) | Draft | Спецификация ядра выделения объектов (Selection Engine) |
+| [tool-system-spec-ru](specs/tool-system-spec-ru.md) | Draft | Спецификация интерактивных инструментов (Tool System) |
+
 
 
 ---
@@ -98,7 +100,7 @@ Workspace
 | Module | Status | Dependencies |
 |--------|--------|-------------|
 | [selection-engine](specs/selection-engine.md) | Deprecated / Superseded | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md) |
-| [tool-system](specs/tool-system.md) | Draft | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md), command-history |
+| [tool-system-spec-ru](specs/tool-system-spec-ru.md) | Draft | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md), command-history, [command-mutation-spec-ru](specs/command-mutation-spec-ru.md), [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md), [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) |
 | [rendering-pipeline](specs/rendering-pipeline.md) | Draft | domain entities |
 
 ### Research Briefs
@@ -118,7 +120,10 @@ graph TD
     CE --> VE[validation-engine]
     GSS --> SE[selection-engine-spec-ru]
     CE --> SE
-    SE --> TS[tool-system]
+    SE --> TS[tool-system-spec-ru]
+    GSS --> TS
+    CE --> TS
+    CM[command-mutation-spec-ru] --> TS
     CH[command-history] --> TS
     DOM[domain entities] --> SER[serialization]
     DOM --> RP[rendering-pipeline]

@@ -400,11 +400,11 @@ Selection Engine **не генерирует `DiagnosticItem` напрямую**
 
 ## Changelog
 
-| Дата | Версия | Описание изменений | Автор |
-| :--- | :--- | :--- | :--- |
-| 2026-06-27 | v0.3.0 | Заменен PickModifierIntent в PickIntent на массив modifierIntents[] для поддержки комбинаций UX-интентов (например, additive + cyclePick). | Antigravity |
-| 2026-06-27 | v0.2.0 | Уточнено владение Store (Selection Engine как чистый вычислитель next state), добавлены типы SelectionTarget, SelectionStack, SelectionScope, SelectionState, абстрагированы modifier keys в PickModifierIntent, переформулирована концепция Focus и окклюзия прозрачности (hit stack signature), Constraint Engine убран как источник lock-флагов, добавлен disabledReason в хит, исправлен статус stub-файла. | Antigravity |
-| 2026-06-27 | v0.1.0 | Создан первый драфт спецификации Selection Engine для AxiCAD. Описаны сущности, политики фильтрации нормалей, приоритеты, окклюзия и открытые вопросы. | Antigravity |
+| Дата | Версия | Описание изменений |
+| :--- | :--- | :--- |
+| 2026-06-27 | v0.3.0 | Заменен PickModifierIntent в PickIntent на массив modifierIntents[] для поддержки комбинаций UX-интентов (например, additive + cyclePick). |
+| 2026-06-27 | v0.2.0 | Уточнено владение Store (Selection Engine как чистый вычислитель next state), добавлены типы SelectionTarget, SelectionStack, SelectionScope, SelectionState, абстрагированы modifier keys в PickModifierIntent, переформулирована концепция Focus и окклюзия прозрачности (hit stack signature), Constraint Engine убран как источник lock-флагов, добавлен disabledReason в хит, исправлен статус stub-файла. |
+| 2026-06-27 | v0.1.0 | Создан первый драфт спецификации Selection Engine для AxiCAD. Описаны сущности, политики фильтрации нормалей, приоритеты, окклюзия и открытые вопросы. |
 
 ---
 
