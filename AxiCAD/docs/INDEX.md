@@ -25,6 +25,7 @@
 | [toml-schema-spec-ru](specs/toml-schema-spec-ru.md) | Draft | Каноническая TOML-схема Axicor и описание полей |
 | [validation-spec-ru](specs/validation-spec-ru.md) | Draft | Спецификация системы валидации и уровней проверок |
 | [editor-store-spec-ru](specs/editor-store-spec-ru.md) | Draft | Спецификация реактивного хранилища и модели состояния редактора |
+| [project-file-spec-ru](specs/project-file-spec-ru.md) | Draft | Спецификация файла проекта axicad.project.json |
 
 ---
 
