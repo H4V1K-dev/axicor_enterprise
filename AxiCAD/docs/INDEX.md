@@ -30,6 +30,7 @@
 | [import-export-serialization-spec-ru](specs/import-export-serialization-spec-ru.md) | Draft | Спецификация импорта, экспорта и сериализации |
 | [path-resolver-spec-ru](specs/path-resolver-spec-ru.md) | Draft | Спецификация путей, адресации и резолвера ссылок |
 | [diagnostics-error-catalog-spec-ru](specs/diagnostics-error-catalog-spec-ru.md) | Draft | Каталог диагностик и спецификация ошибок |
+| [workspace-shell-layout-spec-ru](specs/workspace-shell-layout-spec-ru.md) | Draft | Спецификация архитектуры интерфейса и зон раскладки |
 
 ---
 
