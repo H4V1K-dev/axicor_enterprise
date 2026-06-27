@@ -43,6 +43,7 @@
 | [runtime-timeline-probe-spec-ru](specs/runtime-timeline-probe-spec-ru.md) | Draft | Спецификация контроллера времени, зондов и метрик симуляции |
 | [simulation-scenario-run-preset-spec-ru](specs/simulation-scenario-run-preset-spec-ru.md) | Draft | Спецификация сценариев симуляции и пресетов запусков |
 | [artifact-cache-registry-spec-ru](specs/artifact-cache-registry-spec-ru.md) | Draft | Спецификация реестра артефактов и кэша производных данных |
+| [inspector-property-editing-contract-spec-ru](specs/inspector-property-editing-contract-spec-ru.md) | Draft | Спецификация контракта инспектора свойств и редактирования параметров |
 | [engine-preview-pipeline-spec-ru](specs/engine-preview-pipeline-spec-ru.md) | Draft | Спецификация пайплайна генерации, кэширования и принятия предпросмотра |
 | [baker-compile-pipeline-spec-ru](specs/baker-compile-pipeline-spec-ru.md) | Draft | Спецификация пайплайна подготовки, запуска Baker/AxiEngine compile и обработки артефактов |
 
@@ -252,6 +253,19 @@ graph TD
     PF --> ACR
     BRIDGE --> ACR
     DEC --> ACR
+    ES --> IPEC[inspector-property-editing-contract-spec-ru]
+    CM --> IPEC
+    PF --> IPEC
+    VE --> IPEC
+    CE --> IPEC
+    DEC --> IPEC
+    SE --> IPEC
+    ACR --> IPEC
+    COMP --> IPEC
+    CW --> IPEC
+    SNE --> IPEC
+    GW --> IPEC
+    IRW --> IPEC
 ```
 
 ---
