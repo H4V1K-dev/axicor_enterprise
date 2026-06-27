@@ -34,6 +34,14 @@
 
 ---
 
+## Workspace Mode Specs
+
+| Document | Status | Description |
+|----------|--------|-------------|
+| [composition-workspace-spec-ru](specs/composition-workspace-spec-ru.md) | Draft | Спецификация предметного режима сборки Composition Workspace |
+
+---
+
 ## Vision (why & what at 10,000 ft)
 
 | Document | Status | Description |

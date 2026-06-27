@@ -149,6 +149,8 @@ export interface DiagnosticItem {
 | **`AXI-SCHEMA-002`**| Схема | `error` | Дублирование имен департаментов, шардов или сокетов в одной ветке иерархии. |
 | **`AXI-EDITOR-001`**| Редактор | `error` | Дублирование типизированного пути (`typed path`) в Store редактора. |
 | **`AXI-EDITOR-002`**| Редактор | `error` | Опасный относительный путь файловой системы (`config` выходит за пределы корня проекта через `..`). |
+| **`AXI-EDITOR-003`**| Редактор | `warning`| Обнаружено пространственное пересечение (коллизия) департаментов или шардов на сцене. |
+| **`AXI-EDITOR-004`**| Редактор | `error` | Шард находится за пределами жестких границ департамента (fixed bounds mismatch). |
 | **`AXI-RESOLVER-001`**| Резолвер | `error` | Dangling connection endpoint: эндпоинт связи в TOML не может быть разрешен. |
 | **`AXI-RESOLVER-002`**| Резолвер | `error` | Ambiguous endpoint: адрес соединения указывает на несколько сокетов. |
 | **`AXI-RESOLVER-003`**| Резолвер | `error` | Отсутствует файл биологического описания по пути `config`. |
@@ -156,8 +158,11 @@ export interface DiagnosticItem {
 | **`AXI-BAKER-002`** | Бейкер | `error` | Несовпадение размерностей соединяемых сокетов (`size mismatch`). |
 | **`AXI-PROJECT-001`**| Проект | `warning`| Stale placement metadata: метаданные в JSON проекта ссылаются на отсутствующий typedPath. |
 | **`AXI-PROJECT-002`**| Проект | `warning`| Orphaned project metadata: осиротевшие метаданные размещения в файле проекта перенесены в карантин. |
+| **`AXI-PROJECT-003`**| Проект | `error` | Департамент привязан к несуществующему уровню композиции (`assignedCompositionLevel` не найден). |
+| **`AXI-PROJECT-004`**| Проект | `error` | Попытка переместить заблокированную (`locked`) сущность в макете. |
 | **`AXI-IMPORT-001`**| Импорт | `warning`| Потеря данных при конвертации из устаревшей версии модели (lossy legacy conversion). |
 | **`AXI-IMPORT-002`**| Импорт | `error` | Отклонение применения патча импорта (`rejected import patch`) из-за структурных сбоев. |
+
 
 > [!NOTE]
 > **Замечание о миграции кодов (Migration Note)**:
@@ -191,4 +196,4 @@ export interface DiagnosticItem {
 
 | Дата | Изменение |
 |------|-----------|
-| 2026-06-27 | Создание спецификации каталога диагностик и ошибок AxiCAD (Diagnostics & Error Catalog Spec). Определен контракт `DiagnosticItem` с полем `blockingOperations`, правила relatch/карантина для привязки, уточненная Blocking Matrix (с биологическими исключениями), пространства имен, начальный каталог кодов с добавлением `AXI-PROJECT-002` и Migration Note для legacy-кодов. |
+| 2026-06-27 | Создание спецификации каталога диагностик и ошибок AxiCAD (Diagnostics & Error Catalog Spec). Определен контракт `DiagnosticItem` с полем `blockingOperations`, правила relatch/карантина для привязки, уточненная Blocking Matrix. Добавлены начальные коды, включая коды режима Composition (`AXI-EDITOR-003`/`004`, `AXI-PROJECT-003`/`004`), и Migration Note для legacy-кодов. |
