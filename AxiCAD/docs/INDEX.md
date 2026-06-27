@@ -41,6 +41,7 @@
 | [axiengine-bridge-session-spec-ru](specs/axiengine-bridge-session-spec-ru.md) | Draft | Спецификация моста интеграции и менеджера сессий AxiEngine |
 | [external-port-io-spec-ru](specs/external-port-io-spec-ru.md) | Draft | Спецификация внешних портов ввода/вывода и интерфейсов рантайма |
 | [runtime-timeline-probe-spec-ru](specs/runtime-timeline-probe-spec-ru.md) | Draft | Спецификация контроллера времени, зондов и метрик симуляции |
+| [simulation-scenario-run-preset-spec-ru](specs/simulation-scenario-run-preset-spec-ru.md) | Draft | Спецификация сценариев симуляции и пресетов запусков |
 | [engine-preview-pipeline-spec-ru](specs/engine-preview-pipeline-spec-ru.md) | Draft | Спецификация пайплайна генерации, кэширования и принятия предпросмотра |
 | [baker-compile-pipeline-spec-ru](specs/baker-compile-pipeline-spec-ru.md) | Draft | Спецификация пайплайна подготовки, запуска Baker/AxiEngine compile и обработки артефактов |
 
@@ -54,6 +55,7 @@
 | [connectome-workspace-spec-ru](specs/connectome-workspace-spec-ru.md) | Draft | Спецификация предметного режима проектирования связей Connectome Workspace |
 | [shard-neuron-editor-workspace-spec-ru](specs/shard-neuron-editor-workspace-spec-ru.md) | Draft | Спецификация предметного режима редактора внутренней биологии шарда Shard Neuron Editor |
 | [growth-workspace-spec-ru](specs/growth-workspace-spec-ru.md) | Draft | Спецификация предметного режима симуляции и отладки роста сети Growth Workspace |
+| [inference-runtime-workspace-spec-ru](specs/inference-runtime-workspace-spec-ru.md) | Draft | Спецификация предметного режима выполнения симуляции и инференса |
 
 ---
 
@@ -216,7 +218,7 @@ graph TD
     AES --> EPIO
     BRIDGE --> EPIO
     CW --> EPIO
-    EPIO --> FIRW[Future Inference Runtime Workspace]
+    EPIO --> IRW[inference-runtime-workspace-spec-ru]
     BRIDGE --> RTP[runtime-timeline-probe-spec-ru]
     GW --> RTP
     EPIO --> RTP
@@ -224,7 +226,22 @@ graph TD
     ES --> RTP
     PF --> RTP
     DEC --> RTP
-    RTP --> FIRW
+    RTP --> IRW
+    BRIDGE --> IRW
+    BCP --> IRW
+    DEC --> IRW
+    ES --> IRW
+    PF --> IRW
+    RP --> IRW
+    GW --> SRP[simulation-scenario-run-preset-spec-ru]
+    IRW --> SRP
+    RTP --> SRP
+    EPIO --> SRP
+    BRIDGE --> SRP
+    BCP --> SRP
+    CM --> SRP
+    PF --> SRP
+    DEC --> SRP
 ```
 
 ---

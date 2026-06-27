@@ -250,7 +250,7 @@ export interface TimelineController {
 | `AXI-TIME-001` | `unresolved probe target` | `'error'` | `'run-simulation'` | Указанная целевая ссылка (`targetTypedPath`) для зонда не найдена в модели. |
 | `AXI-TIME-002` | `recording buffer overflow` | `'warning'` | `None` / `'run-simulation'` | Буфер записи достиг лимита памяти; переводит запись в degraded/dropped-frames mode (блокирует только в режиме lossless recording). |
 | `AXI-TIME-003` | `deterministic replay mismatch` | `'error'` | `'run-simulation'` | Метаданные текущей сессии не совпадают с дескриптором `ReplayDescriptor`. |
-| `AXI-TIME-004` | `stale timeline session` | `'info'` | `'run-simulation'` | Сессия воспроизведения устарела из-за мутации графа редактора. |
+| `AXI-TIME-004` | `stale timeline session` | `'info'` | `None` | Сессия воспроизведения устарела из-за мутации графа редактора; уведомляет пользователя о необходимости обновления. |
 | `AXI-TIME-005` | `unsupported probe metric` | `'warning'` | `'run-simulation'` | Выбранная метрика не поддерживается целевым типом сущности. |
 
 ---
