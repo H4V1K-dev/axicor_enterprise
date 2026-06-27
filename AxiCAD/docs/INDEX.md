@@ -37,9 +37,7 @@
 | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md) | Draft | Спецификация ядра выделения объектов (Selection Engine) |
 | [tool-system-spec-ru](specs/tool-system-spec-ru.md) | Draft | Спецификация интерактивных инструментов (Tool System) |
 | [rendering-pipeline-spec-ru](specs/rendering-pipeline-spec-ru.md) | Draft | Спецификация визуального слоя рендеринга (Rendering Pipeline) |
-
-
-
+| [rust-core-axiengine-source-of-truth-spec-ru](specs/rust-core-axiengine-source-of-truth-spec-ru.md) | Draft | Спецификация канонического вычислительного ядра AxiEngine и контракта источника истины |
 
 ---
 
@@ -50,7 +48,6 @@
 | [composition-workspace-spec-ru](specs/composition-workspace-spec-ru.md) | Draft | Спецификация предметного режима сборки Composition Workspace |
 | [connectome-workspace-spec-ru](specs/connectome-workspace-spec-ru.md) | Draft | Спецификация предметного режима проектирования связей Connectome Workspace |
 | [shard-neuron-editor-workspace-spec-ru](specs/shard-neuron-editor-workspace-spec-ru.md) | Draft | Спецификация предметного режима редактора внутренней биологии шарда Shard Neuron Editor |
-
 
 ---
 
@@ -148,6 +145,18 @@ graph TD
     RP --> SNE
     TS --> SNE
     CW --> SNE
+    DOM --> AES[rust-core-axiengine-source-of-truth-spec-ru]
+    TSS --> AES
+    VE --> AES
+    ES --> AES
+    PF --> AES
+    CM --> AES
+    IES --> AES
+    GSS --> AES
+    CE --> AES
+    AES --> COMP[composition-workspace-spec-ru]
+    AES --> CW
+    AES --> SNE
 ```
 
 ---

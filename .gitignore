@@ -1,4 +1,5 @@
 # --- Axicor Custom Ignores ---
+axicor-master/
 .personal
 .context
 .local-storage
