@@ -31,6 +31,7 @@
 | [path-resolver-spec-ru](specs/path-resolver-spec-ru.md) | Draft | Спецификация путей, адресации и резолвера ссылок |
 | [diagnostics-error-catalog-spec-ru](specs/diagnostics-error-catalog-spec-ru.md) | Draft | Каталог диагностик и спецификация ошибок |
 | [workspace-shell-layout-spec-ru](specs/workspace-shell-layout-spec-ru.md) | Draft | Спецификация архитектуры интерфейса и зон раскладки |
+| [socket-tract-geometry-spec-ru](specs/socket-tract-geometry-spec-ru.md) | Draft | Спецификация геометрической модели сокетов, пинов и трактов |
 
 ---
 
