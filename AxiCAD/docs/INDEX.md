@@ -44,6 +44,7 @@
 | [simulation-scenario-run-preset-spec-ru](specs/simulation-scenario-run-preset-spec-ru.md) | Draft | Спецификация сценариев симуляции и пресетов запусков |
 | [artifact-cache-registry-spec-ru](specs/artifact-cache-registry-spec-ru.md) | Draft | Спецификация реестра артефактов и кэша производных данных |
 | [inspector-property-editing-contract-spec-ru](specs/inspector-property-editing-contract-spec-ru.md) | Draft | Спецификация контракта инспектора свойств и редактирования параметров |
+| [user-preferences-workspace-profiles-spec-ru](specs/user-preferences-workspace-profiles-spec-ru.md) | Draft | Спецификация пользовательских настроек и профилей рабочих пространств |
 | [engine-preview-pipeline-spec-ru](specs/engine-preview-pipeline-spec-ru.md) | Draft | Спецификация пайплайна генерации, кэширования и принятия предпросмотра |
 | [baker-compile-pipeline-spec-ru](specs/baker-compile-pipeline-spec-ru.md) | Draft | Спецификация пайплайна подготовки, запуска Baker/AxiEngine compile и обработки артефактов |
 
@@ -266,6 +267,14 @@ graph TD
     SNE --> IPEC
     GW --> IPEC
     IRW --> IPEC
+    WSL[workspace-shell-layout-spec-ru] --> UPWP[user-preferences-workspace-profiles-spec-ru]
+    TS --> UPWP
+    IPEC --> UPWP
+    ACR --> UPWP
+    EPIO --> UPWP
+    RTP --> UPWP
+    PF --> UPWP
+    DEC --> UPWP
 ```
 
 ---
