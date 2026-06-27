@@ -42,6 +42,7 @@
 | [external-port-io-spec-ru](specs/external-port-io-spec-ru.md) | Draft | Спецификация внешних портов ввода/вывода и интерфейсов рантайма |
 | [runtime-timeline-probe-spec-ru](specs/runtime-timeline-probe-spec-ru.md) | Draft | Спецификация контроллера времени, зондов и метрик симуляции |
 | [simulation-scenario-run-preset-spec-ru](specs/simulation-scenario-run-preset-spec-ru.md) | Draft | Спецификация сценариев симуляции и пресетов запусков |
+| [artifact-cache-registry-spec-ru](specs/artifact-cache-registry-spec-ru.md) | Draft | Спецификация реестра артефактов и кэша производных данных |
 | [engine-preview-pipeline-spec-ru](specs/engine-preview-pipeline-spec-ru.md) | Draft | Спецификация пайплайна генерации, кэширования и принятия предпросмотра |
 | [baker-compile-pipeline-spec-ru](specs/baker-compile-pipeline-spec-ru.md) | Draft | Спецификация пайплайна подготовки, запуска Baker/AxiEngine compile и обработки артефактов |
 
@@ -242,6 +243,15 @@ graph TD
     CM --> SRP
     PF --> SRP
     DEC --> SRP
+    BCP --> ACR[artifact-cache-registry-spec-ru]
+    EPP --> ACR
+    GW --> ACR
+    IRW --> ACR
+    RTP --> ACR
+    SRP --> ACR
+    PF --> ACR
+    BRIDGE --> ACR
+    DEC --> ACR
 ```
 
 ---
