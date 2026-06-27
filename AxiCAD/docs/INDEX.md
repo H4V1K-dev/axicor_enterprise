@@ -39,6 +39,8 @@
 | [rendering-pipeline-spec-ru](specs/rendering-pipeline-spec-ru.md) | Draft | Спецификация визуального слоя рендеринга (Rendering Pipeline) |
 | [rust-core-axiengine-source-of-truth-spec-ru](specs/rust-core-axiengine-source-of-truth-spec-ru.md) | Draft | Спецификация канонического вычислительного ядра AxiEngine и контракта источника истины |
 | [axiengine-bridge-session-spec-ru](specs/axiengine-bridge-session-spec-ru.md) | Draft | Спецификация моста интеграции и менеджера сессий AxiEngine |
+| [external-port-io-spec-ru](specs/external-port-io-spec-ru.md) | Draft | Спецификация внешних портов ввода/вывода и интерфейсов рантайма |
+| [runtime-timeline-probe-spec-ru](specs/runtime-timeline-probe-spec-ru.md) | Draft | Спецификация контроллера времени, зондов и метрик симуляции |
 | [engine-preview-pipeline-spec-ru](specs/engine-preview-pipeline-spec-ru.md) | Draft | Спецификация пайплайна генерации, кэширования и принятия предпросмотра |
 | [baker-compile-pipeline-spec-ru](specs/baker-compile-pipeline-spec-ru.md) | Draft | Спецификация пайплайна подготовки, запуска Baker/AxiEngine compile и обработки артефактов |
 
@@ -206,6 +208,23 @@ graph TD
     RP --> GW
     DEC --> GW
     PF --> GW
+    DOM --> EPIO[external-port-io-spec-ru]
+    TSS --> EPIO
+    PR[path-resolver-spec-ru] --> EPIO
+    IES --> EPIO
+    DEC --> EPIO
+    AES --> EPIO
+    BRIDGE --> EPIO
+    CW --> EPIO
+    EPIO --> FIRW[Future Inference Runtime Workspace]
+    BRIDGE --> RTP[runtime-timeline-probe-spec-ru]
+    GW --> RTP
+    EPIO --> RTP
+    RP --> RTP
+    ES --> RTP
+    PF --> RTP
+    DEC --> RTP
+    RTP --> FIRW
 ```
 
 ---
