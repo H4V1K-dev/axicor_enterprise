@@ -32,6 +32,7 @@
 | [diagnostics-error-catalog-spec-ru](specs/diagnostics-error-catalog-spec-ru.md) | Draft | Каталог диагностик и спецификация ошибок |
 | [workspace-shell-layout-spec-ru](specs/workspace-shell-layout-spec-ru.md) | Draft | Спецификация архитектуры интерфейса и зон раскладки |
 | [socket-tract-geometry-spec-ru](specs/socket-tract-geometry-spec-ru.md) | Draft | Спецификация геометрической модели сокетов, пинов и трактов |
+| [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) | Draft | Спецификация геометрического и пространственного сервиса |
 
 ---
 
@@ -82,9 +83,9 @@ Workspace
 
 | Module | Status | Dependencies |
 |--------|--------|-------------|
-| [geometry-service](specs/geometry-service.md) | Draft | coordinate-system |
-| [spatial-index](specs/spatial-index.md) | Draft | coordinate-system |
-| [constraint-engine](specs/constraint-engine.md) | Draft | geometry-service |
+| [geometry-service](specs/geometry-service.md) | Deprecated / Superseded | coordinate-system |
+| [spatial-index](specs/spatial-index.md) | Deprecated / Superseded | coordinate-system |
+| [constraint-engine](specs/constraint-engine.md) | Draft | [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) |
 | [validation-engine](specs/validation-engine.md) | Draft | constraint-engine |
 | [serialization](specs/serialization.md) | Draft | domain entities |
 | [command-history](specs/command-history.md) | Draft | — |
@@ -93,7 +94,7 @@ Workspace
 
 | Module | Status | Dependencies |
 |--------|--------|-------------|
-| [selection-engine](specs/selection-engine.md) | Draft | spatial-index |
+| [selection-engine](specs/selection-engine.md) | Draft | [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) |
 | [tool-system](specs/tool-system.md) | Draft | selection-engine, command-history |
 | [rendering-pipeline](specs/rendering-pipeline.md) | Draft | domain entities |
 
