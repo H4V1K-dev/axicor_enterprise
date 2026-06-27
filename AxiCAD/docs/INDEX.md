@@ -33,6 +33,7 @@
 | [workspace-shell-layout-spec-ru](specs/workspace-shell-layout-spec-ru.md) | Draft | Спецификация архитектуры интерфейса и зон раскладки |
 | [socket-tract-geometry-spec-ru](specs/socket-tract-geometry-spec-ru.md) | Draft | Спецификация геометрической модели сокетов, пинов и трактов |
 | [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) | Draft | Спецификация геометрического и пространственного сервиса |
+| [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) | Draft | Спецификация ядра проверки ограничений (Constraint Engine) |
 
 ---
 
@@ -85,8 +86,8 @@ Workspace
 |--------|--------|-------------|
 | [geometry-service](specs/geometry-service.md) | Deprecated / Superseded | coordinate-system |
 | [spatial-index](specs/spatial-index.md) | Deprecated / Superseded | coordinate-system |
-| [constraint-engine](specs/constraint-engine.md) | Draft | [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) |
-| [validation-engine](specs/validation-engine.md) | Draft | constraint-engine |
+| [constraint-engine](specs/constraint-engine.md) | Deprecated / Superseded | [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) |
+| [validation-engine](specs/validation-engine.md) | Draft | [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) |
 | [serialization](specs/serialization.md) | Draft | domain entities |
 | [command-history](specs/command-history.md) | Draft | — |
 
@@ -110,11 +111,10 @@ Workspace
 
 ```mermaid
 graph TD
-    CS[coordinate-system] --> GS[geometry-service]
-    CS --> SI[spatial-index]
-    GS --> CE[constraint-engine]
+    CS[coordinate-system] --> GSS[geometry-spatial-service-spec-ru]
+    GSS --> CE[constraint-engine-spec-ru]
     CE --> VE[validation-engine]
-    SI --> SE[selection-engine]
+    GSS --> SE[selection-engine]
     SE --> TS[tool-system]
     CH[command-history] --> TS
     DOM[domain entities] --> SER[serialization]

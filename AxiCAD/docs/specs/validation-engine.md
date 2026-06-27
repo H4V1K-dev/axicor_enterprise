@@ -7,7 +7,7 @@
 ## 1. Responsibility
 TODO
 ## 2. Dependencies
-- [constraint-engine](constraint-engine.md) — constraint definitions
+- [constraint-engine-spec-ru](constraint-engine-spec-ru.md) — constraint definitions
 ## 3. Contract
 TODO
 
