@@ -17,6 +17,14 @@
 
 ---
 
+## Foundational Specs
+
+| Document | Status | Description |
+|----------|--------|-------------|
+| [domain-model-spec-ru](specs/domain-model-spec-ru.md) | Draft | Доменная модель AxiCAD и соответствие TOML/Rust контракту |
+
+---
+
 ## Vision (why & what at 10,000 ft)
 
 | Document | Status | Description |
