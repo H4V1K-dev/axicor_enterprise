@@ -28,6 +28,7 @@
 | [project-file-spec-ru](specs/project-file-spec-ru.md) | Draft | Спецификация файла проекта axicad.project.json |
 | [command-mutation-spec-ru](specs/command-mutation-spec-ru.md) | Draft | Спецификация командной модели изменения состояния и Undo/Redo |
 | [import-export-serialization-spec-ru](specs/import-export-serialization-spec-ru.md) | Draft | Спецификация импорта, экспорта и сериализации |
+| [path-resolver-spec-ru](specs/path-resolver-spec-ru.md) | Draft | Спецификация путей, адресации и резолвера ссылок |
 
 ---
 
