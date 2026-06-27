@@ -38,6 +38,7 @@
 | [tool-system-spec-ru](specs/tool-system-spec-ru.md) | Draft | Спецификация интерактивных инструментов (Tool System) |
 | [rendering-pipeline-spec-ru](specs/rendering-pipeline-spec-ru.md) | Draft | Спецификация визуального слоя рендеринга (Rendering Pipeline) |
 | [rust-core-axiengine-source-of-truth-spec-ru](specs/rust-core-axiengine-source-of-truth-spec-ru.md) | Draft | Спецификация канонического вычислительного ядра AxiEngine и контракта источника истины |
+| [axiengine-bridge-session-spec-ru](specs/axiengine-bridge-session-spec-ru.md) | Draft | Спецификация моста интеграции и менеджера сессий AxiEngine |
 | [baker-compile-pipeline-spec-ru](specs/baker-compile-pipeline-spec-ru.md) | Draft | Спецификация пайплайна подготовки, запуска Baker/AxiEngine compile и обработки артефактов |
 
 ---
@@ -158,7 +159,14 @@ graph TD
     AES --> COMP[composition-workspace-spec-ru]
     AES --> CW
     AES --> SNE
-    DOM --> BCP[baker-compile-pipeline-spec-ru]
+    AES --> BRIDGE[axiengine-bridge-session-spec-ru]
+    ES --> BRIDGE
+    CM --> BRIDGE
+    DEC --> BRIDGE
+    PF --> BRIDGE
+    IES --> BRIDGE
+    BRIDGE --> BCP[baker-compile-pipeline-spec-ru]
+    DOM --> BCP
     TSS --> BCP
     VE --> BCP
     ES --> BCP
@@ -166,7 +174,6 @@ graph TD
     CM --> BCP
     IES --> BCP
     DEC --> BCP
-    AES --> BCP
     CE --> BCP
     BCP --> COMP
     BCP --> CW
