@@ -49,6 +49,7 @@
 |----------|--------|-------------|
 | [composition-workspace-spec-ru](specs/composition-workspace-spec-ru.md) | Draft | Спецификация предметного режима сборки Composition Workspace |
 | [connectome-workspace-spec-ru](specs/connectome-workspace-spec-ru.md) | Draft | Спецификация предметного режима проектирования связей Connectome Workspace |
+| [shard-neuron-editor-workspace-spec-ru](specs/shard-neuron-editor-workspace-spec-ru.md) | Draft | Спецификация предметного режима редактора внутренней биологии шарда Shard Neuron Editor |
 
 
 ---
@@ -141,6 +142,12 @@ graph TD
     RP --> CW
     IES[import-export-serialization-spec-ru] --> CW
     DOM[domain entities] --> SER[serialization]
+    DOM --> SNE[shard-neuron-editor-workspace-spec-ru]
+    TSS[toml-schema-spec-ru] --> SNE
+    CE --> SNE
+    RP --> SNE
+    TS --> SNE
+    CW --> SNE
 ```
 
 ---
