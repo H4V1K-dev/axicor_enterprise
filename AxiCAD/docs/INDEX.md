@@ -71,6 +71,12 @@ Workspace
 | [tool-system](specs/tool-system.md) | Draft | selection-engine, command-history |
 | [rendering-pipeline](specs/rendering-pipeline.md) | Draft | domain entities |
 
+### Research Briefs
+
+| Module | Status | Dependencies |
+|--------|--------|-------------|
+| [architectural-brief-ru](specs/architectural-brief-ru.md) | Draft | TOML design, Rust Baker contracts |
+
 ---
 
 ## Dependency Graph
@@ -98,4 +104,4 @@ graph TD
 
 ---
 
-*Last updated: 2026-06-26*
+*Last updated: 2026-06-27*

@@ -1,6 +1,159 @@
-# Микроядерный 3D CAD-редактор на JavaScript/Three.js: Архитектурный бриф
+# AxiCAD: доменно-специфичный 3D TOML-редактор для Axicor
 
-**Версия:** 2.0 | **Стек:** TypeScript strict, Three.js r160+, Vite/ESM | **Дата:** 2026-06-27
+**Версия:** 2.1 | **Стек:** TypeScript strict, Three.js r160+, Vite/ESM | **Дата:** 2026-06-27
+
+## Status: Draft
+
+> Этот документ является архитектурным research-brief, а не финальной спецификацией.
+> Его задача — зафиксировать направление AxiCAD перед разбиением на отдельные specs
+> по доменной модели, ядру редактора, рендеру, валидации, TOML-сериализации и интеграции
+> с Rust Baker.
+
+---
+
+## Раздел 0 — AxiCAD Interpretation Layer
+
+### 0.1 Главный тезис
+
+AxiCAD — это **доменно-специфичный 3D-редактор декларативных TOML-моделей Axicor**,
+а не универсальный CAD, не Blender-подобный моделлер и не плагин-платформа ради
+самой платформы.
+
+Редактор работает с пользовательскими декларациями:
+
+```text
+model.toml → department.toml → shard.toml → baker-cli → .axic
+```
+
+Он помогает проектировать:
+
+- структуру модели;
+- департаменты;
+- шарды;
+- анатомические слои внутри шарда;
+- типы нейронов;
+- сокеты межшардовых связей;
+- внешние порты и пины;
+- соединения между сокетами;
+- spatial placement, если он принят как часть редакторского workflow.
+
+Все, что генерирует Baker (`manifest.toml`, `.state`, `.axons`, `.paths`, `.gxi`,
+`.gxo`, `.ghosts`, `.axic`), считается производным артефактом и не является
+основным объектом редактирования AxiCAD.
+
+### 0.2 Canonical Data Flow
+
+```text
+TOML files
+  → parser
+  → domain store
+  → validation engine
+  → 3D viewport
+  → editor commands
+  → TOML serializer
+  → baker-cli preflight / bake
+```
+
+Runtime никогда не читает состояние редактора. Runtime читает только бинарные
+артефакты и manifest, сгенерированные Baker. Поэтому AxiCAD должен быть строгим
+редактором пользовательского DSL и pre-bake validation shell поверх Rust-контрактов.
+
+### 0.3 Domain Contract
+
+Канонические сущности редактора:
+
+| Entity | Назначение |
+|---|---|
+| `Model` | Корневой проект: world, simulation, departments, междепартаментные connections |
+| `Department` | Логическая группа шардов и локальных межшардовых connections |
+| `Shard` | GPU/compute unit с dimensions, anatomy, neuron types, sockets, ports, settings |
+| `AnatomyLayer` | `[[layers]]` внутри shard.toml; не путать с визуальным/editor layer |
+| `NeuronType` | ABI-значимый профиль GLIF/GSOP/growth параметров; максимум 16 на shard |
+| `Socket` | Внутренний интерфейс связи shard→shard |
+| `Port` | Внешний IO интерфейс sensors/motors/Python-agent |
+| `Pin` | UV-проекция внутри port; единица matrix mapping |
+| `Connection` | Связь socket→socket на уровне department.toml или model.toml |
+| `EditorPlacement` | Позиция/раскладка shard в 3D viewport, если placement не хранится в TOML |
+
+Термин `Layer` зарезервирован как опасный: в TOML `[[layers]]` означает
+анатомический слой внутри шарда. В коде AxiCAD следует использовать имя
+`AnatomyLayer` или `CorticalLayer`, чтобы не смешивать это с UI layers,
+render layers или spatial grouping.
+
+### 0.4 Spatial Placement Policy
+
+Открытое архитектурное решение: где хранить положение шарда в 3D-сцене.
+
+Варианты:
+
+1. `world_offset` / `position` внутри пользовательского TOML.
+2. Отдельный файл editor metadata, например `axicad.project.json`.
+3. Автораскладчик Baker-а, при котором AxiCAD редактирует структуру и только
+   визуализирует сгенерированное placement.
+
+Рекомендуемое MVP-направление: **хранить placement как editor metadata**, пока
+Rust/Baker contract не зафиксирует, должен ли `world_offset` быть частью
+биологического DSL. Это не загрязняет `shard.toml`, но дает 3D-редактору
+стабильное состояние сцены.
+
+### 0.5 Rust Contract Alignment
+
+AxiCAD не должен дублировать Rust-ограничения наугад. Источники истины:
+
+- `dev-rust-api/config` — TOML schema и базовые validators;
+- `dev-rust-api/types` — `PackedPosition`, `PackedTarget`, ABI limits;
+- `dev-rust-api/topology` — pure placement/routing algorithms;
+- `dev-rust-api/baker` — AOT pipeline, pre-bake checks, archive layout.
+
+Если TypeScript получает собственные типы, они должны быть сгенерированы из Rust
+schema или сопровождаться явным contract test/fixture набором. Иначе редактор
+быстро начнет валидировать одно, а Baker — другое.
+
+### 0.6 MVP Scope
+
+MVP обязан уметь:
+
+- открыть/создать AxiCAD project;
+- редактировать `model`, `department`, `shard`;
+- добавлять и править `AnatomyLayer`, `NeuronType`, `Socket`, `Port`, `Pin`;
+- соединять совместимые sockets;
+- показывать 3D shard boxes, anatomy layer bands, sockets/ports/pins;
+- запускать pre-bake validation;
+- экспортировать TOML без потери данных;
+- подготовить команду/контекст для `baker-cli`.
+
+Не входит в MVP:
+
+- generic CAD modeling;
+- live simulation внутри редактора;
+- обязательный 2D-редактор;
+- plugin marketplace;
+- semver dependency resolution для внешних плагинов;
+- Web Worker spatial acceleration;
+- collaborative editing;
+- custom shader polish.
+
+### 0.7 Validation Tiers
+
+Валидация должна быть многоуровневой:
+
+| Tier | Проверки |
+|---|---|
+| Schema | TOML parse, required fields, deny unknown fields |
+| Local Shard | dimensions, layer sum, composition sum, neuron type refs, 16 type limit |
+| Connection | endpoint exists, direction `out → in`, socket sizes match |
+| Hardware | `PackedPosition` limits, `PackedTarget` segment <= 255, max dendrites = 128 |
+| Baker Preflight | integer `v_seg`, ghost capacity, matrix sizes, deterministic bake constraints |
+| Editor UX | визуальные warnings/errors до export/bake |
+
+### 0.8 ADR Candidates
+
+- `001-domain-specific-editor-over-generic-cad`
+- `002-editor-placement-metadata-vs-toml-field`
+- `003-domain-store-over-generic-entity-record`
+- `004-rust-contracts-as-validation-source`
+- `005-microkernel-lite-for-mvp`
+- `006-3d-first-no-required-2d-mode`
 
 ---
 
@@ -231,37 +384,50 @@ interface IReadonlyStore {
 }
 ```
 
-**EntityRecord — каноническая форма данных CAD:**
+**AxiCADDomainRecord — каноническая форма данных редактора:**
 
 ```typescript
-interface EntityRecord {
+type DomainEntityType =
+  | 'model'
+  | 'department'
+  | 'shard'
+  | 'anatomyLayer'
+  | 'neuronType'
+  | 'socket'
+  | 'port'
+  | 'pin'
+  | 'connection'
+  | 'editorPlacement';
+
+interface DomainRecord<TData = unknown> {
   id: string;
-  type: 'mesh' | 'group' | 'light' | 'camera';
-  transform: {
-    position: [number, number, number];
-    rotation: [number, number, number, number]; // quaternion xyzw
-    scale: [number, number, number];
-  };
-  geometry: GeometryDescriptor; // descriptor only — NOT BufferGeometry
-  material: MaterialDescriptor; // descriptor only — NOT Material
-  meta: Record<string, unknown>;
+  type: DomainEntityType;
+  path: string; // e.g. 'departments.SensoryCortex.shards.Retina'
+  data: TData; // pure TOML-aligned payload
+  meta?: Record<string, unknown>; // editor-only annotations
 }
 
-// Descriptors carry only serializable data
-interface GeometryDescriptor {
-  type: 'box' | 'sphere' | 'cylinder' | 'custom';
-  parameters: Record<string, number>;
-  // For 'custom': raw Float32Array positions stored as base64 or SharedArrayBuffer id
+interface EditorPlacementData {
+  shardId: string;
+  position: [number, number, number]; // voxel-space or editor-space, ADR pending
+  rotation?: [number, number, number, number];
+  visible?: boolean;
 }
 
-interface MaterialDescriptor {
-  type: 'standard' | 'phong' | 'wireframe';
-  color: number; // hex
-  opacity: number;
+interface ShardData {
+  name: string;
+  dimensions: { w: number; d: number; h: number };
+  settings: Record<string, unknown>;
 }
 ```
 
-**Почему плоская структура (Map) вместо вложенного дерева:** Поиск за O(1) по `EntityId` без обхода дерева; простая JSON-сериализация для снимков состояния undo/redo; отсутствие проблем с глубоким сравнением (deep-equality) при частичном обновлении трансформации одной сущности. `ViewerState` в three-cad-viewer использует тот же паттерн наблюдаемого плоского хранилища (observable flat-store) как единственный источник правды [9].
+Generic CAD-записи вида `mesh/group/light/camera` допустимы только как внутренние
+view-model records рендера. Они не являются каноническим состоянием AxiCAD.
+Каноническое состояние должно быть TOML-aligned и собираться вокруг сущностей
+`Model`, `Department`, `Shard`, `AnatomyLayer`, `NeuronType`, `Socket`, `Port`,
+`Pin`, `Connection`, `EditorPlacement`.
+
+**Почему плоская структура (Map) вместо вложенного дерева:** Поиск за O(1) по `EntityId` без обхода дерева; простая JSON-сериализация для снимков состояния undo/redo; отсутствие проблем с глубоким сравнением (deep-equality) при частичном обновлении одной сущности. `ViewerState` в three-cad-viewer использует тот же паттерн наблюдаемого плоского хранилища (observable flat-store) как единственный источник правды [9].
 
 **Проверка Store во время выполнения (runtime guard)** — вызывается внутри `set` в сборках для разработки:
 
@@ -369,6 +535,11 @@ interface IToolPlugin extends IPlugin {
 Инструмент принимает нормализованное событие `NormalizedPointerEvent` — его луч `worldRay` уже вычислен компонентом `RaycastBridge` (внутри рендерера). Инструмент никак не взаимодействует с Three.js напрямую. Он читает данные сущностей из `store`, рассчитывает смещение (delta) с использованием чистой арифметики и записывает результат обратно через менеджер данных (Data Manager) или напрямую с помощью `store.patch`, если он удерживает ссылку на `IStore`, полученную на этапе `init`.
 
 ### TranslateTool — Полный пример
+
+> AxiCAD note: этот пример описывает generic transform tool из исходного CAD-исследования.
+> В MVP он должен быть адаптирован под `EditorPlacement`/`Shard` commands, а не под
+> произвольный `EntityRecord` с geometry/material. Инструменты не должны становиться
+> полноценным моделлером мешей.
 
 ```typescript
 // plugins/tools/TranslateTool.ts
@@ -560,6 +731,11 @@ async mount(ctx: IMountContext): Promise<void> {
 
 ### Синхронизация сущностей (Entity Sync)
 
+> AxiCAD note: рендерер может иметь внутренний view-model, похожий на `EntityRecord`,
+> но это производная проекция из domain store. Источник истины остается в
+> `DomainRecord`/TOML-aligned сущностях. Для MVP `RenderPipeline` строит meshes
+> из `Shard`, `AnatomyLayer`, `Socket`, `Port`, `Pin` и `EditorPlacement`.
+
 ```typescript
 private onEntityChanged(entityId: string, record: EntityRecord | null): void {
   if (!record) {
@@ -707,7 +883,7 @@ flowchart LR
 
 **Правило 3 — Store содержит только чистые данные (Store Is Pure Data).**
 Метод `store.set` отклоняет любые значения, являющиеся экземплярами `THREE.Object3D`, `HTMLElement` или `Function`.
-*Проверка:* Проверка времени выполнения `assertPureData` внутри метода `set` в сборках для разработки; ограничения типов TypeScript на уровне `EntityRecord` исключают появление методов на этапе компиляции.
+*Проверка:* Проверка времени выполнения `assertPureData` внутри метода `set` в сборках для разработки; ограничения типов TypeScript на уровне `DomainRecord` и конкретных TOML-aligned payload types исключают появление методов на этапе компиляции.
 
 **Правило 4 — Рендерер никогда не пишет в Store (Renderer Never Writes Store).**
 Компонент `RenderPipeline` принимает исключительно `IReadonlyStore` — интерфейс TypeScript без методов `set`, `patch` или `delete`. Попытка записи в Store вызывает ошибку компиляции.
@@ -736,6 +912,10 @@ flowchart LR
 **Правило 10 — Только динамический импорт (Dynamic Import Only).**
 Плагины загружаются исключительно динамически через `import()`. Статический `import` любых путей внутри `src/plugins/` внутри модулей `src/core/` или `src/app/` строго запрещен.
 *Проверка:* ESLint-правило `no-restricted-imports` в `core/` и `app/`; проверка анализатора сборки Vite на предмет отсутствия кода плагинов в чанке ядра; шаг CI с запуском `madge --circular src/core`.
+
+**MVP interpretation:** это правило является target-архитектурой для будущей расширяемости.
+В первом MVP допустима явная регистрация внутренних модулей в одном composition root,
+если core по-прежнему не импортирует конкретные реализации доменных инструментов.
 
 ---
 
@@ -871,6 +1051,10 @@ core.registry.register(neuronLab);
 
 ## Раздел 10 — Направления дальнейших исследований
 
+Этот раздел не является MVP scope. Все пункты ниже допустимы только после того,
+как стабилизированы TOML contract, domain store, validation tiers, 3D viewport
+и экспорт/round-trip. Для первого редактора они должны оставаться research backlog.
+
 ### 1. Undo/Redo поверх плоского хранилища (Flat Store)
 
 Плоская структура `Map` в Store делает реализацию Undo/Redo на основе снимков состояния тривиальной: сериализовать всю `Map` в JSON-объект перед выполнением каждой команды, поместить в стек истории, восстановить при отмене (undo). Проблема заключается в расходовании памяти: в CAD-сценах с тысячами сущностей история на полных снимках состояния становится слишком дорогой.
@@ -888,6 +1072,11 @@ core.registry.register(neuronLab);
 Интерфейс `ISpatialManager` при этом не меняется — вызывающие компоненты по-прежнему вызывают `raycast(ray, entityIds, store)` и получают `RaycastHit[]`. Изменяется только реализация за интерфейсом, становясь асинхронной.
 
 ### 3. Магазин плагинов (Plugin Marketplace) и версионирование
+
+Не входит в MVP. Для первой версии достаточно внутренних модулей и явной регистрации
+в composition root. Marketplace, внешние manifests, semver ranges и contribution
+points имеют смысл только после появления нескольких независимых layout/tool пакетов
+и стабильного public plugin API.
 
 Жизненный цикл бандлов OSGi [7][8] разрешает конфликты версий через указание диапазонов версий в `Import-Package`, которые разрешаются на этапе резолвинга бандла до запуска какого-либо кода. В контексте браузера аналогом является разрешение версий в стиле npm-semver, но перенесенное на этап выполнения.
 
@@ -913,3 +1102,9 @@ core.registry.register(neuronLab);
 [14] WebGLRenderer.dispose – three.js docs. https://threejs.org/docs/#api/en/renderers/WebGLRenderer.dispose
 [15] Using produce | Immer. https://immerjs.github.io/immer/produce/
 [16] Contribution Points | Visual Studio Code Extension API. https://code.visualstudio.com/api/references/contribution-points
+
+## Changelog
+
+| Date | Change |
+|---|---|
+| 2026-06-27 | Reframed brief from generic CAD/plugin-platform research into AxiCAD-specific TOML/Baker foundation; added domain contract, MVP scope, validation tiers, placement decision, Rust contract alignment, and ADR candidates. |
