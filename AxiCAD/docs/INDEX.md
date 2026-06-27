@@ -48,6 +48,8 @@
 | Document | Status | Description |
 |----------|--------|-------------|
 | [composition-workspace-spec-ru](specs/composition-workspace-spec-ru.md) | Draft | Спецификация предметного режима сборки Composition Workspace |
+| [connectome-workspace-spec-ru](specs/connectome-workspace-spec-ru.md) | Draft | Спецификация предметного режима проектирования связей Connectome Workspace |
+
 
 ---
 
@@ -90,8 +92,7 @@ Workspace
 
 | Module | Status | Dependencies |
 |--------|--------|-------------|
-| [geometry-service](specs/geometry-service.md) | Deprecated / Superseded | coordinate-system |
-| [spatial-index](specs/spatial-index.md) | Deprecated / Superseded | coordinate-system |
+| [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) | Draft | Спецификация геометрического и пространственного сервиса (Supersedes geometry-service & spatial-index) |
 | [constraint-engine](specs/constraint-engine.md) | Deprecated / Superseded | [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) |
 | [validation-engine](specs/validation-engine.md) | Draft | [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) |
 | [serialization](specs/serialization.md) | Draft | domain entities |
@@ -133,6 +134,12 @@ graph TD
     DEC[diagnostics-error-catalog-spec-ru] --> RP
     PF[project-file-spec-ru] --> RP
     ES[editor-store-spec-ru] --> RP
+    STG[socket-tract-geometry-spec-ru] --> CW[connectome-workspace-spec-ru]
+    SE --> CW
+    TS --> CW
+    CE --> CW
+    RP --> CW
+    IES[import-export-serialization-spec-ru] --> CW
     DOM[domain entities] --> SER[serialization]
 ```
 
