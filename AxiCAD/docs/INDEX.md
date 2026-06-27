@@ -36,6 +36,8 @@
 | [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) | Draft | Спецификация ядра проверки ограничений (Constraint Engine) |
 | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md) | Draft | Спецификация ядра выделения объектов (Selection Engine) |
 | [tool-system-spec-ru](specs/tool-system-spec-ru.md) | Draft | Спецификация интерактивных инструментов (Tool System) |
+| [rendering-pipeline-spec-ru](specs/rendering-pipeline-spec-ru.md) | Draft | Спецификация визуального слоя рендеринга (Rendering Pipeline) |
+
 
 
 
@@ -101,7 +103,7 @@ Workspace
 |--------|--------|-------------|
 | [selection-engine](specs/selection-engine.md) | Deprecated / Superseded | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md) |
 | [tool-system-spec-ru](specs/tool-system-spec-ru.md) | Draft | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md), command-history, [command-mutation-spec-ru](specs/command-mutation-spec-ru.md), [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md), [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) |
-| [rendering-pipeline](specs/rendering-pipeline.md) | Draft | domain entities |
+| [rendering-pipeline-spec-ru](specs/rendering-pipeline-spec-ru.md) | Draft | [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md), [selection-engine-spec-ru](specs/selection-engine-spec-ru.md), [tool-system-spec-ru](specs/tool-system-spec-ru.md), [diagnostics-error-catalog-spec-ru](specs/diagnostics-error-catalog-spec-ru.md), [project-file-spec-ru](specs/project-file-spec-ru.md), [editor-store-spec-ru](specs/editor-store-spec-ru.md) |
 
 ### Research Briefs
 
@@ -125,8 +127,13 @@ graph TD
     CE --> TS
     CM[command-mutation-spec-ru] --> TS
     CH[command-history] --> TS
+    GSS --> RP[rendering-pipeline-spec-ru]
+    SE --> RP
+    TS --> RP
+    DEC[diagnostics-error-catalog-spec-ru] --> RP
+    PF[project-file-spec-ru] --> RP
+    ES[editor-store-spec-ru] --> RP
     DOM[domain entities] --> SER[serialization]
-    DOM --> RP[rendering-pipeline]
 ```
 
 ---
