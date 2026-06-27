@@ -68,9 +68,10 @@
 | `route_tracts` | 3D-трассировка и генерация воксельных каналов для пучков трактов связей. | Connectome Workspace |
 | `preview_somas` | Правило-ориентированная генерация массива позиций сом и их типов внутри объема шарда. | Shard Neuron Editor |
 | `validate_preview` | Визуализация результатов гипотетической валидации (оверлеи пересечений, подсвечивание ошибок). | Все предметные режимы |
+| `preview_growth_step` | Пошаговый предпросмотр векторных фронтов роста и синаптогенеза. | Growth Workspace |
 
 ### Зарезервированные операции (Reserved / Future Operations):
-Типы `preview_growth_step` (предпросмотр шага роста) и `preview_inference_frame` (кадр активности потенциалов) зарезервированы и недоступны до принятия соответствующих спецификаций Growth Workspace и Inference Runtime.
+Тип `preview_inference_frame` (кадр активности потенциалов нейронов) зарезервирован и недоступен до принятия спецификации Inference Runtime.
 
 ---
 
@@ -117,10 +118,10 @@ export type PreviewOperationType =
   | 'sample_sockets'
   | 'route_tracts'
   | 'preview_somas'
-  | 'validate_preview';
+  | 'validate_preview'
+  | 'preview_growth_step';
 
 export type ReservedPreviewOperationType =
-  | 'preview_growth_step'
   | 'preview_inference_frame';
 
 export type PreviewStatus = 
@@ -329,4 +330,4 @@ sequenceDiagram
 
 | Дата | Версия | Описание изменений |
 |---|---|---|
-| 2026-06-27 | 0.1.0 | Первоначальное создание спецификации пайплайна предпросмотра Engine Preview Pipeline Spec. Определены 5 поддерживаемых и 2 зарезервированных типа операций, жизненный цикл и FSM предпросмотра, DTO интерфейсы, семантика устаревания, передача в рендер и процедура принятия изменений через Command Mutation. |
+| 2026-06-27 | 0.1.0 | Первоначальное создание спецификации пайплайна предпросмотра Engine Preview Pipeline Spec. Определены 6 поддерживаемых и 1 зарезервированный тип операций, жизненный цикл и FSM предпросмотра, DTO интерфейсы, семантика устаревания, передача в рендер и процедура принятия изменений через Command Mutation. |

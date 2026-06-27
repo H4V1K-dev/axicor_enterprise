@@ -51,6 +51,7 @@
 | [composition-workspace-spec-ru](specs/composition-workspace-spec-ru.md) | Draft | Спецификация предметного режима сборки Composition Workspace |
 | [connectome-workspace-spec-ru](specs/connectome-workspace-spec-ru.md) | Draft | Спецификация предметного режима проектирования связей Connectome Workspace |
 | [shard-neuron-editor-workspace-spec-ru](specs/shard-neuron-editor-workspace-spec-ru.md) | Draft | Спецификация предметного режима редактора внутренней биологии шарда Shard Neuron Editor |
+| [growth-workspace-spec-ru](specs/growth-workspace-spec-ru.md) | Draft | Спецификация предметного режима симуляции и отладки роста сети Growth Workspace |
 
 ---
 
@@ -191,6 +192,20 @@ graph TD
     EPP --> COMP
     EPP --> CW
     EPP --> SNE
+    BRIDGE --> GW[growth-workspace-spec-ru]
+    EPP --> GW
+    BCP --> GW
+    COMP --> GW
+    CW --> GW
+    SNE --> GW
+    STG --> GW
+    GSS --> GW
+    CE --> GW
+    ES --> GW
+    CM --> GW
+    RP --> GW
+    DEC --> GW
+    PF --> GW
 ```
 
 ---
