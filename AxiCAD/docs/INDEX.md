@@ -34,6 +34,8 @@
 | [socket-tract-geometry-spec-ru](specs/socket-tract-geometry-spec-ru.md) | Draft | Спецификация геометрической модели сокетов, пинов и трактов |
 | [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) | Draft | Спецификация геометрического и пространственного сервиса |
 | [constraint-engine-spec-ru](specs/constraint-engine-spec-ru.md) | Draft | Спецификация ядра проверки ограничений (Constraint Engine) |
+| [selection-engine-spec-ru](specs/selection-engine-spec-ru.md) | Draft | Спецификация ядра выделения объектов (Selection Engine) |
+
 
 ---
 
@@ -95,8 +97,8 @@ Workspace
 
 | Module | Status | Dependencies |
 |--------|--------|-------------|
-| [selection-engine](specs/selection-engine.md) | Draft | [geometry-spatial-service-spec-ru](specs/geometry-spatial-service-spec-ru.md) |
-| [tool-system](specs/tool-system.md) | Draft | selection-engine, command-history |
+| [selection-engine](specs/selection-engine.md) | Deprecated / Superseded | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md) |
+| [tool-system](specs/tool-system.md) | Draft | [selection-engine-spec-ru](specs/selection-engine-spec-ru.md), command-history |
 | [rendering-pipeline](specs/rendering-pipeline.md) | Draft | domain entities |
 
 ### Research Briefs
@@ -114,7 +116,8 @@ graph TD
     CS[coordinate-system] --> GSS[geometry-spatial-service-spec-ru]
     GSS --> CE[constraint-engine-spec-ru]
     CE --> VE[validation-engine]
-    GSS --> SE[selection-engine]
+    GSS --> SE[selection-engine-spec-ru]
+    CE --> SE
     SE --> TS[tool-system]
     CH[command-history] --> TS
     DOM[domain entities] --> SER[serialization]
