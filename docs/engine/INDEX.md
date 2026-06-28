@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 1.7 | Дата: 2026-06-29
+> Версия: 1.8 | Дата: 2026-06-29
 
 ---
 
@@ -17,14 +17,20 @@ graph TD
         config["config (v2.0)"]
         wire["wire (v2.0)"]
     end
+    subgraph L2["Слой 2"]
+        ipc["ipc (v2.0)"]
+    end
 
     types --> layout
     types --> config
     types --> wire
+    types --> ipc
     physics --> config
+    layout --> ipc
+    wire --> ipc
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire active;
+    class types,physics,layout,config,wire,ipc active;
 ```
 
 ---
@@ -46,6 +52,12 @@ graph TD
 | `layout` | [layout_spec.md](spec_L1/layout_spec.md) | **Draft v2.0** | C-ABI макеты физической памяти (`VariantParameters`), выравнивание плоскостей SoA и заголовки файлов. |
 | `config` | [config_spec.md](spec_L1/config_spec.md) | **Draft v2.0** | Serde/TOML DTO, парсинг и "Shift-Left" валидация DSL (`model.toml`, `department.toml`, `shard.toml`). |
 | `wire` | [wire_spec.md](spec_L1/wire_spec.md) | **Draft v2.0** | C-ABI структуры сетевых и IPC пакетов, magic-константы, выравнивание, Little-Endian политика и `no-alloc` хелперы. |
+
+### Слой 2 (Layer 2: Infrastructure & OS Isolation)
+
+| Крейт | Спецификация | Статус | Назначение |
+|-------|--------------|--------|------------|
+| `ipc` | [ipc_spec.md](spec_L2/ipc_spec.md) | **Draft v2.0** | Жизненный цикл SHM/mmap, атомарные переходы Ночной Фазы (CAS), двойной буфер Swapchain и изоляция OS системных вызовов. |
 
 ---
 
