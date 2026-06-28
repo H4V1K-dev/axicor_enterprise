@@ -1,9 +1,0 @@
-[package]
-name = "layout"
-version = { workspace = true }
-edition = { workspace = true }
-license = { workspace = true }
-
-[dependencies]
-types = { path = "../types" }
-bytemuck = { workspace = true }

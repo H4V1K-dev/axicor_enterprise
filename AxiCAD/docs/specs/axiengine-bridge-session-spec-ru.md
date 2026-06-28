@@ -79,7 +79,7 @@
 
 ### 3.1 Передача тяжелых объемов данных (Heavy Payload Transport Policy)
 - **Control-Plane vs Data-Plane**: Каналы JSON/stdio и API IPC зарезервированы исключительно под управляющие команды, конфигурации задач (`EngineJobRequest`), статусы выполнения и маловесные сообщения (`control-plane`).
-- **Файловый / бинарный транспорт (File-based Data Payload Transport)**: Передача массивов большого объема (скомпилированные бинарные модели Baker, массивы геометрии сом, записи симуляционных тиков) категорически запрещена через встраивание в JSON-команды. Тяжелые массивы данные передаются между AxiEngine и AxiCAD строго через локальные бинарные файлы и артефакты (`.local-storage/artifacts/` / project cache). Это исключает блокировки главного UI-потока на этапах сериализации и десериализации гигантских текстовых JSON-структур.
+- **Файловый / бинарный транспорт (File-based Data Payload Transport)**: Передача массивов большого объема (скомпилированные бинарные модели Baker, массивы геометрии сом, записи симуляционных тиков) категорически запрещена через встраивание в JSON-команды. Тяжелые массивы данных передаются между AxiEngine и AxiCAD строго через локальные бинарные файлы и артефакты (`.local-storage/artifacts/` / project cache). Это исключает блокировки главного UI-потока на этапах сериализации и десериализации гигантских текстовых JSON-структур.
 
 ---
 
@@ -102,6 +102,14 @@
 5. **Трансляция ошибок сборки**:
    - Любые ошибки процесса `cargo build` перехватываются мостом и транслируются в текстовый поток логов и объекты `DiagnosticItem` уровня проекта. Молчаливые сбои (silent failures) категорически недопустимы.
 
+### 4.1 Политика разрешения сборки крейтов (Crate & Build Resolution Policy — Candidate Algorithm)
+- **Приоритет локального кода (Developer Mode Priority)**: Крейты, находящиеся в активной разработке внутри монорепозитория, собираются из локального workspace/path dependency. Локальный исходный код имеет абсолютный приоритет над опубликованными пакетами (за счет механизмов Cargo `workspace.dependencies`, `path` и `[patch.crates-io]`).
+- **Кандидатный алгоритм принятия решений**:
+  1. Если крейт монорепозитория активен/затронут локальными изменениями (`dirtyWorkspace = true`) или установлен workspace override — выполняется локальная сборка.
+  2. Если требуемая версионная комбинация совпадает со стабильной опубликованной версией на crates.io и локальная разработка по данному модулю не ведется — допускается использование готового бинарника или опубликованного крейта.
+  3. Если разработчик вносит изменения в локальный крейт монорепозитория, он обязан поднять версию или обновить версионные метаданные, чтобы AxiCAD не подтянул старый артефакт.
+- **Статус автоматизации**: Данная схема описывает кандидатный алгоритм; точный финальный механизм автотрассировки и валидации вынесен в специальный ADR (Build Automation Research).
+
 ---
 
 ## 5. Протокол рукопожатия (Handshake Protocol)
@@ -119,17 +127,13 @@ export interface EngineHandshakeRequest {
 
 export interface EngineHandshakeResponse {
   engineVersion: string;
-  engineBuildHash: string;
   protocolVersion: string;
+  tomlSchemaVersion: string;
+  crateGraphHash: string;
+  gitCommit: string;
+  dirtyWorkspace: boolean;
+  buildProfile: 'debug' | 'release' | 'bench';
   supportedSchemaVersions: string[];
-  supportedCommands: string[];
-  capabilities: {
-    maxVoxelGridResolution: number;
-    supportsParallelBaking: boolean;
-    supportsGrowthSimulation: boolean;
-    supportsInferenceStepping: boolean;
-  };
-  featureFlags: Record<string, boolean>;
   minCompatibleProtocolVersion: string;
   maxCompatibleProtocolVersion: string;
 }
@@ -309,5 +313,6 @@ export interface EngineJobEvent {
 
 | Дата | Версия | Описание изменений |
 |---|---|---|
+| 2026-06-28 | 0.3.0 | Закреплена политика Crate & Build Resolution Policy (приоритет локального workspace над crates.io, кандидатный алгоритм сборки), добавлены обязательные версионные маркеры Handshake (`crateGraphHash`, `gitCommit`, `dirtyWorkspace` и др.) с принудительной блокировкой при несовместимости (`AXI-BRIDGE-VERSION-MISMATCH`). |
 | 2026-06-28 | 0.2.0 | Добавлена политика Heavy Payload Transport Policy: разграничен control-plane (JSON/stdio) и data-plane (бинарные артефакты `.local-storage/artifacts/`) во избежание фризов UI при десериализации большого JSON. |
 | 2026-06-27 | 0.1.0 | Первоначальное создание спецификации моста интеграции и менеджера сессий AxiEngine Bridge & Session Management Spec. Определены 3 режима работы моста, Handshake DTO, конечный автомат сессии, модель задач EngineJob, правила обработки событий и границы безопасности. |

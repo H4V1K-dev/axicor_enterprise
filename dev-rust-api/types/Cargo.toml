@@ -1,9 +1,0 @@
-[package]
-name = "types"
-version = { workspace = true }
-edition = { workspace = true }
-license = { workspace = true }
-
-[dependencies]
-bytemuck = { workspace = true }
-wyhash = "0.5.0"

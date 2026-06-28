@@ -14,26 +14,26 @@
 ## 2. High-Level Layers
 
 ```
-┌─────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────┐
 │                   UI Shell                       │  Interactive layer
 │         (panels, toolbar, dialogs)               │  (browser-dependent)
-├─────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────┤
 │               Viewport / Renderer                │
 │         (Three.js, camera, gizmos)               │
-├─────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────┤
 │              Editor Core (State)                 │  Orchestration layer
 │   (selection, tools, command history, events)    │  (JS, minimal deps)
-├─────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────┤
 │             Pure Algorithm Layer                 │  Portable layer
 │  (geometry, spatial index, constraints,          │  (zero DOM deps,
 │   validation, serialization)                     │   Rust-ready)
-└─────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────┘
 ```
 
 ## 3. Responsibility Boundaries
 
 | Layer | Knows about | Does NOT know about |
-|-------|------------|-------------------|
+|---|---|---|
 | UI Shell | DOM, CSS, user events | Geometry math, serialization |
 | Viewport | Three.js, camera, rendering | Business logic, file I/O |
 | Editor Core | Domain model, tool state, commands | Rendering details, DOM |
@@ -67,5 +67,5 @@ User Input → UI Shell → Editor Core → Pure Algorithms
 ## Changelog
 
 | Date | Change |
-|------|--------|
+|---|---|
 | 2026-06-26 | Created — initial layer diagram |
