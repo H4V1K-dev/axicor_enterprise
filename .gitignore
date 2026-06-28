@@ -1,8 +1,4 @@
 # --- Axicor Custom Ignores ---
-old_dev-sdk-api/
-old_dev-rust-api/
-old_docs/
-axicor-master/
 .personal
 .context
 .local-storage
