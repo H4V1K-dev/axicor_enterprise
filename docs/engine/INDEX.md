@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 2.0 | Дата: 2026-06-29
+> Версия: 2.1 | Дата: 2026-06-29
 
 ---
 
@@ -23,6 +23,7 @@ graph TD
     end
     subgraph L3["Слой 3"]
         compute_api["compute-api (v2.0)"]
+        compute["compute (v2.0)"]
     end
 
     types --> layout
@@ -35,9 +36,10 @@ graph TD
     layout --> ipc
     wire --> ipc
     layout --> compute_api
+    compute_api --> compute
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs,compute_api active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute active;
 ```
 
 ---
@@ -72,6 +74,7 @@ graph TD
 | Крейт | Спецификация | Статус | Назначение |
 |-------|--------------|--------|------------|
 | `compute-api` | [compute_api_spec.md](spec_L3/compute_api_spec.md) | **Draft v2.0** | Аппаратно-независимый HAL контракт бэкендов вычислений (`ComputeBackend`), непрозрачные VRAM handles и DTO команд. |
+| `compute` | [compute_spec.md](spec_L3/compute_spec.md) | **Draft v2.0** | Фасад вычислений `ShardEngine`, автовыбор бэкендов (`BackendPreference`) и оркестрация жизненного цикла шарда. |
 
 ---
 
