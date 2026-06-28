@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 1.8 | Дата: 2026-06-29
+> Версия: 1.9 | Дата: 2026-06-29
 
 ---
 
@@ -19,18 +19,20 @@ graph TD
     end
     subgraph L2["Слой 2"]
         ipc["ipc (v2.0)"]
+        vfs["vfs (v2.0)"]
     end
 
     types --> layout
     types --> config
     types --> wire
     types --> ipc
+    types --> vfs
     physics --> config
     layout --> ipc
     wire --> ipc
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc active;
+    class types,physics,layout,config,wire,ipc,vfs active;
 ```
 
 ---
@@ -58,6 +60,7 @@ graph TD
 | Крейт | Спецификация | Статус | Назначение |
 |-------|--------------|--------|------------|
 | `ipc` | [ipc_spec.md](spec_L2/ipc_spec.md) | **Draft v2.0** | Жизненный цикл SHM/mmap, атомарные переходы Ночной Фазы (CAS), двойной буфер Swapchain и изоляция OS системных вызовов. |
+| `vfs` | [vfs_spec.md](spec_L2/vfs_spec.md) | **Draft v2.0** | Контейнерный формат `.axic`, оглавление TOC, Read-Only mmap отображение, нормализация путей и примитивы экстракции. |
 
 ---
 
