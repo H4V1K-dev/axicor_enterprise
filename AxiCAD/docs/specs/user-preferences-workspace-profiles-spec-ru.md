@@ -76,7 +76,9 @@ export type UIDensityPreference = 'comfortable' | 'compact' | 'touch-friendly';
 export interface ShortcutBinding {
   bindingId: string;
   commandId: string;
-  keyCombo: string; // e.g. "Ctrl+Shift+B" or "Cmd+B"
+  toolId?: string; // Опциональная привязка к конкретному инструменту
+  inputIntents?: string[]; // Опциональные абстрактные интенты ввода (e.g. ['add-to-selection', 'precision-mode'])
+  keyCombo: string; // e.g. "Ctrl+Shift+B" or "Cmd+B" or "G"
   platform: 'all' | 'windows' | 'mac' | 'linux';
   contextScope?: 'global' | 'viewport' | 'inspector' | 'timeline';
   enabled: boolean;
@@ -173,10 +175,10 @@ export interface PreferenceExportManifest {
 
 Вычисление финального значения любого параметра интерфейса подчиняется строгой 4-уровневой иерархии приоритетов (Profile Precedence):
 
-1. **`session temporary override` (Высший приоритет)**: Временные переопределения в оперативной памяти текущей сессии (например, временное переключение сетки).
-2. **`project-local workspace profile`**: Локальные настройки текущего проекта, сохраненные в `axicad.project.json`.
-3. **`user-global preference`**: Глобальные пользовательские настройки из файла `~/.axicad/preferences.json`.
-4. **`built-in default` (Низший приоритет)**: Встроенные жестко закодированные значения редактора по умолчанию.
+1. **`session temporary override` (Высший приоритет)**: Временные оперативные переопределения в оперативной памяти текущей сессии (например, динамический режим точной манипуляции).
+2. **`project-local workspace profile / override`**: Локальные настройки и переопределения текущего проекта, сохраненные в `axicad.project.json`.
+3. **`user-global preference / keymap`**: Глобальные пользовательские настройки и раскладки горячих клавиш из файла `~/.axicad/preferences.json`.
+4. **`built-in Blender-like default` (Низший приоритет)**: Встроенные базовые Blender-like конфигурации и дефолтные значения редактора по умолчанию.
 
 ### Правила слияния и разрешения конфликтов (Merge Rules & Precedence)
 - **Вычисление эффективных настроек (Effective Preferences)**: Иерархия приоритетов используется для динамического вычисления текущего рабочего состояния интерфейса в оперативной памяти. Более высокий слой **физически не перезаписывает** значения нижних слоев на диске.
@@ -210,7 +212,7 @@ export interface PreferenceExportManifest {
 
 Организация горячих клавиш и текстовых команд подчиняется следующим правилам:
 
-- **Абстракция через `commandId`**: Горячие клавиши привязываются строго к символьным идентификаторам команд (например, `editor.undo`, `viewport.focus-selection`), а не к вызовам конкретных функций или обработчикам событий.
+- **Привязка к сущностям и интентам**: Комбинации клавиш (keymaps) привязываются строго к символьным идентификаторам команд (`commandId`), инструментов (`toolId`) и абстрактных интентов ввода (`inputIntents`), ориентируясь на каноническую Blender-like модель взаимодействия.
 - **Конфликтная детекция (`shortcut conflict`)**: При попытке назначить одну и ту же комбинацию клавиш на две разные команды в одном контекстном скоупе система выставляет предупреждение и генерирует диагностику `AXI-PREF-002`.
 - **Кроссплатформенная абстракция**: Комбинации клавиш описываются абстрактно (например, использование модификатора `CmdOrCtrl`). Платформа-зависимые комбинации фильтруются по полю `platform`.
 
@@ -300,5 +302,7 @@ export interface PreferenceExportManifest {
 | Дата | Версия | Описание изменений |
 |---|---|---|
 | 2026-06-27 | 0.1.0 | Первоначальное создание спецификации пользовательских настроек и профилей рабочих пространств User Preferences & Workspace Profiles Spec. Определены DTO сущности, 4 уровня приоритета профилей, правила защиты секретов, дифференциация флагов загрязнения и каталог диагностик AXI-PREF. |
+| 2026-06-28 | 0.2.1 | Синхронизирован DTO `ShortcutBinding` (добавлены опциональные поля `toolId` и `inputIntents` для прямого выражения связей keymap). |
+| 2026-06-28 | 0.2.0 | Синхронизирован каскад приоритетов пресетов и горячих клавиш (`session` > `project-local` > `user-global` > `built-in Blender-like default`), зафиксирована привязка keymaps к `commandId`, `toolId` и `inputIntents` на базе Blender-like модели. (Закрыты Open Decisions #37, 40). |
 | 2026-06-27 | 0.1.1 | Точечные доработки: введен `SafeUserPreferencesExport` DTO, расширены `ShortcutBinding` и `RuntimeBindingPreference`, уточнена семантика effective preferences и блокировок `AXI-PREF-002`, скорректирован Non-scope и обновлен Changelog. |
 

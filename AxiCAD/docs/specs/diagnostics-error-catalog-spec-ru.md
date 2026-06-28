@@ -146,11 +146,17 @@ export interface DiagnosticItem {
 | **`AXI-SERDE-001`** | Серде | `error` | Невалидный синтаксис TOML (ошибки парсинга строк, незакрытые кавычки). |
 | **`AXI-SERDE-002`** | Серде | `error` | Неизвестное поле в TOML-файле (serde deny_unknown_fields). |
 | **`AXI-SCHEMA-001`**| Схема | `error` | Превышение лимита типов нейронов шарда (> 16 типов cells). |
-| **`AXI-SCHEMA-002`**| Схема | `error` | Дублирование имен департаментов, шардов или сокетов в одной ветке иерархии. |
+| **`AXI-SCHEMA-002`**| Схема | `error` | Дублирование имен типов нейронов, слоев или сущностей в одной ветке. |
+| **`AXI-SCHEMA-003`**| Схема | `error` | Превышение лимита шагов роста аксона (`axon_growth_max_steps > 255`). |
+| **`AXI-SCHEMA-004`**| Схема | `error` | Нарушение биофизического инварианта длины импульса (`signal_propagation_length < refractory_period`). |
+| **`AXI-GEOMETRY-001`**| Геометрия| `error` | Выход площадки сокета за пределы воксельных границ шарда (`socket out of bounds`). |
+| **`AXI-CONNECTOME-001`**| Коннектом| `error` | Перегрузка кабельного канала тракта (`tract congestion`). |
 | **`AXI-EDITOR-001`**| Редактор | `error` | Дублирование типизированного пути (`typed path`) в Store редактора. |
 | **`AXI-EDITOR-002`**| Редактор | `error` | Опасный относительный путь файловой системы (`config` выходит за пределы корня проекта через `..`). |
-| **`AXI-EDITOR-003`**| Редактор | `warning`| Обнаружено пространственное пересечение (коллизия) департаментов или шардов на сцене. |
+| **`AXI-EDITOR-003`**| Редактор | `error` | Жесткое пространственное пересечение (hard composition collision) департаментов или шардов на сцене. |
 | **`AXI-EDITOR-004`**| Редактор | `error` | Шард находится за пределами жестких границ департамента (fixed bounds mismatch). |
+| **`AXI-EDITOR-006`**| Редактор | `error` | Физическое жесткое перекрытие сокетов на грани шарда (`socket hard overlap`). |
+| **`AXI-EDITOR-007`**| Редактор | `warning`| Чрезмерная плотность или мягкая перегрузка сокетов на грани шарда (`socket soft congestion`). |
 | **`AXI-RESOLVER-001`**| Резолвер | `error` | Dangling connection endpoint: эндпоинт связи в TOML не может быть разрешен. |
 | **`AXI-RESOLVER-002`**| Резолвер | `error` | Ambiguous endpoint: адрес соединения указывает на несколько сокетов. |
 | **`AXI-RESOLVER-003`**| Резолвер | `error` | Отсутствует файл биологического описания по пути `config`. |
@@ -196,4 +202,5 @@ export interface DiagnosticItem {
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-06-28 | Зафиксированы канонические коды диагностик AXI-CONNECTOME-001 (tract congestion), AXI-SCHEMA-003 (axon growth limit), AXI-SCHEMA-004 (signal propagation length), AXI-GEOMETRY-001 (socket out of bounds) и AXI-EDITOR-006/007 (socket overlaps). Заменена семантика `AXI-EDITOR-003` с warning на hard error (`error`). Утилизированы TBD-заглушки. |
 | 2026-06-27 | Создание спецификации каталога диагностик и ошибок AxiCAD (Diagnostics & Error Catalog Spec). Определен контракт `DiagnosticItem` с полем `blockingOperations`, правила relatch/карантина для привязки, уточненная Blocking Matrix. Добавлены начальные коды, включая коды режима Composition (`AXI-EDITOR-003`/`004`, `AXI-PROJECT-003`/`004`), и Migration Note для legacy-кодов. |

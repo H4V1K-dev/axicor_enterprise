@@ -217,7 +217,7 @@ $$\vec{P}_{\text{shard\_world}} = \vec{P}_{\text{dept\_world}} + \vec{P}_{\text{
 
 | Геометрический факт | Код диагностики (Proposed) | Уровень | Блокируемые операции (Derived Policy) |
 |---|---|---|---|
-| сокет пересекает границы шарда | `[proposed code TBD until diagnostics catalog update]` | Error | export-toml, baker-compile |
+| сокет пересекает границы шарда | `AXI-GEOMETRY-001` | Error | export-toml, baker-compile |
 | сокеты перекрывают друг друга (hard overlap) | `AXI-EDITOR-006` | Error | export-toml |
 | плотное скопление сокетов (soft congestion) | `AXI-EDITOR-007` | Warning | (Не блокирует) |
 | шард выходит за границы департамента (fixed) | `AXI-EDITOR-004` | Error | baker-compile |
@@ -254,4 +254,5 @@ $$\vec{P}_{\text{shard\_world}} = \vec{P}_{\text{dept\_world}} + \vec{P}_{\text{
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-06-28 | Зафиксирован канонический код диагностики `AXI-GEOMETRY-001` для выхода площадки сокета за пределы воксельных границ шарда. Утилизирована TBD-заглушка. |
 | 2026-06-27 | Создание спецификации геометрического и пространственного сервиса (Geometry & Spatial Service Spec). Описаны координатные пространства, transform graph, AABB/OBB, collision/containment, ray picking, snapping и пространственные индексы. Добавлен раздел "Numeric Precision and Determinism" и открытый вопрос по float TOML vs fixed-point. |

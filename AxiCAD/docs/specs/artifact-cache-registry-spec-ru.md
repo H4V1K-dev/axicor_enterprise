@@ -75,6 +75,7 @@
 export type ArtifactKind = 
   | 'temporary-export-bundle'
   | 'baker-compiled-artifact'
+  | 'shard-soma-cache'
   | 'engine-preview'
   | 'growth-recording'
   | 'inference-recording'
