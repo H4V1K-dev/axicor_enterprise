@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 1.6 | Дата: 2026-06-29
+> Версия: 1.7 | Дата: 2026-06-29
 
 ---
 
@@ -15,14 +15,16 @@ graph TD
     subgraph L1["Слой 1"]
         layout["layout (v2.0)"]
         config["config (v2.0)"]
+        wire["wire (v2.0)"]
     end
 
     types --> layout
     types --> config
+    types --> wire
     physics --> config
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config active;
+    class types,physics,layout,config,wire active;
 ```
 
 ---
@@ -43,6 +45,7 @@ graph TD
 |-------|--------------|--------|------------|
 | `layout` | [layout_spec.md](spec_L1/layout_spec.md) | **Draft v2.0** | C-ABI макеты физической памяти (`VariantParameters`), выравнивание плоскостей SoA и заголовки файлов. |
 | `config` | [config_spec.md](spec_L1/config_spec.md) | **Draft v2.0** | Serde/TOML DTO, парсинг и "Shift-Left" валидация DSL (`model.toml`, `department.toml`, `shard.toml`). |
+| `wire` | [wire_spec.md](spec_L1/wire_spec.md) | **Draft v2.0** | C-ABI структуры сетевых и IPC пакетов, magic-константы, выравнивание, Little-Endian политика и `no-alloc` хелперы. |
 
 ---
 
