@@ -103,8 +103,12 @@ model.toml                                 # Корневой конфигура
 
 | Поле | Тип данных | Обязательность | Описание |
 |---|---|---|---|
-| `from` | String | Required | Точка отправления в формате `DepartmentName.ShardName.SocketName`. `[Tier: Baker resolver / ABI checks]` |
-| `to` | String | Required | Точка назначения в формате `DepartmentName.ShardName.SocketName`. `[Tier: Baker resolver / ABI checks]` |
+| `id` | String | Recommended *(Target extension)* | Стабильный уникальный идентификатор соединения (`stable connection id/ref`). Используется для привязки геометрии трактов. *(Требует обновления Rust Serde схемы)* |
+| `from` | String | Required | Точка отправления в формате `DepartmentName.ShardName.SocketName`. Человекочитаемый путь эндпоинта. `[Tier: Baker resolver / ABI checks]` |
+| `to` | String | Required | Точка назначения в формате `DepartmentName.ShardName.SocketName`. Человекочитаемый путь эндпоинта. `[Tier: Baker resolver / ABI checks]` |
+
+> [!NOTE]
+> Строки `from` и `to` хранят человекочитаемые пути эндпоинтов (`human-readable endpoint paths`). Физическая геометрия трактов привязывается исключительно к стабильному идентификатору соединения (`id` / `ref`).
 
 ---
 
@@ -125,8 +129,9 @@ model.toml                                 # Корневой конфигура
 
 | Поле | Тип данных | Обязательность | Описание |
 |---|---|---|---|
-| `from` | String | Required | Исходящий сокет в формате `ShardName.SocketName`. Должен состоять строго из 2 частей. `[Tier: Rust Validator]` |
-| `to` | String | Required | Входящий сокет в формате `ShardName.SocketName`. Должен состоять строго из 2 частей. `[Tier: Rust Validator]` |
+| `id` | String | Recommended *(Target extension)* | Стабильный уникальный идентификатор соединения (`stable connection id/ref`). Используется для привязки геометрии трактов. *(Требует обновления Rust Serde схемы)* |
+| `from` | String | Required | Исходящий сокет в формате `ShardName.SocketName`. Должен состоять строго из 2 частей. Человекочитаемый путь. `[Tier: Rust Validator]` |
+| `to` | String | Required | Входящий сокет в формате `ShardName.SocketName`. Должен состоять строго из 2 частей. Человекочитаемый путь. `[Tier: Rust Validator]` |
 
 ---
 
@@ -247,7 +252,7 @@ model.toml                                 # Корневой конфигура
 
 ## 7. Грамматика путей соединений (Connection Grammar)
 
-Связи сокетов маршрутизируются в секциях `[[connections]]` в `department.toml` или `model.toml`. Внешние порты ввода-вывода (`[[ports]]`) взаимодействуют по сети напрямую и **не описываются** в `[[connections]]`.
+Связи сокетов маршрутизируются в секциях `[[connections]]` в `department.toml` или `model.toml`. Внешние порты ввода-вывода (`[[ports]]`) взаимодействуют по сети напрямую и **не описываются** в `[[connections]]`. Строки `from` и `to` задают человекочитаемые пути эндпоинтов, в то время как привязка вынесенной геометрии трактов осуществляется через стабильный `id` (`stable connection id/ref`).
 
 ### 7.1 Адресация в department.toml (Внутренние связи)
 Адресует сокеты внутри одного департамента.
@@ -413,4 +418,5 @@ entry_z = "Top"
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-06-28 | Синхронизация схемы TOML с архитектурными решениями: зафиксировано отдельное хранение детальной геометрии трактов (dedicated storage), стабильные connection id/refs, системный тип `white_matter` и `insta-connect` route mode. |
 | 2026-06-27 | Создание спецификации канонической TOML-схемы Axicor (TOML Schema Spec). Описаны структуры и правила десериализации, Connection grammar, Validation Tiers, различие name/id, а также канонические TOML-примеры с учетом table scopes. |
