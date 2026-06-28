@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 1.9 | Дата: 2026-06-29
+> Версия: 2.0 | Дата: 2026-06-29
 
 ---
 
@@ -21,18 +21,23 @@ graph TD
         ipc["ipc (v2.0)"]
         vfs["vfs (v2.0)"]
     end
+    subgraph L3["Слой 3"]
+        compute_api["compute-api (v2.0)"]
+    end
 
     types --> layout
     types --> config
     types --> wire
     types --> ipc
     types --> vfs
+    types --> compute_api
     physics --> config
     layout --> ipc
     wire --> ipc
+    layout --> compute_api
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api active;
 ```
 
 ---
@@ -61,6 +66,12 @@ graph TD
 |-------|--------------|--------|------------|
 | `ipc` | [ipc_spec.md](spec_L2/ipc_spec.md) | **Draft v2.0** | Жизненный цикл SHM/mmap, атомарные переходы Ночной Фазы (CAS), двойной буфер Swapchain и изоляция OS системных вызовов. |
 | `vfs` | [vfs_spec.md](spec_L2/vfs_spec.md) | **Draft v2.0** | Контейнерный формат `.axic`, оглавление TOC, Read-Only mmap отображение, нормализация путей и примитивы экстракции. |
+
+### Слой 3 (Layer 3: Hardware Acceleration & Compute Abstraction)
+
+| Крейт | Спецификация | Статус | Назначение |
+|-------|--------------|--------|------------|
+| `compute-api` | [compute_api_spec.md](spec_L3/compute_api_spec.md) | **Draft v2.0** | Аппаратно-независимый HAL контракт бэкендов вычислений (`ComputeBackend`), непрозрачные VRAM handles и DTO команд. |
 
 ---
 
