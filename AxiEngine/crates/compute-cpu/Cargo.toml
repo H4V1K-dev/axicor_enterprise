@@ -1,0 +1,19 @@
+[package]
+name = "compute-cpu"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "compute_cpu"
+path = "src/lib.rs"
+
+[dependencies]
+compute-api = { path = "../compute-api" }
+types = { path = "../types" }
+physics = { path = "../physics" }
+layout = { path = "../layout" }
+rayon = "=1.11.0"
+bytemuck = "=1.25.0"
+
+[dev-dependencies]
+static_assertions = "=1.1.0"
