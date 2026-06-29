@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 3.0 | Дата: 2026-06-29
+> Версия: 3.1 | Дата: 2026-06-29
 
 ---
 
@@ -36,6 +36,9 @@ graph TD
         edge_model["edge-model (v2.0)"]
         weaver_daemon["weaver-daemon (v2.0)"]
     end
+    subgraph L5["Слой 5"]
+        protocol["protocol (v2.0)"]
+    end
 
     types --> layout
     types --> config
@@ -51,6 +54,7 @@ graph TD
     types --> baker
     types --> edge_model
     types --> weaver_daemon
+    types --> protocol
     physics --> config
     physics --> compute_cpu
     physics --> compute_cuda
@@ -58,6 +62,7 @@ graph TD
     physics --> baker
     layout --> ipc
     wire --> ipc
+    wire --> protocol
     layout --> compute_api
     layout --> test_harness
     layout --> topology
@@ -82,7 +87,7 @@ graph TD
     compute_cpu --> test_harness
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker,baker_cli,edge_model,weaver_daemon active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker,baker_cli,edge_model,weaver_daemon,protocol active;
 ```
 
 ---
@@ -132,6 +137,13 @@ graph TD
 | `baker-cli` | [baker_cli_spec.md](spec_L4/baker_cli_spec.md) | **Draft v2.0** | Консольная утилита и sidecar-интерфейс для запуска `baker`, вывода отчетов/прогресса и управления флагами. |
 | `edge-model` | [edge_model_spec.md](spec_L4/edge_model_spec.md) | **Draft v2.0** | Оффлайн-конвертор десктопных моделей в edge-артефакты (WTA top-K срез, разделение SRAM/Flash, MMU padding). |
 | `weaver-daemon` | [weaver_daemon_spec.md](spec_L4/weaver_daemon_spec.md) | **Draft v2.0** | Изолированный OS-процесс Ночной Фазы (прунинг, спраутинг, столбовое уплотнение SoA в SHM). |
+
+### Слой 5 (Layer 5: Network Stack)
+`no_std`, 0 аллокаций.
+
+| Крейт | Спецификация | Статус | Назначение |
+|---|---|---|---|
+| `protocol` | [protocol_spec.md](spec_L5/protocol_spec.md) | **Draft v2.0** | Stateless-парсер L7, нарезка/сборка спайковых чанков (`no_std`, zero-alloc) и валидация эпох. |
 
 ---
 
