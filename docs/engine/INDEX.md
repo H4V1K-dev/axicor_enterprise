@@ -10,10 +10,10 @@
 graph TD
     subgraph L0["Слой 0"]
         types["types (v2.2)"]
-        physics["physics (v2.0)"]
+        physics["physics (v2.2)"]
     end
     subgraph L1["Слой 1"]
-        layout["layout (v2.0)"]
+        layout["layout (v2.2)"]
         config["config (v2.0)"]
         wire["wire (v2.0)"]
     end
@@ -129,13 +129,13 @@ graph TD
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `types` | [types_spec.md](spec_L0/types_spec.md) | **Approved v2.2** | Атомарные типы (`Tick`, `Voltage`), packed ABI (`PackedPosition`, `PackedTarget`, `SomaFlags`), seed/hash, константы. |
-| `physics` | [physics_spec.md](spec_L0/physics_spec.md) | **Draft v2.0** | Математика GLIF, AHP, homeostasis, Active Tail, GSOP, DDS heartbeat, `v_seg`. |
+| `physics` | [physics_spec.md](spec_L0/physics_spec.md) | **Approved v2.2 / Implemented** | Математика GLIF, AHP, homeostasis, Active Tail, GSOP, DDS heartbeat, `v_seg`. |
 
 ### Слой 1 (Layer 1: Data Contracts & Deserialization)
 
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
-| `layout` | [layout_spec.md](spec_L1/layout_spec.md) | **Draft v2.0** | C-ABI макеты физической памяти (`VariantParameters`), выравнивание плоскостей SoA и заголовки файлов. |
+| `layout` | [layout_spec.md](spec_L1/layout_spec.md) | **Approved v2.2** | C-ABI макеты физической памяти (`VariantParameters`), выравнивание плоскостей SoA и заголовки файлов. |
 | `config` | [config_spec.md](spec_L1/config_spec.md) | **Draft v2.0** | Serde/TOML DTO, парсинг и "Shift-Left" валидация DSL (`model.toml`, `department.toml`, `shard.toml`). |
 | `wire` | [wire_spec.md](spec_L1/wire_spec.md) | **Draft v2.0** | C-ABI структуры сетевых и IPC пакетов, magic-константы, выравнивание, Little-Endian политика и `no-alloc` хелперы. |
 

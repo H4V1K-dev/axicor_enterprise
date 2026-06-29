@@ -252,14 +252,14 @@
 
 ### REV-LAYOUT-003: Магическая сигнатура `.paths` и эндианность
 - **ID**: REV-LAYOUT-003
-- **Status**: Open
+- **Status**: Resolved (layout v2.2)
 - **Priority**: P2
 - **Owner candidate**: `layout`
-- **Source**: [layout_spec.md](./spec_L1/layout_spec.md#L335) (§10.3)
+- **Source**: [layout_spec.md](./spec_L1/layout_spec.md#L268) (§7.3)
 - **Question / Problem**: Сигнатура magic для `.paths` задана как число `u32 = 0x50415448` (`"PATH"`). При записи на LE платформах байты записаны как `"HTAP"`.
 - **Why it matters**: Затрудняет сторонний бинарный анализ и вызывает ошибки парсинга заголовка.
 - **Affected specs**: [layout_spec.md](./spec_L1/layout_spec.md)
-- **Notes**: Привести все magic сигнатуры в заголовках к типу байтового массива `[u8; 4]` (`*b"PATH"`).
+- **Notes**: Привести все magic сигнатуры в заголовках к типу байтового массива `[u8; 4]` (`*b"AXPT"`).
 
 ### REV-NET-009: Замена устаревших префиксов `axi-` на имя workspace
 - **ID**: REV-NET-009
@@ -446,39 +446,32 @@
 *Source items: 7 / Registered items: 7*
 
 - **REV-LAYOUT-001**: Единый квант выравнивания `PADDED_N_ALIGNMENT`
-  - *Status*: Open | *Priority*: P0 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L332)
-  - *Question / Problem*: - *Контекст*: CUDA использует варп в 32 потока, HIP — в 64 потока.
-    - *Вопрос*: Фиксируется ли `PADDED_N_ALIGNMENT = 64` как единый межплатформенный стандарт для всех бэкендов?
+  - *Status*: Resolved (layout v2.2) | *Priority*: P0 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L208)
+  - *Decision*: Утвержден единый стандарт Per-Plane 64B Alignment (`PADDED_N_ALIGNMENT = 64`). Первая плоскость выравнивается по 64B (off_voltage = 64), смещение off_targets составляет строго 960B для padded_n = 64. Альтернативный плотный блок (896B) аннулирован.
 
 - **REV-LAYOUT-002**: Монопольное владение `ShardVramPtrs` (`layout` vs `compute-api`)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L336)
-  - *Question / Problem*: - *Контекст*: Сейчас DTO указателей `ShardVramPtrs` объявлен в `compute-api`/`ffi.rs`, но является чистым контрактом макета памяти.
-    - *Вопрос*: Переносится ли объявление `ShardVramPtrs` в `layout` для полного сосредоточения C-ABI макетов в одном месте?
+  - *Status*: Resolved (layout v2.2) | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L158)
+  - *Decision*: C-ABI DTO указателей `ShardVramPtrs` перенесено под монопольное владение `layout`.
 
 - **REV-LAYOUT-003**: Магические константы бинарных файлов
-  - *Status*: Open | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L340)
-  - *Question / Problem*: - *Контекст*: Легаси заголовки используют сигнатуры `"GSNS"`, `"GSAX"`, `"PATH"` (наследие Genesis/Axicor).
-    - *Вопрос*: Требуется ли обновить сигнатуры на новые стандарты `AxiEngine` (например, `"AXST"`, `"AXAX"`, `"AXPT"`)?
+  - *Status*: Resolved (layout v2.2) | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L248)
+  - *Decision*: Сигнатуры заголовков стандартизированы как байтовые массивы `[u8; 4]`: `*b"AXST"`, `*b"AXAX"`, `*b"AXPT"`.
 
 - **REV-LAYOUT-004**: Коллизия `EMPTY_PIXEL = 0xFFFF_FFFF` в массиве таргетов
-  - *Status*: Open | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L344)
-  - *Question / Problem*: - *Контекст*: Массив `dendrite_targets` хранит `PackedTarget`. Нулевое значение обозначает `None`.
-    - *Вопрос*: Как семантически обрабатывается маркер `EMPTY_PIXEL` в плоскости таргетов приEarly Exit на GPU?
+  - *Status*: Resolved (layout v2.2) | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L192)
+  - *Decision*: Синхронизировано с `types v2.2`. Вычислительные ядра проверяют неактивность слота через предикат `PackedTarget::is_inactive()`.
 
 - **REV-LAYOUT-005**: Размещение отладочной структуры `EphysShm`
-  - *Status*: Open | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L348)
-  - *Question / Problem*: - *Контекст*: Структура `EphysShm` (640 КБ) находится в `layout`.
-    - *Вопрос*: Сохраняется ли она в `layout` или переносится в `ipc` / `test-harness`?
+  - *Status*: Resolved (layout v2.2) | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L65)
+  - *Decision*: Отладочная структура `EphysShm` вынесена под монопольное владение `ipc` / `test-harness`.
 
 - **REV-LAYOUT-006**: Состав `.state` дампа (Day Hot vs Night State)
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `layout` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L352)
-  - *Question / Problem*: - *Контекст*: Сейчас `.state` содержит только горячие массивы Дневной Фазы.
-    - *Вопрос*: Должен ли файл состояния включать специфичные для Ночной Фазы структуры?
+  - *Status*: Resolved (layout v2.2) | *Priority*: P1 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L182)
+  - *Decision*: Файл `.state` содержит строго 8 горячих SoA-плоскостей Дневной Фазы.
 
 - **REV-LAYOUT-007**: Несоответствие сентинеля аксона в legacy-комментариях
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `layout` | *Duplicate Of*: REV-IPC-001 | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L356)
-  - *Question / Problem*: - *Контекст*: В старых комментариях споутинга встречалась запись `AXON_SENTINEL = 0xFFFFFFFF`.
-    - *Вопрос*: Подтверждается ли окончательное аннулирование этой записи в пользу официального `AXON_SENTINEL = 0x80000000` из `types v2.1`?
+  - *Status*: Resolved (layout v2.2) | *Priority*: P1 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L153)
+  - *Decision*: Аннулирована устаревшая запись `0xFFFFFFFF`. Единственным стандартом зафиксирован `AXON_SENTINEL = 0x8000_0000` из `types v2.2`.
 
 #### [wire_spec.md](./spec_L1/wire_spec.md)
 *Source items: 6 / Registered items: 6*
