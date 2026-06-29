@@ -1,0 +1,18 @@
+[package]
+name = "compute-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "compute_api"
+
+[dependencies]
+types = { path = "../types" }
+layout = { path = "../layout" }
+
+[dev-dependencies]
+static_assertions = "=1.1.0"
+
+[features]
+default = []
+std = []

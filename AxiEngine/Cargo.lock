@@ -23,6 +23,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compute-api"
+version = "0.1.0"
+dependencies = [
+ "layout",
+ "static_assertions",
+ "types",
+]
+
+[[package]]
 name = "layout"
 version = "0.1.0"
 dependencies = [
