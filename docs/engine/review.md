@@ -1,145 +1,1218 @@
-# AxiEngine — Реестр Замечаний и Вопросов для Ревью (`review.md`)
+# AxiEngine — Единый Рабочий Реестр Замечаний, Вопросов и Архитектурного Долга (`review.md`)
 
-> Версия: 1.3 | Дата: 2026-06-29  
-> Данный документ предназначен для фиксации математических, структурных и логических неоднозначностей, выявленных в процессе составления спецификаций, для последующего анализа и доработки.
-
----
-
-## §1. Модуль Физики (`physics_spec.md`)
-
-### 1. Magnetic Sentinel: Подозрение на математическую ошибку в формуле
-- **Контекст**: В [physics_spec.md](spec_L0/physics_spec.md#L128) указана формула побитовой проверки `((h ^ AXON_SENTINEL) >= v_seg)`.
-- **Проблема**: Эта формула не измеряет фактическое расстояние до сентинеля (`0x80000000`). Например, при $h = \text{0x7FFFFFFF}$ и $v_{\text{seg}} = 2$ предикат возвращает `true` ($\text{0x7FFFFFFF} \oplus \text{0x80000000} = \text{0xFFFFFFFF} \ge 2$), и следующий шаг $h + v_{\text{seg}}$ даст $\text{0x80000001}$, то есть как раз происходит перепрыгивание сентинеля с образованием «зомби-спайка».
-- **Действие**: Оставить данный вопрос в статусе Open. Не утверждать эту формулу как базовое правило, требуется перепроверка корректной метрики дистанции до `AXON_SENTINEL`.
-
-### 2. Adaptive Leak: Потерян clamp к нулю
-- **Контекст**: В [physics_spec.md](spec_L0/physics_spec.md#L151) формула расчёта сдвига утечки выглядит как `current_shift = max(new_shift, adaptive_leak_min_shift)`.
-- **Проблема**: Параметр `adaptive_leak_min_shift` в AxiCAD/TOML допускает отрицательные значения (вплоть до `-5`). В legacy-реализации после этого выполнялся второй clamp: `max(new_shift, 0)`. Без второго clamp сдвиг может стать отрицательным в целых числах, что ломает битовую алгебру сдвига (`>> current_shift`).
-- **Действие**: Вернуть явный второй clamp к `0` в формуле сдвига.
-
-### 3. GLIF Leak: Размыт порядок вычисления интеграции
-- **Контекст**: В [physics_spec.md](spec_L0/physics_spec.md#L153) расчёт утечки описан от исходного `voltage`.
-- **Проблема**: В legacy-реализации порядок операций другой: сначала к потенциалу прибавляется входящий ток (`current_voltage += i_in`), а уже затем рассчитывается разница с потенциалом покоя `diff = current_voltage - rest` и вычитается утечка.
-- **Действие**: Явно зафиксировать в спеке промежуточную величину интегрированного потенциала: $V_{\text{integrated}} = V_{\text{soma}} + I_{\text{in}}$, от которой затем рассчитывается $\Delta V_{\text{leak}}$.
-
-### 4. DDS Heartbeat: Период `period=1` не покрыт и не означает «каждый тик»
-- **Контекст**: В [physics_spec.md](spec_L0/physics_spec.md#L114) шаг фазы ограничен `heartbeat_m <= 65535` (`MAX_HEARTBEAT_M`), а предикат спайка вычисляется как `phase < heartbeat_m`.
-- **Проблема**: При `period=1` значение фазы $65535$ не вызовет спайк (`65535 < 65535` ложно), хотя legacy-документация определяет `period=1` как «генерация спайка каждый тик».
-- **Действие**: Требуется либо расширить лимит до `heartbeat_m = 65536` (что требует изменения типа фазы/маски), либо явно утвердить новую семантику для краев.
-
-### 5. Уточнение формулировки Branchless запрета vs Guard-инвариантов
-- **Контекст**: В [physics_spec.md](spec_L0/physics_spec.md#L198) запрещены условные ветвления `if/else`, зависящие от данных нейрона, а соседний инвариант требует начальной проверки `if (tid >= padded_n) return;`.
-- **Проблема**: Возникает кажущееся противоречие между абсолютным запретом `if` и аппаратными проверками границ VRAM.
-- **Действие**: Уточнить формулировку инварианта: проверки безопасности и досрочного выхода (Safety Guards / Early-Exit Guards по индексам потоков) полностью разрешены, а требование Branchless является обязательным для чистых математических примитивов, вычисления физики сомы и внутренней арифметики ядер.
-
-### 6. GSOP: Неопределенность промежуточных типов в математических формулах
-- **Контекст**: В [physics_spec.md](spec_L0/physics_spec.md#L201) операция `unsigned_abs()` возвращает беззнаковый тип `u32`, дельта $\Delta$ является знаковой, а формулы описывают их сложение без указания домена промежуточной точности.
-- **Проблема**: Прямое сложение знаковых и беззнаковых типов без приведения расширенной точности может вызывать неявное переполнение или неопределенность в типах.
-- **Действие**: Явно прописать в спеке приведение к промежуточному типу расширенной точности со знаком (например, `i64`), с последующим выполнением clamping в диапазон `0..MAX_WEIGHT_LIMIT` и восстановлением знака.
-
-### 7. Генерация алгоритмов для бэкендов вычислений из крейта `physics`
-- **Контекст**: Крейт `physics` является единым источником истины (Single Source of Truth) для физической математики симуляции (GLIF, AHP, homeostasis, GSOP, Active Tail).
-- **Проблема**: Ручная имплементация вычислительных ядер и алгоритмов в разных бэкендах вычислений (`compute-cpu`, `compute-cuda`, `compute-hip`) создает риск десинхронизации математики и требует дублирования логики на разных языках/API (Rust, CUDA C++, HIP C++).
-- **Действие**: Вынести на ревью вопрос о генерации алгоритмов и вычислительных примитивов для бэкендов непосредственно крейтом `physics` (через кодогенерацию, макросы или AOT-генерацию ядер), чтобы `physics` гарантированно оставался источником истины и производил сгенерированные алгоритмы для всех бэкендов.
+> Версия: 2.0 | Дата: 2026-06-29  
+> Данный документ является единым рабочим реестром вопросов и архитектурного долга, а не местом принятия финальных решений. Принятие решений происходит в процессе архитектурного ревью с последующим внесением изменений в целевые спецификации.
 
 ---
 
-## §2. Модуль Макетов Памяти (`layout_spec.md`)
+## §1. P0 Blockers (Критические Блокеры)
+*Критические расхождения и противоречия, без разрешения которых нельзя начинать кодинг базовых крейтов.*
 
-### 1. Двусмысленность раскладки `.state` блоба (Header vs State Payload Align)
-- **Контекст**: В [layout_spec.md](spec_L1/layout_spec.md) формулы смещений описывают файл с заголовком 16B и выравниванием плоскостей по 64B. В результате для `padded_n = 64` смещение `dendrite_targets` равно 960B. При этом в тексте параллельно упоминается 896B для плотного режима без падов.
-- **Проблема**: Нельзя оставлять два варианта смещений одновременно в одном документе. Если файл включает заголовок 16B, первый plane начинается с 64B, а если заголовок вынесен за пределы payload, то смещение начинается с 0B.
-- **Действие**: Выбрать один целевой стандарт смещений: либо заголовок хранится вне payload и отсчет смещений идет от 0B, либо заголовок входит в файл и первый plane выравнивается на 64B. Убрать двойственное чтение из спецификации и юнит-тестов.
+### REV-COMPUTE-API-001: Несоответствие имен методов аллокации/деаллокации VRAM в Layer 3
+- **ID**: REV-COMPUTE-API-001
+- **Status**: Open
+- **Priority**: P0
+- **Owner candidate**: `compute-api`
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L279) (§10.1) vs [compute_spec.md](./spec_L3/compute_spec.md#L213) (§9.1)
+- **Question / Problem**: Трейт `ComputeBackend` в `compute-api` объявляет методы `alloc_shard` и `free_shard`, тогда как фасад `ShardEngine` в `compute` использует имена `allocate_vram` и `teardown`. Разнобой в названиях мешает согласованной разработке API.
+- **Why it matters**: Приводит к невозможности компиляции фасада вычислений с бэкендами и блокирует разработку L3-крейтов.
+- **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_spec.md](./spec_L3/compute_spec.md), [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
+- **Notes**: Требуется привести названия к единому стандарту (`alloc_shard` / `free_shard` либо `allocate_vram` / `free_vram`) во всех слоях L3.
 
-### 2. Строгая типизация массива `lengths` в файле `.paths`
-- **Контекст**: В [layout_spec.md](spec_L1/layout_spec.md) массив длин аксонов описан как `lengths: [total_axons] u8 (or u32)`.
-- **Проблема**: Это жесткий бинарный дискретный контракт, здесь не может быть вариативности типов. Legacy-код считает `lengths_sz = total_axons`, то есть физически использует тип `u8`.
-- **Действие**: Явно зафиксировать один тип `u8` для массива `lengths` в спецификации формата `.paths`.
+### REV-TYPES-001: Коллизия маркерного таргета `EMPTY_PIXEL` и сырого `0` при Early Exit
+- **ID**: REV-TYPES-001
+- **Status**: Open
+- **Priority**: P0
+- **Owner candidate**: `types`
+- **Source**: [types_spec.md](./spec_L0/types_spec.md#L453) (§10.1) vs [physics_spec.md](./spec_L0/physics_spec.md#L288) (§8.8) vs [compute_api_spec.md](./spec_L3/compute_api_spec.md#L56) (§3)
+- **Question / Problem**: `types` определяет `EMPTY_PIXEL = 0xFFFF_FFFF` в качестве tombstone-маркера для обрезанных синапсов, а сырой `0` — как неинициализированный target. Но ядра `physics` и бэкенды `compute-cpu/cuda/hip` проверяют только `target == 0` для аппаратного Early Exit.
+- **Why it matters**: Ядра GPU/CPU будут выполнять бессмысленные математические операции над отброшенными синапсами со значением `EMPTY_PIXEL`, что приведет к фатальному падению производительности или расхождениям в симуляции.
+- **Affected specs**: [types_spec.md](./spec_L0/types_spec.md), [physics_spec.md](./spec_L0/physics_spec.md), [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
+- **Notes**: Утвердить политику двойной проверки (`target == 0 || target == EMPTY_PIXEL`) во всех бэкендах вычислений и физических ядрах.
 
-### 3. Риск перестановки байтов в Magic сигнатуре `.paths`
-- **Контекст**: В [layout_spec.md](spec_L1/layout_spec.md) сигнатура magic для `.paths` задана как число `u32 = 0x50415448` (`"PATH"`).
-- **Проблема**: При сериализации 32-битного числа в Little-Endian байты на диске запишутся в обратном порядке (`"HTAP"` / `[0x48, 0x54, 0x41, 0x50]`), а не `"PATH"`. Это потенциальная ловушка: юнит-тесты на одной платформе будут зелеными, но бинарный файл не прочитается сторонними загрузчиками.
-- **Действие**: Привести все magic сигнатуры в заголовках файлов к единому типу байтового массива `[u8; 4]` (`*b"PATH"`), либо явно зафиксировать порядок эндианности при бинарной записи.
+### REV-COMPUTE-CPU-001: Межспецификационный долг фабрики дескрипторов `VramHandle`
+- **ID**: REV-COMPUTE-CPU-001
+- **Status**: Open
+- **Priority**: P0
+- **Owner candidate**: `compute-api`
+- **Source**: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L199) (§11.1) vs [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L197) (§11.3) vs [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L207) (§11.4)
+- **Question / Problem**: `VramHandle` в `compute-api` имеет приватные поля и конструктор `pub(crate)`. Бэкенды `compute-cpu`, `compute-cuda` и `compute-hip` физически не могут инстанцировать `VramHandle` при аллокации буферов шарда.
+- **Why it matters**: Ни один вычислительный бэкенд не может вернуть валидный дескриптор аллоцированного шарда через trait `ComputeBackend`.
+- **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
+- **Notes**: Требуется предоставить фабричный метод `VramHandle::from_raw_parts(...)` с ограничением видимости для бэкендов или перенести создание в `compute-api`.
 
-### 4. Статус и волатильность DTO указателей `ShardVramPtrs`
-- **Контекст**: В [layout_spec.md](spec_L1/layout_spec.md) структура `ShardVramPtrs` вынесена в контракты `layout`.
-- **Проблема**: По своему назначению сырые указатели не являются персистентным макетом для сохранения на диск или монтирования через mmap. Сырые указатели `*mut T` не являются обычным POD-файлом.
-- **Действие**: Явно зафиксировать семантику `ShardVramPtrs` как `Volatile Runtime ABI Only` (временный рантайм-контракт адресации VRAM), разграничив его с постоянными дисковыми макетами файлов.
+### REV-LAYOUT-001: Двусмысленность раскладки `.state` блоба (Header vs State Payload Align)
+- **ID**: REV-LAYOUT-001
+- **Status**: Open
+- **Priority**: P0
+- **Owner candidate**: `layout`
+- **Source**: [layout_spec.md](./spec_L1/layout_spec.md#L330) (§10.1)
+- **Question / Problem**: В `layout_spec.md` формулы смещений описывают файл с заголовком 16B и выравниванием плоскостей по 64B. В результате для `padded_n = 64` смещение `dendrite_targets` равно 960B. При этом в тексте параллельно упоминается 896B для плотного режима без падов.
+- **Why it matters**: Вызывает расхождение в расчете смещений между юнит-тестами, валидатором `baker` и вычислительными бэкендами, приводя к чтению неверных областей памяти VRAM/RAM.
+- **Affected specs**: [layout_spec.md](./spec_L1/layout_spec.md), [baker_spec.md](./spec_L4/baker_spec.md), [compute_api_spec.md](./spec_L3/compute_api_spec.md)
+- **Notes**: Выбрать один целевой стандарт смещений: заголовок входит в файл и первый plane выравнивается на 64B.
 
-### 5. Отсутствие явной политики эндианности (Endianness Policy) в заголовках
-- **Контекст**: В спецификациях макетов файлов заголовки описывают числовые поля (`version`, `padded_n`, `total_axons`) без указания порядка байт.
-- **Проблема**: Поскольку `layout` определяет бинарные контракты файлов, отсутствие явной политики эндианности делает прямой дамп структур через `bytemuck` непереносимым между архитектурами (Big-Endian vs Little-Endian).
-- **Действие**: Закрепить единую политику Little-Endian (LE) для всех числовых полей бинарных заголовков и дампов, запретив сырой дамп структур вне LE-платформ без явного конвертирования.
+### REV-WIRE-001: Рассогласование полей `AxonHandoverEvent` с legacy-структурой
+- **ID**: REV-WIRE-001
+- **Status**: Open
+- **Priority**: P0
+- **Owner candidate**: `wire`
+- **Source**: [wire_spec.md](./spec_L1/wire_spec.md#L378) (§12.1)
+- **Question / Problem**: В `wire_spec.md` структура `AxonHandoverEvent` описана 5 полями `u32`. В legacy-коде используется оригинальный набор полей (`entry_x/y/z`, `vector_x/y/z`, `type_mask`, `remaining_length`).
+- **Why it matters**: Ломает бинарную совместимость межшардовых пакетов спайков и передачи аксонов по сети.
+- **Affected specs**: [wire_spec.md](./spec_L1/wire_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [protocol_spec.md](./spec_L5/protocol_spec.md)
+- **Notes**: Сохранить оригинальный legacy-набор полей с атрибутом `#[repr(C)]` и явным `_padding` до 20 байт.
+
+### REV-WEAVER-001: Отсутствие экспорта типов Weaver-сообщений для Runtime
+- **ID**: REV-WEAVER-001
+- **Status**: Open
+- **Priority**: P0
+- **Owner candidate**: `ipc`
+- **Source**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L276) (§11.4) vs [runtime_spec.md](./spec_L6/runtime_spec.md#L479) (§8)
+- **Question / Problem**: Крейт `weaver-daemon` собирается как исполняемый бинарный файл (`bin`) и не экспортирует библиотечную публичную API-часть. Однако `runtime` обязан формировать и отправлять структуры `WeaverJobRequest`, `WeaverReport` и `WeaverGrowthContext` по IPC.
+- **Why it matters**: `runtime` не может импортировать типы сообщений Weaver, что делает невозможным сборку L6 процесса.
+- **Affected specs**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [ipc_spec.md](./spec_L2/ipc_spec.md)
+- **Notes**: Перенести DTO-структуры сообщений в крейт `ipc` (Layer 2) или в новый интерфейсный крейт `weaver-api`.
 
 ---
 
-## §3. Модуль Конфигурации и Десериализации (`config_spec.md`)
+## §2. P1 Architecture Decisions (Архитектурные Решения)
+*Архитектурные узлы и границы владения, влияющие на несколько спецификаций и требующие согласования перед генерацией кода.*
 
-### 1. Делегирование формулы `v_seg` в крейт `physics`
-- **Контекст**: В [config_spec.md](spec_L1/config_spec.md#L215) описана формула вычисления $v_{\text{seg}}$, дублирующая математику из [physics_spec.md](spec_L0/physics_spec.md#L100).
-- **Проблема**: Нарушение границ владения (Ownership Boundaries). Крейт `config` не должен самостоятельно дублировать физические уравнения деривации.
-- **Действие**: Вызывать в валидаторе `config` функцию `physics::compute_v_seg(...)` из `physics`, полностью делегировав проверку дискретного шага сигналу оригинальной физической библиотеке.
+### REV-NET-001: Монопольное владение идентификаторами нод и зон
+- **ID**: REV-NET-001
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `net`
+- **Source**: [net_spec.md](./spec_L5/net_spec.md#L348) (§9.1)
+- **Question / Problem**: Идентификаторы `NodeId` и `ZoneId` используются в `topology`, `baker`, `net`, `protocol` и `boot`. Не зафиксирован единый крейт-владелец их десериализации и валидации.
+- **Why it matters**: Риск дублирования типов и десинхронизации бинарного представления сеток нод.
+- **Affected specs**: [net_spec.md](./spec_L5/net_spec.md), [topology_spec.md](./spec_L4/topology_spec.md), [types_spec.md](./spec_L0/types_spec.md)
+- **Notes**: Закрепить владение типами идентификаторов за `types` или `net`.
 
-### 2. Усиление Serde-защиты типа `EntryZ`
-- **Контекст**: В DTO-структурах `SocketConfig` и `PortConfig` в [config_spec.md](spec_L1/config_spec.md#L174) поле высотной привязки задано как `Option<String>`.
-- **Проблема**: Использование сырой строки `String` вместо строгой типизации ослабляет Serde-валидацию на этапе парсинга.
-- **Действие**: Изменить тип полей в DTO на `Option<EntryZ>`, где `EntryZ` — строгое перечисление (`"Top"`, `"Mid"`, `"Bottom"`).
+### REV-NET-002: Первичный источник конфигурации MTU
+- **ID**: REV-NET-002
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `net`
+- **Source**: [net_spec.md](./spec_L5/net_spec.md#L352) (§9.2) vs [protocol_spec.md](./spec_L5/protocol_spec.md#L265) (§10.8) vs [transport_spec.md](./spec_L5/transport_spec.md#L277) (§10.2)
+- **Question / Problem**: MTU используется как в `protocol` (для L7-фрагментации), так и в `transport` (для размера сокетных буферов). Не ясно, кто вычисляет итоговый рабочий MTU.
+- **Why it matters**: Несогласованный MTU приводит к повторной фрагментации на уровне IP или отбрасыванию пакетов сокетами (`DatagramTruncated`).
+- **Affected specs**: [net_spec.md](./spec_L5/net_spec.md), [protocol_spec.md](./spec_L5/protocol_spec.md), [transport_spec.md](./spec_L5/transport_spec.md)
+- **Notes**: Зафиксировать, что `net` вычисляет эффективный MTU на базе профиля маршрута и передает его в `protocol` и `transport`.
 
-### 3. Разграничение Serde Range Rejection и Runtime ValidationError
-- **Контекст**: В юнит-тестах валидации указывались проверки диапазона `u8` (например, `synapse_refractory_period <= 255`, `d1_affinity <= 255`).
-- **Проблема**: В Rust тип `u8` физически не может хранить значение `256`. Если передать `256` в TOML, это вызовет ошибку десериализации на уровне Serde (`Serde Range Rejection`), а не ошибку рантайм-валидатора `ValidationError`.
-- **Действие**: Переформулировать юнит-тесты и описания в спецификации, четко разграничив ошибки Serde-парсинга типов и логические проверки `ValidationError`.
+### REV-COMPUTE-API-002: Владение закрепленной хозяйской памятью (Pinned Host Buffers Ownership)
+- **ID**: REV-COMPUTE-API-002
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `compute-api`
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L281) (§10.2) vs [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L201) (§11.4) vs [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L211) (§11.5)
+- **Question / Problem**: Для высокоскоростного H2D/D2H обмена через DMA требуется закрепленная память (`cudaHostAlloc` / `hipHostMalloc`). Не зафиксировано, кто отвечает за аллокацию и удержание этих буферов — `layout`, `vfs` или `compute-api`.
+- **Why it matters**: Аллокация обычного выравненного слайса вместо Pinned RAM снижает скорость PCIe-трансфера в 2-3 раза.
+- **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md), [test_harness_spec.md](./spec_L3/test_harness_spec.md)
+- **Notes**: Закрепить утилиты аллокации pinned буферов за `compute-api` / `vfs`.
 
-### 4. Размещение полей и статус теста `initial_synapse_weight`
-- **Контекст**: Поле `initial_synapse_weight` внесено в обязательные юнит-тесты в [config_spec.md](spec_L1/config_spec.md#L325).
-- **Проблема**: Данное поле находится в открытых вопросах (§15), так как в текущей TOML-схеме `NeuronType` для него не выделена конкретная секция (`gsop` или `membrane`).
-- **Действие**: Перенести проверку `initial_synapse_weight` из матрицы обязательных golden tests в категорию Review Debt до финальной фиксации ее TOML-секции.
+### REV-COMPUTE-API-003: Синхронный vs асинхронный пакетный режим выполнения (Sync vs Async Batch Execution)
+- **ID**: REV-COMPUTE-API-003
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `compute-api`
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L285) (§10.3) vs [compute_spec.md](./spec_L3/compute_spec.md#L225) (§9.4)
+- **Question / Problem**: Метод `step_batch` в `ComputeBackend` блокирует вызывающий поток до завершения тика GPU. Не определен стандартизированный асинхронный контракт с использованием CUDA/HIP streams и событий (`cudaEvent`).
+- **Why it matters**: Блокирующий вызов препятствует перекрытию вычислений ядра GPU и сетевого I/O.
+- **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_spec.md](./spec_L3/compute_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md)
+- **Notes**: Вынести проектирование асинхронного `submit_batch` / `poll_completion` во второй проход L3 API.
 
-### 5. Разделение локальной валидации файлов и графа связей
-- **Контекст**: Вызов `validate_department()` проверяет строки соединений `from` и `to`.
-- **Проблема**: Локальный валидатор `config` может проверить только синтаксический формат эндпоинта (`Shard.Socket`), но не может верифицировать физическое существование целевых шардов без загрузки сторонних файлов `shard.toml`.
-- **Действие**: Явно разграничить ответственность: `validate_department()` выполняет строго локальную синтаксическую проверку строки, а построение полнотекстового межшардового графа и проверка существования сокетов делегируются компилятору `baker`.
+### REV-COMPUTE-004: Модель инициализации воркеров и Thread-Affinity GPU контекста
+- **ID**: REV-COMPUTE-004
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `compute`
+- **Source**: [compute_spec.md](./spec_L3/compute_spec.md#L217) (§9.2) vs [boot_spec.md](./spec_L6/boot_spec.md#L354) (§8.4) vs [runtime_spec.md](./spec_L6/runtime_spec.md#L483) (§8.3) vs [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L205) (§11.5)
+- **Question / Problem**: Не зафиксирован выбор между Моделью А (Send: создание контекста в boot с передачей воркеру) и Моделью B (Thread-Affine: создание GPU-контекста строго внутри выделенного потока воркера).
+- **Why it matters**: В CUDA/HIP контекст привязан к потоку OS (thread-affinity). Передача дескриптора между потоками без `cuCtxMigrateCurrent` вызывает аварийный сбой CUDA_ERROR_INVALID_CONTEXT.
+- **Affected specs**: [compute_spec.md](./spec_L3/compute_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
+- **Notes**: Рекомендована Модель B (Thread-Affine инициализация).
 
-### 6. Регулярное выражение грамматики имен сущностей (`Regex Name Validation`)
-- **Контекст**: Имена сущностей (`name`) проверялись только на уникальность.
-- **Проблема**: Попадание точки `.` или пустой строки в `name` ломает парсинг путей эндпоинтов в грамматике связей (`Department.Shard.Socket`).
-- **Действие**: Зафиксировать обязательную валидацию всех доменных имен по регулярному выражению `^[a-zA-Z0-9_-]+$`.
+### REV-IPC-001: Разделение владения C-ABI структурами SHM (`ShmHeader`, `ShmState`, `EphysShm`)
+- **ID**: REV-IPC-001
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `layout`
+- **Source**: [ipc_spec.md](./spec_L2/ipc_spec.md#L257) (§12.1) vs [boot_spec.md](./spec_L6/boot_spec.md#L353) (§8.3) vs [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L264) (§11.1)
+- **Question / Problem**: Спецификация `ipc` описывает C-ABI структуры разделяемой памяти (`ShmHeader`, `ShmState`, `EphysShm`), но по общей архитектурной конвенции все бинарные layouts должны владеться крейтом `layout`.
+- **Why it matters**: Размытие границ владения приводит к дублированию DTO структур между `layout` и `ipc`.
+- **Affected specs**: [ipc_spec.md](./spec_L2/ipc_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
+- **Notes**: Перенести бинарные описания структур заголовков в `layout`, а в `ipc` оставить управление жизненным циклом и кольцевыми буферами.
 
-### 7. Полнота проверок ссылок на типы клеток (`target_type` и `dendrite_whitelist`)
-- **Контекст**: Проверка ссылок на типы клеток в [config_spec.md](spec_L1/config_spec.md#L284) ранее явно описывалась только для пинов.
-- **Проблема**: Поля `SocketConfig.target_type` и `growth.dendrite_whitelist` также ссылаются на типы нейронов и могут вызывать Silent Data Corruption, если укажут на несуществующий тип.
-- **Действие**: Добавить обязательную проверку существования целевых типов в `neuron_types` для полей `SocketConfig.target_type` и `growth.dendrite_whitelist` при валидации шарда.
+### REV-TOPOLOGY-001: Владение и разметка артефактов Ghost-связей (`.gxi`, `.gxo`, `.ghosts`)
+- **ID**: REV-TOPOLOGY-001
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `layout` / `topology`
+- **Source**: [topology_spec.md](./spec_L4/topology_spec.md#L237) (§11.1) vs [boot_spec.md](./spec_L6/boot_spec.md#L352) (§8.2) vs [baker_spec.md](./spec_L4/baker_spec.md#L247) (§11.2)
+- **Question / Problem**: Архитектурный слой и крейт-владелец для спек бинарных файлов `.gxi`, `.gxo` и `.ghosts` размыт между `layout` (структуры) и `topology` / `baker` (алгоритмы).
+- **Why it matters**: Затрудняет реализацию загрузчика `boot` и генератора артефактов `baker`.
+- **Affected specs**: [topology_spec.md](./spec_L4/topology_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [baker_spec.md](./spec_L4/baker_spec.md)
+- **Notes**: Зафиксировать бинарную разметку файлов в `layout`, а алгоритмы построения графа — в `topology`.
+
+### REV-COMPUTE-API-004: Точный состав полезной нагрузки `BatchResult`
+- **ID**: REV-COMPUTE-API-004
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `compute-api`
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L289) (§10.4) vs [runtime_spec.md](./spec_L6/runtime_spec.md#L481) (§8.1) vs [test_harness_spec.md](./spec_L3/test_harness_spec.md#L200) (§10.2)
+- **Question / Problem**: `BatchResult` возвращает счетчик спайков и маску статуса, но не содержит ссылки на выходящие сетевые буферы сгенерированных спайков.
+- **Why it matters**: `runtime` не может извлечь адреса буферов спайков для отправки в `net`.
+- **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [net_spec.md](./spec_L5/net_spec.md), [test_harness_spec.md](./spec_L3/test_harness_spec.md)
+- **Notes**: Добавить в `BatchResult` срез или дескриптор подготовленного сетевого пакета спайков.
+
+### REV-TEST-001: API снимков состояния для тестового комплекса (Debug Snapshot API)
+- **ID**: REV-TEST-001
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `test-harness` / `compute-api`
+- **Source**: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L196) (§10.1)
+- **Question / Problem**: Тестовый комплекс требует чтение полного состояния VRAM (мембранные потенциалы, фазы, сдвиги) для пошагового сравнения с эталоном. В `ComputeBackend` такой метод отсутствует.
+- **Why it matters**: Без Snapshot API невозможно выполнять пошаговые интеграционные тесты детерминизма на GPU.
+- **Affected specs**: [test_harness_spec.md](./spec_L3/test_harness_spec.md), [compute_api_spec.md](./spec_L3/compute_api_spec.md)
+- **Notes**: Добавить в `ComputeBackend` опциональный метод `debug_snapshot(&self, handle: &VramHandle) -> Result<ShardStateSnapshot>`.
+
+### REV-PHYS-007: Генерация и верификация C++ зеркал из Rust-источников
+- **ID**: REV-PHYS-007
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `physics` / `layout`
+- **Source**: [physics_spec.md](./spec_L0/physics_spec.md#L286) (§8.7) vs [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L189) (§11.1) vs [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L199) (§11.2) vs [test_harness_spec.md](./spec_L3/test_harness_spec.md#L204) (§10.3)
+- **Question / Problem**: C++ заголовки CUDA/HIP ядер ручным образом дублируют Rust-структуры из `physics` и `layout`. Требуется автоматическая кодогенерация или статическая верификация размеров/смещений полей.
+- **Why it matters**: Любое изменение типов в Rust без обновления C++ файлов приведет к невидимому повреждению памяти в GPU ядер.
+- **Affected specs**: [physics_spec.md](./spec_L0/physics_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md), [test_harness_spec.md](./spec_L3/test_harness_spec.md)
+- **Notes**: Вынести вопрос разработки AOT-кодогенератора C++ зеркал на следующий архитектурный проход.
+
+### REV-CFG-004: Размещение параметра `initial_synapse_weight` в TOML
+- **ID**: REV-CFG-004
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `config`
+- **Source**: [config_spec.md](./spec_L1/config_spec.md#L325) (§15.4) vs [boot_spec.md](./spec_L6/boot_spec.md#L359) (§8.9) vs [baker_spec.md](./spec_L4/baker_spec.md#L255) (§11.4) vs [topology_spec.md](./spec_L4/topology_spec.md#L247) (§11.3)
+- **Question / Problem**: Поле `initial_synapse_weight` внесено в тесты валидации, но в схеме `NeuronType` для него не определена конкретная секция (`gsop` или `membrane`).
+- **Why it matters**: Парсер `config` отклоняет валидные файлы конфигурации нейросетей при отсутствии этого поля.
+- **Affected specs**: [config_spec.md](./spec_L1/config_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [baker_spec.md](./spec_L4/baker_spec.md), [topology_spec.md](./spec_L4/topology_spec.md)
+- **Notes**: Зафиксировать размещение `initial_synapse_weight` в секции `[neuron_types.gsop]`.
+
+### REV-BOOT-005: Точки интеграции boot/runtime/node при материализации сетевого рантайма
+- **ID**: REV-BOOT-005
+- **Status**: Open
+- **Priority**: P1
+- **Owner candidate**: `boot` / `node`
+- **Source**: [boot_spec.md](./spec_L6/boot_spec.md#L356) (§8.6) vs [node_spec.md](./spec_L6/node_spec.md#L368) (§8.2)
+- **Question / Problem**: Не определено, должен ли `boot` возвращать материализованный живой `NetRuntime` или только декларативный план `NetInitPlan` для последующей сборки в `node`.
+- **Why it matters**: Нарушает разделение ответственности между загрузчиком ресурсов (`boot`) и процессным оркестратором (`node`).
+- **Affected specs**: [boot_spec.md](./spec_L6/boot_spec.md), [node_spec.md](./spec_L6/node_spec.md), [net_spec.md](./spec_L5/net_spec.md)
+- **Notes**: Утвердить, что `boot` возвращает `NetInitPlan`, а материализацию выполняет `node`.
 
 ---
 
-## §4. Модуль Бинарных Сетевых Форматов (`wire_spec.md`)
+## §3. P2 Cleanup / Naming / Consistency (Чистка, Именования и Согласованность)
+*Согласование терминологии, названий типов, фиксирование версий зависимостей и мелкая чистка API.*
 
-### 1. Рассогласование полей `AxonHandoverEvent` с legacy-структурой
-- **Контекст**: В [wire_spec.md](spec_L1/wire_spec.md#L219) структура `AxonHandoverEvent` описана 5 полями `u32`.
-- **Проблема**: Замена реальной структуры на 5 обобщенных полей `u32` привела к потере важного оригинального набора полей (`entry_x/y/z`, `vector_x/y/z`, `type_mask`, `remaining_length`). Это критичное отклонение от бинарного контракта.
-- **Действие**: Сохранить оригинальный legacy набор полей с атрибутом `#[repr(C)]` и явным `_padding`. Физический размер структуры сохранится на уровне 20 байт без применения опасного `packed`.
+### REV-WIRE-006: Единая фиксация версии `bytemuck` в Cargo.toml
+- **ID**: REV-WIRE-006
+- **Status**: Open
+- **Priority**: P2
+- **Owner candidate**: `wire` / Workspace
+- **Source**: [wire_spec.md](./spec_L1/wire_spec.md#L390) (§12.6) vs [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L223) (§12.6) vs [baker_spec.md](./spec_L4/baker_spec.md#L259) (§11.5)
+- **Question / Problem**: В спецификациях версия `bytemuck = 1.25.0` указана как зафиксированная, но в разделах ревью тот же вопрос отмечен как находящийся на подтверждении.
+- **Why it matters**: Двойственность статуса фиксации внешней зависимости в документации workspace.
+- **Affected specs**: [wire_spec.md](./spec_L1/wire_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [types_spec.md](./spec_L0/types_spec.md), [baker_cli_spec.md](./spec_L4/baker_cli_spec.md), [baker_spec.md](./spec_L4/baker_spec.md)
+- **Notes**: Окончательно утвердить выбор версии `=1.25.0` в Workspace Cargo.toml и удалить данный пункт из открытых вопросов.
 
-### 2. Уточнение семантики барьерного пакета `SpikeBatchHeaderV2`
-- **Контекст**: В [wire_spec.md](spec_L1/wire_spec.md#L149) режим `total_chunks == 0 && chunk_idx == 0` описан как «Непустой Heartbeat».
-- **Проблема**: Условие `total_chunks == 0 && chunk_idx == 0` обозначает пустой heartbeat / ACK-like барьерный пакет, не содержащий полезной нагрузки (payload).
-- **Действие**: Скоректировать описание семантики в спецификации, явно зафиксировав отсутствие payload для данного барьерного пакета.
+### REV-NODE-006: Синхронизация версии библиотеки `tracing`
+- **ID**: REV-NODE-006
+- **Status**: Open
+- **Priority**: P2
+- **Owner candidate**: `node` / Workspace
+- **Source**: [node_spec.md](./spec_L6/node_spec.md#L372) (§8.6)
+- **Question / Problem**: Необходимость согласования и фиксации единой версии `tracing` / `tracing-subscriber` (`=0.1.40` / `=0.3.22`) на уровне всего workspace.
+- **Why it matters**: Предотвращает дублирование версий и конфликты с глобальным диспетчером логов Tracing.
+- **Affected specs**: [node_spec.md](./spec_L6/node_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
+- **Notes**: Зафиксировать единые версии в коренном `Cargo.toml`.
 
-### 3. Порядок байтов поля `new_ipv4` в `RouteUpdate`
-- **Контекст**: В [wire_spec.md](spec_L1/wire_spec.md#L187) поле `new_ipv4` описано как «в сетевом порядке» (Big-Endian).
-- **Проблема**: Общая политика спецификации требует единообразного Little-Endian (LE) формата для всех числовых полей пакетов. Возникает противоречие в представлении IP-адресов.
-- **Действие**: Выбрать один стандартизированный подход: либо объявлять поле как байтовый массив `new_ipv4: [u8; 4]`, либо явно зафиксировать `u32` LE со строгим правилом декодирования.
+### REV-PHYS-004: Крайние случаи DDS Heartbeat при `period=1`
+- **ID**: REV-PHYS-004
+- **Status**: Open
+- **Priority**: P2
+- **Owner candidate**: `physics`
+- **Source**: [physics_spec.md](./spec_L0/physics_spec.md#L280) (§8.4)
+- **Question / Problem**: При `period=1` значение фазы $65535$ не вызовет спайк (`65535 < 65535` ложно), хотя legacy-документация определяет `period=1` как генерацию спайка каждый тик.
+- **Why it matters**: Приводит к пропуску спайков генераторов при определенных настройках периода.
+- **Affected specs**: [physics_spec.md](./spec_L0/physics_spec.md), [config_spec.md](./spec_L1/config_spec.md)
+- **Notes**: Расширить лимит предиката либо утвердить специальную обработку `period=1`.
 
-### 4. Допуск хвостового мусора в `payload_slice`
-- **Контекст**: Функция-хелпер `payload_slice` возвращает срез при условии `packet.len() >= header_size + payload_size`.
-- **Проблема**: Для фиксированных пакетов (например, `ExternalIoHeader`) допуск лишних байтов в конце сетевого буфера позволяет хвостовому мусору проходить незамеченным без возбуждения ошибки валидации.
-- **Действие**: Ужесточить валидацию длины для фиксированных типов пакетов: требовать строгое равенство `packet.len() == header_size + payload_size`.
+### REV-LAYOUT-003: Магическая сигнатура `.paths` и эндианность
+- **ID**: REV-LAYOUT-003
+- **Status**: Open
+- **Priority**: P2
+- **Owner candidate**: `layout`
+- **Source**: [layout_spec.md](./spec_L1/layout_spec.md#L335) (§10.3)
+- **Question / Problem**: Сигнатура magic для `.paths` задана как число `u32 = 0x50415448` (`"PATH"`). При записи на LE платформах байты записаны как `"HTAP"`.
+- **Why it matters**: Затрудняет сторонний бинарный анализ и вызывает ошибки парсинга заголовка.
+- **Affected specs**: [layout_spec.md](./spec_L1/layout_spec.md)
+- **Notes**: Привести все magic сигнатуры в заголовках к типу байтового массива `[u8; 4]` (`*b"PATH"`).
 
-### 5. Избыточность кода ошибки `WireError::UnsupportedVersion`
-- **Контекст**: В перечислении `WireError` присутствует вариант `UnsupportedVersion`.
-- **Проблема**: Практически у всех текущих DTO сетевых пакетов отсутствует явное поле `version`, что делает обработку этой ошибки неиспользуемой в текущей версии формата.
-- **Действие**: Определить статус кода ошибки: либо явно пометить его как зарезервированный на будущее (`Reserved for future use`), либо исключить из текущей версии `WireError`.
+### REV-NET-009: Замена устаревших префиксов `axi-` на имя workspace
+- **ID**: REV-NET-009
+- **Status**: Open
+- **Priority**: P2
+- **Owner candidate**: `net`
+- **Source**: [net_spec.md](./spec_L5/net_spec.md#L23) (§2.1)
+- **Question / Problem**: `net_spec.md` ссылается на смежные модули с префиксом (например, `axi-types`, `axi-wire`), тогда как в остальной системе утверждены чистые имена (`types`, `wire`).
+- **Why it matters**: Несоответствие имен крейтов в документации и коде.
+- **Affected specs**: [net_spec.md](./spec_L5/net_spec.md)
+- **Notes**: Заменить все вхождения `axi-` в `net_spec.md` на канонические имена workspace.
 
-### 6. Неоднозначность статуса фиксации версии `bytemuck`
-- **Контекст**: В §2.3 спецификации версия `bytemuck = 1.25.0` указана как зафиксированная, но в §12 тот же вопрос отмечен как находящийся на подтверждении.
-- **Проблема**: Двойственность статуса фиксации внешней зависимости в одном документе.
-- **Действие**: Привести спецификацию к единому состоянию: окончательно утвердить выбор версии `=1.25.0` в Workspace Cargo.toml и удалить данный пункт из списка открытых вопросов.
+### REV-BOOT-007: Унификация названия плана загрузки шарда (`BootShardPlan` vs `ShardBootPlan`)
+- **ID**: REV-BOOT-007
+- **Status**: Open
+- **Priority**: P2
+- **Owner candidate**: `boot` / `runtime`
+- **Source**: [boot_spec.md](./spec_L6/boot_spec.md#L355) (§8.5) vs [runtime_spec.md](./spec_L6/runtime_spec.md#L259) (§4.1)
+- **Question / Problem**: `boot_spec.md` использует имя `BootShardPlan`, а `runtime` оперирует именем `ShardBootPlan`.
+- **Why it matters**: Разнобой в названиях фундаментальных DTO структур.
+- **Affected specs**: [boot_spec.md](./spec_L6/boot_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md)
+- **Notes**: Унифицировать под именем `ShardBootPlan`.
+
+---
+
+## §4. Accepted Deferred Debt (Осознанно Отложенный Долг)
+*Вопросы и инженерные альтернативы, решение по которым осознанно отложено на будущее без блокировки текущей разработки.*
+
+### REV-BOOT-008: Эмуляция системного RAM-диска на Windows
+- **ID**: REV-BOOT-008
+- **Status**: Deferred
+- **Priority**: Deferred
+- **Owner candidate**: `boot` / `ipc`
+- **Source**: [boot_spec.md](./spec_L6/boot_spec.md#L357) (§8.7) vs [ipc_spec.md](./spec_L2/ipc_spec.md#L255) (§12)
+- **Question / Problem**: Выбор системного механизма памяти для Windows-платформ (virtual RAM-drive / ImDisk) для временных рабочих директорий.
+- **Why it matters**: На боевых Linux-нодах используется стандартный tmpfs; на Windows требуется эмуляция.
+- **Affected specs**: [boot_spec.md](./spec_L6/boot_spec.md), [ipc_spec.md](./spec_L2/ipc_spec.md)
+- **Notes**: Оставлен в статусе Deferred. На этапе прототипирования на Windows допускается использование обычной файловой системы.
+
+### REV-NODE-004: Протокол и контракт внешней службы чекпоинтов
+- **ID**: REV-NODE-004
+- **Status**: Deferred
+- **Priority**: Deferred
+- **Owner candidate**: `node` / `runtime`
+- **Source**: [node_spec.md](./spec_L6/node_spec.md#L370) (§8.4) vs [runtime_spec.md](./spec_L6/runtime_spec.md#L482) (§8.2) vs [boot_spec.md](./spec_L6/boot_spec.md#L358) (§8.8)
+- **Question / Problem**: Сформировать точный интерфейс взаимодействия ноды со службой записи чекпоинтов (gRPC-клиент, запись в локальный RAM-диск с последующим сбросом или отдельный тред-райтер).
+- **Why it matters**: Сохранение чекпоинтов большого размера не должно блокировать симуляцию.
+- **Affected specs**: [node_spec.md](./spec_L6/node_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [boot_spec.md](./spec_L6/boot_spec.md)
+- **Notes**: Вынесено за скобки текущей фазы проектирования ядра.
+
+### REV-WEAVER-003: Модель управления процессом Weaver-Daemon
+- **ID**: REV-WEAVER-003
+- **Status**: Deferred
+- **Priority**: Deferred
+- **Owner candidate**: `weaver-daemon` / `node`
+- **Source**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L288) (§11.7) vs [node_spec.md](./spec_L6/node_spec.md#L369) (§8.3)
+- **Question / Problem**: Модель управления PID демона координации (запуск нодой напрямую как child-process vs управление внешним супервизором OS / Kubernetes).
+- **Why it matters**: Влияет на стратегию обработки сбоев процессов.
+- **Affected specs**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [node_spec.md](./spec_L6/node_spec.md)
+- **Notes**: Будет определена на этапе DevOps-интеграции и составления Helm/systemd манифестов.
+
+---
+
+## §5. Raw Per-Spec Open Questions (Полный Реестр по Спецификациям)
+*Полный систематизированный список открытых вопросов по каждому файлу спецификаций L0–L6.*
+
+### §5.0. Слой L0 (Core Domain & Mathematics)
+
+#### [physics_spec.md](./spec_L0/physics_spec.md)
+*Source items: 7 / Registered items: 7*
+
+- **REV-PHYS-001**: Формула Magnetic Sentinel в legacy CUDA vs Инвариант
+  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L276)
+  - *Question / Problem*: - *Контекст*: В legacy CUDA-коде (`physics.cu`) проверка неактивности головы выполнена как простые ветвления `if (h.h0 != AXON_SENTINEL) h.h0 += v_seg`. Однако инвариант `INV-PHYS-006` требует побитовой проверки `((h ^ AXON_SENTINEL) >= v_seg)` во избежание перепрыгивания при $$v_{\text{seg}}$ > 1$.
+    - *Вопрос*: Утвердить ли побитовую формулу из `INV-PHYS-006` как единый стандарт для всех бэкендов в `AxiEngine`?
+
+- **REV-PHYS-002**: Граница Active Tail Hit (`< prop` vs `<= prop`)
+  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L280)
+  - *Question / Problem*: - *Контекст*: В `physics.cu` длина хвоста проверяется как `(h - seg_idx) < prop`. В некоторых ранних спецификациях встречалось включительное условие `<= prop`.
+    - *Вопрос*: Фиксируется ли строгое неравенство `< prop` (где длина хвоста равна ровно `prop` сегментам)?
+
+- **REV-PHYS-003**: Противоречие Spatial Cooling в GSOP
+  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L284)
+  - *Question / Problem*: - *Контекст*: В Rust-коде `axicor-core/src/physics.rs` прямо указано: `// 3. Final delta (Spatial Cooling removed - Phase 8.1)`. Однако в CUDA-ядре `physics.cu` и старых спеках сдвиг охлождения всё еще применяется: `cooling_shift = is_active ? (min_dist >> 4) : 0; delta_pot >> cooling_shift`.
+    - *Вопрос*: Фиксируется окончательное удаление Spatial Cooling из целевой математики `AxiEngine`?
+
+- **REV-PHYS-004**: Типы аргументов AOT-деривации (`f32` vs Integer-scaled)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L288)
+  - *Question / Problem*: - *Контекст*: Функция `compute_v_seg` на этапе пре-бейка принимает физические величины в `f32` (`signal_speed_m_s`, `voxel_size_um`).
+    - *Вопрос*: Допускается ли использование `f32` исключительно на этапе AOT-компиляции в `config`/`baker`, или входные параметры TOML также должны передаваться в фиксированных целых единицах?
+
+- **REV-PHYS-005**: Поведение `compile_dds_heartbeat` при периодах $> 65536$
+  - *Status*: Open | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L292)
+  - *Question / Problem*: - *Контекст*: Если период спонтанного спайкирования превышает 65536 тиков, целочисленное деление `65536 / period_ticks` дает 0, что полностью отключает Heartbeat.
+    - *Вопрос*: Является ли это желаемым поведением (считать периоды $> 65.5\text{k}$ тиков отключенными) или требуется расширить размерность фазового аккумулятора?
+
+- **REV-PHYS-006**: Коллизия маркеров `EMPTY_PIXEL` и `0` в `PackedTarget`
+  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L296)
+  - *Question / Problem*: - *Контекст*: В `types` выявлен конфликт между raw 0 (зануленная память) и tombstone `EMPTY_PIXEL` (`0xFFFF_FFFF`). В физическом ядре `physics.cu` обработка `target_packed == 0` используется для Early Exit.
+    - *Вопрос*: Требуется ли синхронизация физического ядра с новым стандартом tombstone `EMPTY_PIXEL` из `types v2.1`?
+
+- **REV-PHYS-007**: Семантика нулевого веса в Законе Дейла
+  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L300)
+  - *Question / Problem*: - *Контекст*: При `weight == 0` вычисление `sign` даёт `1`. Если синапс был изначально тормозным (`-1`), но опустился до `0`, при последующем повышении массы он станет возбуждающим (+1).
+    - *Вопрос*: Требуется ли хранить биологический тип синапса (Glu/GABA) в отдельном бите (например, в `VariantParameters.is_inhibitory`), чтобы ноль не менял природу синапса?
+
+#### [types_spec.md](./spec_L0/types_spec.md)
+*Source items: 5 / Registered items: 5*
+
+- **REV-TYPES-001**: Размещение float-типов `Microns` и `Fraction`
+  - *Status*: Open | *Priority*: P0 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L455)
+  - *Question / Problem*: - *Контекст*: В §4.1 зафиксировано, что `Microns` и `Fraction` принадлежат исключительно домену конфигурации/редактора и строго запрещены в горячем цикле симуляции.
+    - *Вопрос*: Стоит ли полностью вынести их из крейта `types` в крейты `config` / `topology`, чтобы сделать `types` на 100% целочисленным и упакованным?
+
+- **REV-TYPES-002**: Унификация `EMPTY_PIXEL` (`0xFFFF_FFFF`) и сырого `0`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L458)
+  - *Question / Problem*: - *Контекст*: Крейт `types` определяет `EMPTY_PIXEL = 0xFFFF_FFFF` как надгробный маркер обрезанных слотов (Pruned Tombstone) для Early Exit на GPU/MCU, в то время как сырой `0` в `PackedTarget` обозначает неинициализированный `None`.
+    - *Вопрос*: Требуется ли унифицировать выходы Early Exit на GPU к единому маркеру, или сохраняется текущая дуальная проверка (`target == 0 || target == EMPTY_PIXEL`)?
+
+- **REV-TYPES-003**: Разрядность `SegmentIndex`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L461)
+  - *Question / Problem*: - *Контекст*: В legacy документации в одном месте упоминался 10-битный индекс сегмента (0..1023), однако `PackedTarget` битово отводит под смещение сегмента строго 8 бит (0..255).
+    - *Решение в спеке*: Зафиксировано, что внутри `PackedTarget` смещение сегмента ограничено 8 битами (`MAX_SEGMENT_OFFSET = 255`). Обобщенный тип `SegmentIndex = u32` в `types` служит контейнером верхнего уровня.
+
+- **REV-TYPES-004**: Внешняя зависимость `wyhash` vs Inline Реализация
+  - *Status*: Open | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L464)
+  - *Question / Problem*: - *Решение в спеке*: Зафиксирован курс на 0 внешних зависимостей для RNG/хеширования внутри `types` (только `bytemuck` и dev-dependency `static_assertions`). Требуется финальное утверждение в спецификации.
+
+- **REV-TYPES-005**: Распиновка `SomaFlags`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L466)
+  - *Question / Problem*: - *Решение в спеке*: Зафиксирован официальный макет `SomaFlags`: Bit 0 = Spiking, Bits 1..3 = Burst_Count, Bits 4..7 = Type_ID. Требуется утвердить эту распиновку для всех compute-ядер.
+    ---
+
+### §5.1. Слой L1 (Layouts, Configuration & Binary Formats)
+
+#### [config_spec.md](./spec_L1/config_spec.md)
+*Source items: 8 / Registered items: 8*
+
+- **REV-CFG-001**: Тип Физических Размеров `WorldConfig` (`f64` vs `u32`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L321)
+  - *Question / Problem*: - *Контекст*: В AxiCAD TOML-схеме размеры мира `width_um` заданы как `f64`, в то время как легаси-движок использовал целые числа `u32`.
+    - *Вопрос*: Фиксируется ли `f64` как единый целевой тип для размеров мира?
+
+- **REV-CFG-002**: Регистр Символов в `EntryZ` (`"Top"` vs `"top"`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L325)
+  - *Question / Problem*: - *Контекст*: В примерах AxiCAD встречается написание с заглавной буквы (`"Top"`, `"Mid"`, `"Bottom"`), хотя `Direction` использует строчные буквы (`"in"`, `"out"`).
+    - *Вопрос*: Приводится ли `EntryZ` к нижнему регистру (`"top"`, `"mid"`, `"bottom"`) для единообразия Serde?
+
+- **REV-CFG-003**: Верхняя Граница Плотности `density` (`<= 1.0`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L329)
+  - *Question / Problem*: - *Контекст*: Инвариант `INV-CONFIG-002` требует только `density >= 0.0`.
+    - *Вопрос*: Требуется ли жестко ограничить плотность сверху значением `density <= 1.0`?
+
+- **REV-CFG-004**: Формат Стабильного Идентификатора Связи `connections.id`
+  - *Status*: Open | *Priority*: P1 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L333)
+  - *Question / Problem*: - *Контекст*: Поле `id` добавлено как целевой связующий ключ для геометрии.
+    - *Вопрос*: Фиксируется ли формат `id` как UUID v4 или разрешаются произвольные текстовые слаги?
+
+- **REV-CFG-005**: Размещение и Тестирование `initial_synapse_weight` в TOML-схеме
+  - *Status*: Open | *Priority*: P1 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L337)
+  - *Question / Problem*: - *Контекст*: В C-ABI структуре `VariantParameters` из `layout` присутствует поле `initial_synapse_weight: u16`, однако в текущей TOML-схеме `NeuronType` оно отсутствует.
+    - *Вопрос*: В какую секцию `NeuronType` в TOML следует добавить поле `initial_synapse_weight` (в `gsop` или `membrane`)? Тест этого поля перенесен в категорию Review Debt.
+
+- **REV-CFG-006**: Крайний Случай DDS Heartbeat (`period = 1`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L341)
+  - *Question / Problem*: - *Контекст*: В валидации `spontaneous_firing_period_ticks` значение `1` связано с открытым вопросом в `physics_spec.md` по поводу вычисления фазового аккумулятора.
+    - *Вопрос*: Как семантически утверждается период `1` на уровне конфигурации?
+
+- **REV-CFG-007**: Политика Точности Валидации `v_seg`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L345)
+  - *Question / Problem*: - *Контекст*: Проверка целочисленности `v_seg` в `physics` зависит от точности входных параметров.
+    - *Вопрос*: Рассмотреть использование фиксированной точной арифметики при проверке `v_seg`?
+
+- **REV-CFG-008**: Будущее Поля `max_dendrites` в TOML
+  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: REV-PHYS-004 | *Source*: [config_spec.md](./spec_L1/config_spec.md#L349)
+  - *Question / Problem*: - *Контекст*: Сейчас `max_dendrites` жестко проверяется на равенство `128` (согласно `layout::MAX_DENDRITES`).
+    - *Вопрос*: Сохраняется ли это поле как явный assertion пользователя в TOML или удаляется из пользовательского DSL в следующих версиях?
+
+#### [layout_spec.md](./spec_L1/layout_spec.md)
+*Source items: 7 / Registered items: 7*
+
+- **REV-LAYOUT-001**: Единый квант выравнивания `PADDED_N_ALIGNMENT`
+  - *Status*: Open | *Priority*: P0 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L332)
+  - *Question / Problem*: - *Контекст*: CUDA использует варп в 32 потока, HIP — в 64 потока.
+    - *Вопрос*: Фиксируется ли `PADDED_N_ALIGNMENT = 64` как единый межплатформенный стандарт для всех бэкендов?
+
+- **REV-LAYOUT-002**: Монопольное владение `ShardVramPtrs` (`layout` vs `compute-api`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L336)
+  - *Question / Problem*: - *Контекст*: Сейчас DTO указателей `ShardVramPtrs` объявлен в `compute-api`/`ffi.rs`, но является чистым контрактом макета памяти.
+    - *Вопрос*: Переносится ли объявление `ShardVramPtrs` в `layout` для полного сосредоточения C-ABI макетов в одном месте?
+
+- **REV-LAYOUT-003**: Магические константы бинарных файлов
+  - *Status*: Open | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L340)
+  - *Question / Problem*: - *Контекст*: Легаси заголовки используют сигнатуры `"GSNS"`, `"GSAX"`, `"PATH"` (наследие Genesis/Axicor).
+    - *Вопрос*: Требуется ли обновить сигнатуры на новые стандарты `AxiEngine` (например, `"AXST"`, `"AXAX"`, `"AXPT"`)?
+
+- **REV-LAYOUT-004**: Коллизия `EMPTY_PIXEL = 0xFFFF_FFFF` в массиве таргетов
+  - *Status*: Open | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L344)
+  - *Question / Problem*: - *Контекст*: Массив `dendrite_targets` хранит `PackedTarget`. Нулевое значение обозначает `None`.
+    - *Вопрос*: Как семантически обрабатывается маркер `EMPTY_PIXEL` в плоскости таргетов приEarly Exit на GPU?
+
+- **REV-LAYOUT-005**: Размещение отладочной структуры `EphysShm`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L348)
+  - *Question / Problem*: - *Контекст*: Структура `EphysShm` (640 КБ) находится в `layout`.
+    - *Вопрос*: Сохраняется ли она в `layout` или переносится в `ipc` / `test-harness`?
+
+- **REV-LAYOUT-006**: Состав `.state` дампа (Day Hot vs Night State)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `layout` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L352)
+  - *Question / Problem*: - *Контекст*: Сейчас `.state` содержит только горячие массивы Дневной Фазы.
+    - *Вопрос*: Должен ли файл состояния включать специфичные для Ночной Фазы структуры?
+
+- **REV-LAYOUT-007**: Несоответствие сентинеля аксона в legacy-комментариях
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `layout` | *Duplicate Of*: REV-IPC-001 | *Source*: [layout_spec.md](./spec_L1/layout_spec.md#L356)
+  - *Question / Problem*: - *Контекст*: В старых комментариях споутинга встречалась запись `AXON_SENTINEL = 0xFFFFFFFF`.
+    - *Вопрос*: Подтверждается ли окончательное аннулирование этой записи в пользу официального `AXON_SENTINEL = 0x80000000` из `types v2.1`?
+
+#### [wire_spec.md](./spec_L1/wire_spec.md)
+*Source items: 6 / Registered items: 6*
+
+- **REV-WIRE-001**: Отсутствие Magic-поля в `SpikeBatchHeaderV2`
+  - *Status*: Open | *Priority*: P0 | *Owner*: `wire` | *Duplicate Of*: - | *Source*: [wire_spec.md](./spec_L1/wire_spec.md#L380)
+  - *Question / Problem*: - *Контекст*: Первое слово `src_zone_hash` не является сигнатурой magic. При диспетчеризации пакетов по первому `u32` возможен конфликт с другими magic.
+    - *Вопрос*: Требуется ли введение новой версии заголовка спайков с явным полем magic/version?
+
+- **REV-WIRE-002**: Границы Владения Файловыми Заголовками `.gxi`, `.gxo`, `.ghosts`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `wire` | *Duplicate Of*: - | *Source*: [wire_spec.md](./spec_L1/wire_spec.md#L384)
+  - *Question / Problem*: - *Контекст*: В легаси-коде эти заголовки находились в `ipc.rs`.
+    - *Вопрос*: К какому крейту следует отнести владение этими заголовками — `layout`, `baker` или `ipc`?
+
+- **REV-WIRE-003**: Размер Структуры `AxonHandoverPrune` (12B vs 16B)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `wire` | *Duplicate Of*: - | *Source*: [wire_spec.md](./spec_L1/wire_spec.md#L388)
+  - *Question / Problem*: - *Контекст*: Текущий размер структуры равен 12 байтам.
+    - *Вопрос*: Требуется ли выровнять структуру явным падом до 16 байт для кратности 8/16 байтам?
+
+- **REV-WIRE-004**: Размещение `ShardStateHeader` (`SNAP`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `wire` | *Duplicate Of*: - | *Source*: [wire_spec.md](./spec_L1/wire_spec.md#L392)
+  - *Question / Problem*: - *Контекст*: Структура используется при сетевой репликации VRAM, но соприкасается с макетами дампов.
+    - *Вопрос*: Оставляем ли мы `ShardStateHeader` в `wire` или относим к `layout`/`ipc`?
+
+- **REV-WIRE-005**: Фиксация Версии `bytemuck` (`=1.25.0` vs `=1.20.0`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `wire` | *Duplicate Of*: - | *Source*: [wire_spec.md](./spec_L1/wire_spec.md#L396)
+  - *Question / Problem*: - *Контекст*: В легаси документации встречались разные версии.
+    - *Вопрос*: Подтверждается ли единая фиксация версии `=1.25.0` в Cargo.toml?
+
+- **REV-WIRE-006**: Поддержка Архитектур Big-Endian
+  - *Status*: Open | *Priority*: P2 | *Owner*: `wire` | *Duplicate Of*: - | *Source*: [wire_spec.md](./spec_L1/wire_spec.md#L400)
+  - *Question / Problem*: - *Контекст*: Все пакеты сериализуются в Little-Endian.
+    - *Вопрос*: Фиксируем ли мы `compile_error!` при сборке под Big-Endian платформы или вводим явные функции конвертации полей?
+
+### §5.2. Слой L2 (VFS & IPC Interfaces)
+
+#### [ipc_spec.md](./spec_L2/ipc_spec.md)
+*Source items: 8 / Registered items: 8*
+
+- **REV-IPC-001**: Нерешенный Владелец Декларации `ShmHeader`, `ShmState` и `EphysShm`
+  - *Status*: Open | *Priority*: P1 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [ipc_spec.md](./spec_L2/ipc_spec.md#L259)
+  - *Question / Problem*: - *Контекст*: Сейчас макеты структур соприкасаются с `layout` и `ipc`. Принятие решения требует обновления `layout_spec.md`.
+    - *Вопрос*: Утверждается ли полное монопольное владение C-ABI объявлениями этих структур за крейтом `layout` с обновлением его спецификации?
+
+- **REV-IPC-002**: Граница Расчета `shm_size` (Логический Макет vs Страница ОС)
+  - *Status*: Open | *Priority*: P1 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [ipc_spec.md](./spec_L2/ipc_spec.md#L263)
+  - *Question / Problem*: - *Контекст*: Логическая сумма полей рассчитывается по формулам SoA, но mmap требует выравнивания на 4096 байт.
+    - *Вопрос*: К какому крейту относится функция расчета итогового выровненного размера — `layout` или `ipc`?
+
+- **REV-IPC-003**: Канал Управления на платформе Windows (Named Pipe vs Localhost TCP)
+  - *Status*: Open | *Priority*: P1 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [ipc_spec.md](./spec_L2/ipc_spec.md#L267)
+  - *Question / Problem*: - *Контекст*: На Linux используется Unix Domain Sockets. На Windows легаси-код применял localhost TCP сокеты.
+    - *Вопрос*: Утверждается ли Named Pipes в качестве основного стандарта управляющего канала для Windows взамен fallback TCP?
+
+- **REV-IPC-004**: Доменная Принадлежность Сигналов `BakeRequest`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [ipc_spec.md](./spec_L2/ipc_spec.md#L271)
+  - *Question / Problem*: - *Контекст*: Сигналы запуска AOT-сборки передаются через управляющий канал IPC.
+    - *Вопрос*: Относятся ли структуры сигналов `BakeRequest` к крейту `wire` или объявляются в `ipc`?
+
+- **REV-IPC-005**: Владелец Сетевой Теневой Репликации (Shadow Replication)
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `ipc` | *Duplicate Of*: REV-WEAVER-001 | *Source*: [ipc_spec.md](./spec_L2/ipc_spec.md#L275)
+  - *Question / Problem*: - *Контекст*: Использование `sendfile`/`splice` для передач VRAM-дампов соприкасается с IPC и сетевым стеком.
+    - *Вопрос*: Является ли теневая репликация исключительно инфраструктурным примитивом `ipc` или переносится в ведение `transport`/`runtime`?
+
+- **REV-IPC-006**: Строгость Порядка Атомарных Операций (AcqRel vs SeqCst)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [ipc_spec.md](./spec_L2/ipc_spec.md#L279)
+  - *Question / Problem*: - *Контекст*: Для автоматов переходов предложен `AcqRel`, однако для упрощения модели анализа возможен переход на `SeqCst`.
+    - *Вопрос*: Требуется ли зафиксировать `SeqCst` для всех переходов автомата состояний SHM?
+
+- **REV-IPC-007**: Политика Обработки Переполнения Внешнего Входного Буфера
+  - *Status*: Open | *Priority*: P2 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [ipc_spec.md](./spec_L2/ipc_spec.md#L283)
+  - *Question / Problem*: - *Контекст*: При высокой плотности данных внешний поток ввода может переполнить емкость буфера.
+    - *Вопрос*: Выбирается ли политика отбрасывания пакетов (Drop), обратного давления (Backpressure) или возврат ошибки?
+
+- **REV-IPC-008**: Целевая Версия `SHM_VERSION`
+  - *Status*: Duplicate Of | *Priority*: Deferred | *Owner*: `ipc` | *Duplicate Of*: REV-BOOT-008 | *Source*: [ipc_spec.md](./spec_L2/ipc_spec.md#L287)
+  - *Question / Problem*: - *Контекст*: В legacy-коде используется версия `SHM_VERSION = 3`.
+    - *Вопрос*: Сохраняется ли значение 3 или инкрементируется до 4 при утверждении обновленного макета `layout v2.0`?
+
+#### [vfs_spec.md](./spec_L2/vfs_spec.md)
+*Source items: 8 / Registered items: 8*
+
+- **REV-VFS-001**: Версионирование Бинарного Формата `.axic`
+  - *Status*: Open | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L231)
+  - *Question / Problem*: - *Контекст*: В текущей спецификации зафиксирована версия `1`.
+    - *Вопрос*: Сохраняется ли версия `1` для первого Rust-переписывания, или требуется инкремент версии?
+
+- **REV-VFS-002**: Объем Отображения mmap (Whole Archive vs Sub-File Views)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L235)
+  - *Question / Problem*: - *Контекст*: Сейчас `vfs` отображает весь архив целиком и возвращает срезы `&[u8]`.
+    - *Вопрос*: Требуется ли поддержка независимых подфайловых отображений (Sub-File Mmap Views) для каждого файла отдельно?
+
+- **REV-VFS-003**: Адекватность Выравнивания для Платформы Windows
+  - *Status*: Open | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L239)
+  - *Question / Problem*: - *Контекст*: Размер `ARCHIVE_PAYLOAD_ALIGNMENT` равен 4096 байтам, но граница выделения памяти (Allocation Granularity) на Windows равна 64 КБ (65536 байт).
+    - *Вопрос*: Требуется ли увеличить выравнивание полезной нагрузки до 64 КБ для поддержки независимого sub-file mmap на Windows?
+
+- **REV-VFS-004**: Контрольные Суммы Элементов TOC (SHA256 / CRC32)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L243)
+  - *Question / Problem*: - *Контекст*: Сейчас TOC хранит только смещение и размер.
+    - *Вопрос*: Требуется ли добавить контрольные суммы (CRC32 или SHA256) для каждого файла в TOC для верификации целостности реестра артефактов?
+
+- **REV-VFS-005**: Политика Сжатия Файлов в Архиве
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `vfs` | *Duplicate Of*: REV-LAYOUT-001 | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L247)
+  - *Question / Problem*: - *Контекст*: Сжатие файлов делает невозможным прямой Zero-Copy access через mmap без декомпрессии в кучу.
+    - *Вопрос*: Запрещается ли сжатие окончательно, или допускается опциональный алгоритм (например, zstd) для некритичных артефактов?
+
+- **REV-VFS-006**: Размещение Низкоуровневого Упаковщика (`AxicPacker`)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L251)
+  - *Question / Problem*: - *Контекст*: Сейчас примитивы упаковки находятся в `vfs`.
+    - *Вопрос*: Сохраняется ли `AxicPacker` в `vfs`, или он полностью переносится в `baker`, оставляя за `vfs` только структуры формата?
+
+- **REV-VFS-007**: Минимальный Обязательный Набор Файлов Загрузочного Архива
+  - *Status*: Open | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L255)
+  - *Question / Problem*: - *Контекст*: Модуль `boot` проверяет состав файлов перед запуском.
+    - *Вопрос*: Какой точный минимальный список файлов (`.state`, `.axons`, `model.toml` и т.д.) является обязательным для признания `.axic` архива валидным к загрузке?
+
+- **REV-VFS-008**: Владелец Экспорта Манифеста в SHM / Temp
+  - *Status*: Open | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L259)
+  - *Question / Problem*: - *Контекст*: Файл манифеста экспортируется в временную директорию ОС или SHM при старте.
+    - *Вопрос*: К какому крейту относится логика экспорта манифеста из сырых байтов `vfs` — `boot` или `ipc`?
+
+### §5.3. Слой L3 (Compute Abstractions & Backends)
+
+#### [compute_api_spec.md](./spec_L3/compute_api_spec.md)
+*Source items: 6 / Registered items: 6*
+
+- **REV-COMPUTE-API-001**: Поддержка Окружений `no_std + alloc`
+  - *Status*: Open | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L281)
+  - *Question / Problem*: - *Контекст*: Крейт `compute-api` содержит только абстрактные контракты и DTO.
+    - *Вопрос*: Требуется ли перевести `compute-api` в режим `no_std + alloc` для поддержки встраиваемых систем (Edge devices)?
+
+- **REV-COMPUTE-API-002**: Модель Владения Pinned Host Буферами
+  - *Status*: Open | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L285)
+  - *Question / Problem*: - *Контекст*: Для скоростного DMA переноса требуются закрепощенные страницы памяти хоста (Pinned Memory).
+    - *Вопрос*: Кто должен монопольно владеть Pinned-буферами — DTO дескриптор API, сам бэкенд или вышележащий фасад `compute`?
+
+- **REV-COMPUTE-API-003**: Модель Выполнения Батча (Синхронная vs Асинхронная)
+  - *Status*: Open | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L289)
+  - *Question / Problem*: - *Контекст*: Метод `run_day_batch` может быть блокирующим синхронным вызовом или асинхронной моделью сабмита со сплитом `submit_batch` / `sync_batch`.
+    - *Вопрос*: Зафиксировать ли строго синхронную модель выполнения батча на уровне API?
+
+- **REV-COMPUTE-API-004**: Точная Форма DTO Результатов Телеметрии (`BatchResult`)
+  - *Status*: Open | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L293)
+  - *Question / Problem*: - *Контекст*: Структура результатов пока содержит минимальный набор полей.
+    - *Вопрос*: Какая точная структура массива сгенерированных спайков должна возвращаться в `BatchResult`?
+
+- **REV-COMPUTE-API-005**: Допустимость Частичной Загрузки Таблицы Аксонов (`.axons`)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: REV-TEST-001 | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L297)
+  - *Question / Problem*: - *Контекст*: Таблица аксонов может быть огромной.
+    - *Вопрос*: Допускается ли частичная загрузка (partial upload) буфера аксонов, или требовать только полный единовременный блоб?
+
+- **REV-COMPUTE-API-006**: Зона Владения Вспомогательных Команд Сортировки и Синхронизации
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: REV-COMPUTE-CPU-001 | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L301)
+  - *Question / Problem*: - *Контекст*: Команды `sort_and_prune`, синхронизация Ghost-аксонов и отладочные вызовы Ephys пересекаются с различными слоями.
+    - *Вопрос*: Относятся ли данные методы к `compute-api` или выносятся на уровень фасада `compute` / `runtime`?
+
+#### [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
+*Source items: 7 / Registered items: 7*
+
+- **REV-COMPUTE-CPU-001**: Модель Фабричного Конструктора `VramHandle` в `compute-api`
+  - *Status*: Open | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L199)
+  - *Question / Problem*: - *Контекст*: Приватное поле `VramHandle` блокирует его создание внутри `compute-cpu`.
+    - *Вопрос*: Как именно должен выглядеть контролируемый фабричный метод в `compute-api` для создания дескрипторов бэкендами?
+
+- **REV-COMPUTE-CPU-002**: Окончательная Семантика Двойной Проверки Tombstone Target (`0` vs `EMPTY_PIXEL`)
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-cpu` | *Duplicate Of*: REV-TYPES-001 | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L203)
+  - *Question / Problem*: - *Контекст*: В спецификациях слоя L0/L1 сохраняется долг по стандартизации проверки неактивных синапсов.
+    - *Вопрос*: Какое единое побитовое правило проверки целевого пикселя должно использоваться бэкендами вычислений?
+
+- **REV-COMPUTE-CPU-003**: Окончательная Форма DTO Результатов Телеметрии в `compute-api`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L207)
+  - *Question / Problem*: - *Контекст*: Структура `BatchResult` находится на этапе согласования.
+    - *Вопрос*: Каким образом `compute-cpu` должен передавать массив сгенерированных спайков и осциллограммы телеметрии?
+
+- **REV-COMPUTE-CPU-004**: Монопольный Владелец Маршрутизации Данных Отладчика Ephys
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L211)
+  - *Question / Problem*: - *Контекст*: Отладочный съем осциллограмм требует доступа к SoA-массивам мембранных потенциалов.
+    - *Вопрос*: Являются ли отладочные методы частью `ComputeBackend`, или они выносятся в отдельный сервис?
+
+- **REV-COMPUTE-CPU-005**: Владелец Операций Сортировки и Уплотнения Связей (Sort & Prune)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L215)
+  - *Question / Problem*: - *Контекст*: Операция `sort_and_prune` удаляет деградировавшие синапсы во время Ночной Фазы.
+    - *Вопрос*: Относится ли `sort_and_prune` к методам `ComputeBackend`, или выполняется на уровне `compute`/`runtime`?
+
+- **REV-COMPUTE-CPU-006**: Необходимость Внутренних Зависимостей `slotmap` и `bytemuck`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L219)
+  - *Question / Problem*: - *Контекст*: Текущая спецификация упоминает эти библиотеки как внутренние детали реализации.
+    - *Вопрос*: Фиксируются ли эти крейты в качестве обязательных внутренних зависимостей `compute-cpu`?
+
+- **REV-COMPUTE-CPU-007**: Управление Пулом Потоков Rayon (Global vs Custom Threadpool)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L223)
+  - *Question / Problem*: - *Контекст*: По умолчанию Rayon использует глобальный пул потоков процесса.
+    - *Вопрос*: Должен ли `CpuBackend` создавать и хранить собственный изолированный `rayon::ThreadPool` для предотвращения конфликтов с другими модулями движка?
+
+#### [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md)
+*Source items: 6 / Registered items: 6*
+
+- **REV-COMPUTE-CUDA-001**: Механизм Кодогенерации и Верификации C++ Зеркал из Rust (`physics`/`layout`)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-PHYS-007 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L189)
+  - *Question / Problem*: - *Контекст*: Зафиксирован запрет на ручной дублирующий C++ код.
+    - *Вопрос*: Какая утилита или генератор (например, `cbindgen` или пользовательский AOT-скрипт) будет координировать автоматическую сборку C++ зеркал из источников истины?
+
+- **REV-COMPUTE-CUDA-002**: API и DTO Загрузки Таблицы Вариантов в Constant Memory
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L193)
+  - *Question / Problem*: - *Контекст*: `ShardUpload` содержит только байтовые блобы состояния и аксонов.
+    - *Вопрос*: Через какой интерфейс (отдельный метод HAL, расширение `ShardUpload` или операция фасада `compute`) таблица вариантов нейронов должна передаваться бэкенду для загрузки в Constant Memory?
+
+- **REV-COMPUTE-CUDA-003**: Модель Фабричного Конструктора `VramHandle` в `compute-api`
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-CPU-001 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L197)
+  - *Question / Problem*: - *Контекст*: Приватность `VramHandle` блокирует создание дескрипторов бэкендами.
+    - *Вопрос*: Каким образом бэкенд вычислений будет получать экземпляры `VramHandle` из `compute-api`?
+
+- **REV-COMPUTE-CUDA-004**: Формат и Владелец Pinned-Буферов Результатов
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L201)
+  - *Question / Problem*: - *Контекст*: Требование `pinned_host_required = true` необходимо для скорейшего DMA D2H.
+    - *Вопрос*: Кто создает и держит Pinned-буферы для результатов — `compute-cuda` или IPC/runtime swapchain?
+
+- **REV-COMPUTE-CUDA-005**: Аффинность Потоков ОС и Маркер `Send` для CUDA Контекста
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-004 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L205)
+  - *Question / Problem*: - *Контекст*: CUDA контексты и стримы привязаны к создавшему их OS-потоку.
+    - *Вопрос*: Является ли `CudaBackend` маркерным `Send`, или инициализация контекста должна происходить строго внутри целевого OS-потока шарда?
+
+- **REV-COMPUTE-CUDA-006**: Владение Операциями Синхронизации Ghost-Аксонов и Сортировки
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L209)
+  - *Question / Problem*: - *Контекст*: Операции `sort_and_prune` и межшардовые патчи затрагивают памяти ускорителя.
+    - *Вопрос*: Относятся ли методы уплотнения синапсов к `ComputeBackend`, или они выносятся в отдельный сервисный слой?
+
+#### [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
+*Source items: 7 / Registered items: 7*
+
+- **REV-COMPUTE-HIP-001**: Поддержка Режима Wave32 на Архитектурах AMD RDNA (Future Work)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-hip` | *Duplicate Of*: - | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L195)
+  - *Question / Problem*: - *Контекст*: Спецификация v2 жестко фиксирует использование Wave64.
+    - *Вопрос*: Каким образом в будущих версиях спецификации будет организована адаптация масок вейвфронта для архитектур RDNA с режимом Wave32?
+
+- **REV-COMPUTE-HIP-002**: Единая Стратегия Автоматической Кодогенерации C++ Зеркал CUDA/HIP из Rust
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-hip` | *Duplicate Of*: REV-PHYS-007 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L199)
+  - *Question / Problem*: - *Контекст*: Во избежание рассинхронизации математики ядра CUDA и HIP не должны содержать дублирующих ручных формул.
+    - *Вопрос*: Каким образом будет организован общий пайплайн кодогенерации C++ ядер из источников истины в `physics` и `layout`?
+
+- **REV-COMPUTE-HIP-003**: API и DTO Загрузки Таблицы Вариантов в Constant Memory
+  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `compute-hip` | *Duplicate Of*: REV-COMPUTE-CUDA-002 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L203)
+  - *Question / Problem*: - *Контекст*: `ShardUpload` не содержит вариантов нейронов.
+    - *Вопрос*: Через какой интерфейс (отдельный метод HAL, расширение `ShardUpload` или операция фасада `compute`) таблица вариантов должна передаваться бэкенду?
+
+- **REV-COMPUTE-HIP-004**: Модель Фабричного Конструктора `VramHandle` в `compute-api`
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-hip` | *Duplicate Of*: REV-COMPUTE-CPU-001 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L207)
+  - *Question / Problem*: - *Контекст*: Приватность `VramHandle` блокирует создание дескрипторов бэкендами.
+    - *Вопрос*: Каким образом бэкенд вычислений будет получать экземпляры `VramHandle` из `compute-api`?
+
+- **REV-COMPUTE-HIP-005**: Формат и Владелец Pinned-Буферов Результатов
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-hip` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L211)
+  - *Question / Problem*: - *Контекст*: Требование `pinned_host_required = true` необходимо для скорейшего DMA D2H.
+    - *Вопрос*: Кто создает и держит Pinned-буферы для результатов — `compute-hip` или IPC/runtime swapchain?
+
+- **REV-COMPUTE-HIP-006**: Аффинность Потоков ОС и Маркер `Send` для HIP Контекста
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-hip` | *Duplicate Of*: REV-COMPUTE-004 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L215)
+  - *Question / Problem*: - *Контекст*: HIP контексты и стримы привязаны к создавшему их OS-потоку.
+    - *Вопрос*: Является ли `HipBackend` маркерным `Send`, или инициализация контекста должна происходить строго внутри целевого OS-потока шарда?
+
+- **REV-COMPUTE-HIP-007**: Владение Операциями Синхронизации Ghost-Аксонов и Сортировки
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-hip` | *Duplicate Of*: - | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L219)
+  - *Question / Problem*: - *Контекст*: Операции `sort_and_prune` и межшардовые патчи затрагивают память ускорителя.
+    - *Вопрос*: Относятся ли методы уплотнения синапсов к `ComputeBackend`, или они выносятся в отдельный сервисный слой?
+
+#### [compute_spec.md](./spec_L3/compute_spec.md)
+*Source items: 7 / Registered items: 7*
+
+- **REV-COMPUTE-001**: Проверка Совместимости Сборки при Миграции Имен Фичей
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L213)
+  - *Question / Problem*: - *Контекст*: Зафиксирована целевая политика v2.0 на замену legacy-имен `amd` и `mock-gpu` на `hip` и `mock`.
+    - *Вопрос*: Требуется ли временное сохранение псевдонимов (aliases) фичей в `Cargo.toml` на период миграции?
+
+- **REV-COMPUTE-002**: Аффинность Потоков ОС и Маркер `Send` для `ShardEngine`
+  - *Status*: Open | *Priority*: P1 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L217)
+  - *Question / Problem*: - *Контекст*: Модуль `runtime` выделяет отдельный OS-thread на каждый шард. Контексты некоторых GPU бэкендов привязаны к создавшему их потоку (Thread-Affine).
+    - *Вопрос*: Должен ли `ShardEngine` быть `Send` для передачи из потока `boot` в поток шарда, или `ShardEngine` должен создаваться строго внутри целевого OS-потока шарда по загрузочному плану?
+
+- **REV-COMPUTE-003**: Точный Приоритет Автовыбора для Кроссплатформенных Сборщиков
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L221)
+  - *Question / Problem*: - *Контекст*: На некоторых системах могут быть одновременно установлены драйверы разных вендоров.
+    - *Вопрос*: Является ли порядок CUDA -> HIP -> CPU универсальным для всех ОС, или требуется гибкая настройка приоритетов?
+
+- **REV-COMPUTE-004**: Синхронная vs Асинхронная Модель API Выполнения Батча
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute` | *Duplicate Of*: REV-COMPUTE-API-003 | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L225)
+  - *Question / Problem*: - *Контекст*: Метод `run_day_batch` в текущей версии является блокирующим.
+    - *Вопрос*: Требуется ли введение асинхронной модели `submit_batch` / `poll_batch` на уровне фасада `ShardEngine`?
+
+- **REV-COMPUTE-005**: Монопольный Владелец Pinned Host Буферов Ввода-Вывода
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L229)
+  - *Question / Problem*: - *Контекст*: Закрепощенные страницы памяти хоста (Pinned Memory) необходимы для скоростного DMA.
+    - *Вопрос*: Кто владеет Pinned-буферами — фасад `compute` или IPC/runtime swapchain?
+
+- **REV-COMPUTE-006**: Зона Владения Операциями Синхронизации Ghost-Аксонов и Сортировки
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L233)
+  - *Question / Problem*: - *Контекст*: Межзоновые патчи и примитивы сортировки спайков затрагивают сетевой стек и вычисления.
+    - *Вопрос*: Относятся ли методы синхронизации Ghost-слотов к фасаду `compute` или выносятся в `runtime`/`network`?
+
+- **REV-COMPUTE-007**: Маршрутизация Данных Отладчика Ephys
+  - *Status*: Open | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L237)
+  - *Question / Problem*: - *Контекст*: Снимок осциллограмм Ephys передается в Python SDK.
+    - *Вопрос*: Проходит ли поток осциллограмм через `ShardEngine`, или отправляется напрямую через IPC сокет в формате `EphysShm`?
+
+#### [test_harness_spec.md](./spec_L3/test_harness_spec.md)
+*Source items: 6 / Registered items: 6*
+
+- **REV-TEST-001**: Механизм Отладочного Снятия Состояния (Debug Full-State Snapshot API)
+  - *Status*: Open | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L196)
+  - *Question / Problem*: - *Контекст*: Публичный API `compute-api` не предоставляет выгрузку полных SoA-массивов VRAM.
+    - *Вопрос*: Требуется ли введение отладочного extension-trait (например, `DebugSnapshotExt`), доступного только под фичей `test-harness`, или формат выгрузки `BatchResult` будет расширен?
+
+- **REV-TEST-002**: Окончательная Форма Полезной Нагрузки `BatchResult`
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-COMPUTE-API-004 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L200)
+  - *Question / Problem*: - *Контекст*: Структура результатов батча находится на этапе согласования.
+    - *Вопрос*: Какие именно поля (число спайков, маски выходов, чексуммы) включаются в `BatchResult` для базового потикового сравнения?
+
+- **REV-TEST-003**: Локализация Пайплайна Генерации и Верификации ABI-Зеркал
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-PHYS-007 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L204)
+  - *Question / Problem*: - *Контекст*: Тесты дрифта ABI-зеркал проверяют совпадение типов между Rust и C++.
+    - *Вопрос*: Где именно должен жить генератор C++ заголовков — в крейте `layout`, внутри бэкендов или в виде автономной build-helper утилиты?
+
+- **REV-TEST-004**: Организация Автоматического Запуска Аппаратных Тестов в CI/CD
+  - *Status*: Open | *Priority*: P2 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L208)
+  - *Question / Problem*: - *Контекст*: Тестирование CUDA и HIP требует наличия физических GPU и установленных SDK на раннерах.
+    - *Вопрос*: Каким образом маркируются тесты для запуска на специализированных CI-раннерах с GPU ускорителями?
+
+- **REV-TEST-005**: Разграничение Дифференциальных и Свойственных/Фаззинг Тестов (Property/Fuzzing Tests)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L212)
+  - *Question / Problem*: - *Контекст*: Помимо детерминированных фикстур, эффективен случайный фаззинг входных буферов.
+    - *Вопрос*: Должны ли property-based тесты (на базе `proptest` / `quickcheck`) жить внутри `test-harness` или выноситься в отдельный крейт `compute-fuzz`?
+
+- **REV-TEST-006**: Управление Pinned-Буферами Хоста для Снэпшотов
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L216)
+  - *Question / Problem*: - *Контекст*: Для скоростного снятия дампов VRAM требуется Page-Locked память.
+    - *Вопрос*: Кто выделяет и утилизирует Pinned-буферы при отладочном снятии дампов состояний в `test-harness`?
+
+### §5.4. Слой L4 (Baker & Topology Tools)
+
+#### [baker_cli_spec.md](./spec_L4/baker_cli_spec.md)
+*Source items: 6 / Registered items: 6*
+
+- **REV-BAKER-CLI-001**: Окончательное Имя Бинарного Файла Утилиты
+  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L203)
+  - *Question / Problem*: - *Контекст*: В спецификации используется имя `baker-cli`.
+    - *Вопрос*: Какое конечное имя бинарника будет утверждено для поставки — `baker-cli`, `axiengine-baker` или единый фасадный исполняемый файл `axiengine`?
+
+- **REV-BAKER-CLI-002**: Единая Схема Протокола JSON-lines для AxiCAD Bridge
+  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L207)
+  - *Question / Problem*: - *Контекст*: Sidecar-режим генерирует однострочные события.
+    - *Вопрос*: Требуется ли вынести общие DTO-структуры событий sidecar в отдельный крейт контрактов сопряжения с AxiCAD?
+
+- **REV-BAKER-CLI-003**: Зависимости Подкоманды Инспектирования (`inspect`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L211)
+  - *Question / Problem*: - *Контекст*: Команда `inspect` читает структуру `.axic` архива.
+    - *Вопрос*: Должна ли команда `inspect` обращаться исключительно к хелперам `baker` или может напрямую подключать легкие инспекционные методы `vfs`?
+
+- **REV-BAKER-CLI-004**: Выделение Edge-Конвертора в Отдельный Бинарник
+  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L215)
+  - *Question / Problem*: - *Контекст*: Подкоманда `edge` выполняет конвертацию моделей.
+    - *Вопрос*: Целесообразно ли сохранять подкоманду `edge` в `baker-cli` или вынести ее в отдельный исполняемый файл `edge-cli`?
+
+- **REV-BAKER-CLI-005**: Точный API Отмены (Cancellation Token API) из Библиотеки `baker`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L219)
+  - *Question / Problem*: - *Контекст*: CLI обрабатывает сигнал SIGINT как процессный останов до появления токена отмены.
+    - *Вопрос*: Каким образом компилятор `baker` предоставит атомарные токены отмены для трансляции из `baker-cli`?
+
+- **REV-BAKER-CLI-006**: Централизованное Фиксирование Версий Зависимостей (Workspace-Wide Pinning)
+  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: REV-WIRE-006 | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L223)
+  - *Question / Problem*: - *Контекст*: Версии `clap`, `tracing`, `serde_json` зафиксированы в спецификации.
+    - *Вопрос*: Требуется ли централизованный манифест версий зависимостей на уровне всего workspace для исключения дрифта сторонних CLI-крейтов?
+
+#### [baker_spec.md](./spec_L4/baker_spec.md)
+*Source items: 7 / Registered items: 7*
+
+- **REV-BAKER-001**: Минимальный Набор Файлов Архива для Загрузки Рантаймом (`boot`)
+  - *Status*: Open | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L243)
+  - *Question / Problem*: - *Контекст*: Компилятор генерирует дампы состояния, аксонов и путей.
+    - *Вопрос*: Каков обязательный минимальный перечень файлов внутри `.axic` архива, необходимый для работы компонента `boot`?
+
+- **REV-BAKER-002**: Статус и Владение Заголовками Файлов I/O (`.gxi`, `.gxo`, `.ghosts`)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-TOPOLOGY-001 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L247)
+  - *Question / Problem*: - *Контекст*: Опциональные файлы входов/выходов и ghost-связей находятся в статусе ожидания (pending debt).
+    - *Вопрос*: В каком крейте (`layout` или `wire`) должны объявляться C-ABI заголовки и структуры этих файлов?
+
+- **REV-BAKER-003**: Формат Хранения и Передачи Геометрии Трактов
+  - *Status*: Open | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L251)
+  - *Question / Problem*: - *Контекст*: `baker` передает в `topology` подготовленную структуру `ResolvedTractGeometry`.
+    - *Вопрос*: В каком формате хранится геометрия трактов редактора и как именно выполняется ее первичный резолвинг?
+
+- **REV-BAKER-004**: Инжекция Поля Начального Веса `initial_synapse_weight`
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-CFG-004 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L255)
+  - *Question / Problem*: - *Контекст*: Поле начального веса учитывается в `VariantParameters`, но временно отсутствует в TOML-схемах `config`.
+    - *Вопрос*: Каким образом значение базового синаптического веса передается из конфигурации проекта в макеты `layout`?
+
+- **REV-BAKER-005**: Централизованное Фиксирование Версий Внешних Зависимостей (Workspace-Wide Pinning)
+  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: REV-WIRE-006 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L259)
+  - *Question / Problem*: - *Контекст*: Версии `tracing` и `tempfile` зафиксированы в спецификации.
+    - *Вопрос*: Требуется ли централизованный манифест версий зависимостей на уровне всего workspace для исключения дрифта сторонних крейтов?
+
+- **REV-BAKER-006**: Схема Событий Прогресса Компиляции (Progress Event Schema)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L263)
+  - *Question / Problem*: - *Контекст*: Внешние GUI-инструменты требуют пошагового отслеживания прогресса сборки.
+    - *Вопрос*: Должна ли общая схема событий прогресса объявляться в `baker` или относиться к `baker-cli` / AxiCAD SDK?
+
+- **REV-BAKER-007**: Управление Промежуточными Кекпоинтами Сборки
+  - *Status*: Open | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L267)
+  - *Question / Problem*: - *Контекст*: При сборке больших проектов кеширование промежуточных шардов ускоряет повторную компиляцию.
+    - *Вопрос*: Выполняется ли кеширование промежуточных результатов внутри `baker` или полностью управляется кешем артефактов AxiCAD?
+
+#### [edge_model_spec.md](./spec_L4/edge_model_spec.md)
+*Source items: 10 / Registered items: 10*
+
+- **REV-EDGE-001**: Размещение Конфигурации Edge-Профилей
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L338)
+  - *Question / Problem*: - *Контекст*: Параметры конвертации передаются через `EdgeConversionOptions`.
+    - *Вопрос*: Должны ли профили edge-конвертации в будущем перенесены в TOML-конфигурации крейта `config`?
+
+- **REV-EDGE-002**: Обязательный Перечень Файлов `.axic` для Edge-Конвертации
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L342)
+  - *Question / Problem*: - *Контекст*: Для инференса требуются `.state`, `.axons` и таблица вариантов.
+    - *Вопрос*: Требуется ли обязательное наличие файла `.paths` для генерации edge-модели или он опционален?
+
+- **REV-EDGE-003**: Общий Крейт C-ABI Заголовков Встраиваемых Устройств (Firmware-Facing Edge ABI)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L346)
+  - *Question / Problem*: - *Контекст*: `layout` владеет десктопными `.state/.axons/.paths`, а `edge-model` владеет производными `shard.sram` и `shard.flash`.
+    - *Вопрос*: Потребуется ли отдельный легкий крейт геометрических контрактов и C-структур для прошивок микроконтроллеров в будущем?
+
+- **REV-EDGE-004**: Выделение Edge-Конвертора в Отдельный CLI-Исполняемый Файл
+  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: REV-BAKER-CLI-004 | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L350)
+  - *Question / Problem*: - *Контекст*: Подкоманда `edge` активируется через Cargo feature в `baker-cli`.
+    - *Вопрос*: Целесообразно ли выделение утилиты в отдельный бинарник `edge-cli`?
+
+- **REV-EDGE-005**: Политика Таймеров Дендритов (`dendrite_timers`) при Запуске на Устройстве
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L354)
+  - *Question / Problem*: - *Контекст*: В режиме только инференса таймеры рефрактерности могут быть не нужны.
+    - *Вопрос*: Следует ли обнулять или копировать исходные `dendrite_timers` при генерации образа SRAM?
+
+- **REV-EDGE-006**: Перспективы Поддержки Пластичности на Устройстве (On-Device Plasticity)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L358)
+  - *Question / Problem*: - *Контекст*: Текущая версия проектируется строго под Pure Inference.
+    - *Вопрос*: Каковы архитектурные границы при будущей поддержке ночной фазы на микроконтроллерах?
+
+- **REV-EDGE-007**: Квантование Синаптических Весов (Weight Quantization)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L362)
+  - *Question / Problem*: - *Контекст*: Веса хранятся в Mass Domain (`i32`).
+    - *Вопрос*: Требуется ли поддержка квантования весов до типов `i16`, `i8` или `i4` для сверхкомпактных устройств?
+
+- **REV-EDGE-008**: Поддержка Внешней Памяти PSRAM и Нескольких Бюджетов SRAM
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L366)
+  - *Question / Problem*: - *Контекст*: Некоторые чипы (ESP32-WROVER) обладают внешней оперативной памятью PSRAM.
+    - *Вопрос*: Должен ли `edge-model` поддерживать трехуровневое разделение (SRAM / PSRAM / Flash)?
+
+- **REV-EDGE-009**: Разбиение Огромных Моделей на Каскад Микроконтроллеров
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L370)
+  - *Question / Problem*: - *Контекст*: Крупный шардированный граф может не влезать в один чип.
+    - *Вопрос*: Каким образом будет осуществляться нарезка одного шарда на несколько MCU?
+
+- **REV-EDGE-010**: Владелец Спецификации Bare-Metal Runtime (`axicor-lite`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `edge-model` | *Duplicate Of*: - | *Source*: [edge_model_spec.md](./spec_L4/edge_model_spec.md#L374)
+  - *Question / Problem*: - *Контекст*: `edge-model` является оффлайн-конвертором.
+    - *Вопрос*: В каком документе и крейте будет описан рантайм-цикл исполнения устройств (device loop) и прошивки?
+
+#### [topology_spec.md](./spec_L4/topology_spec.md)
+*Source items: 5 / Registered items: 5*
+
+- **REV-TOPOLOGY-001**: Унификация Маркеров Пустого Слота (`EMPTY_PIXEL` vs `PackedTarget::None`)
+  - *Status*: Open | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L239)
+  - *Question / Problem*: - *Контекст*: Дендритные слоты могут содержать как `None` (сырой нуль), так и `EMPTY_PIXEL` после прунинга.
+    - *Вопрос*: Требуется ли принудительная унифицированная миграция всех `None` слотов в `EMPTY_PIXEL` на этапе загрузки шарда?
+
+- **REV-TOPOLOGY-002**: Локализация Деклараций DTO Трактов Редактора
+  - *Status*: Open | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L243)
+  - *Question / Problem*: - *Контекст*: Крейт `topology` принимает только подготовленные структурированные геометрии `ResolvedTractGeometry`.
+    - *Вопрос*: Где именно должны жить оригинальные декларативные DTO документов трактов — в `config`, в `baker` или в отдельном крейте геометрических контрактов?
+
+- **REV-TOPOLOGY-003**: Отсутствие Поля Начального Веса `initial_synapse_weight` в Конфигурации
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: REV-CFG-004 | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L247)
+  - *Question / Problem*: - *Контекст*: При заведении новых синапсов начальный вес рассчитывается с защитой DoA.
+    - *Вопрос*: Каким образом параметры базового веса синапсов должны передаваться из TOML конфигурации в `topology`?
+
+- **REV-TOPOLOGY-004**: Разграничение Исполнения Уплотнения (Compaction Execution Ownership)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L251)
+  - *Question / Problem*: - *Контекст*: `topology` формирует план уплотнения `CompactionPlan`.
+    - *Вопрос*: Должна ли физическая переписка SoA-массивов памяти выполняться внутри `topology` или относиться к рантайм-компоненту `weaver-daemon`?
+
+- **REV-TOPOLOGY-005**: Структура Нейтрального Перехода GhostHandoverDraft
+  - *Status*: Open | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L255)
+  - *Question / Problem*: - *Контекст*: При выходе Ghost-аксона за границы шарда формируется промежуточный результат.
+    - *Вопрос*: Какую именно форму имеет чистая структура `GhostHandoverDraft` до ее упаковки компонентом `weaver-daemon` в сетевой пакет `wire::AxonHandoverEvent`?
+
+#### [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
+*Source items: 7 / Registered items: 7*
+
+- **REV-WEAVER-001**: Разграничение Владения `ShmHeader` и `ShmState`
+  - *Status*: Open | *Priority*: P0 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L264)
+  - *Question / Problem*: - *Контекст*: Структуры заголовков и автомата состояний используются при подключении.
+    - *Вопрос*: В каком крейте (`layout` или `ipc`) должны монопольно зафиксироваться структуры `ShmHeader` и представление живого состояния?
+
+- **REV-WEAVER-002**: Локализация Изменяемой Рабочей Копии Геометрии Аксонов (.paths)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `weaver-daemon` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L268)
+  - *Question / Problem*: - *Контекст*: `.axic` архив является Read-Only, но для динамического роста требуется изменение путей.
+    - *Вопрос*: Где именно должна храниться мутабельная рабочая копия путей аксонов во время Ночной Фазы — в дополнительном сегменте SHM или во временном кеше рантайма?
+
+- **REV-WEAVER-003**: Локализация Исполнения Прунинга и Уплотнения
+  - *Status*: Open | *Priority*: P2 | *Owner*: `weaver-daemon` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L272)
+  - *Question / Problem*: - *Контекст*: В настоящей спецификации уплотнение выполняется на хосте в `weaver-daemon`.
+    - *Вопрос*: Должна ли операция уплотнения всегда оставаться хостовой или часть сервисных операций в будущем уходит в сервисный слой вычислений?
+
+- **REV-WEAVER-004**: Локализация DTO-Контрактов Межшардовых Связей (`AxonHandoverEvent` и др.)
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `weaver-daemon` | *Duplicate Of*: REV-WIRE-001 | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L276)
+  - *Question / Problem*: - *Контекст*: Структуры переходов упоминаются в `wire` и `topology`.
+    - *Вопрос*: В каком крейте (`wire`, `ipc` или отдельном крейте контрактов сопряжения `weaver-core`) должны окончательно разместиться DTO межшардовых переходов?
+
+- **REV-WEAVER-005**: Выбор Рантайма Канала Управления (Async vs Blocking)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `weaver-daemon` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L280)
+  - *Question / Problem*: - *Контекст*: В спецификации используется `clap` и типизированные каналы.
+    - *Вопрос*: Требуется ли подключение асинхронного рантайма (`tokio`) для канала управления или достаточно блокирующих примитивов из `ipc`?
+
+- **REV-WEAVER-006**: Выделение Библиотеки `weaver-core` для Контрактов и Юнит-Тестирования
+  - *Status*: Open | *Priority*: P2 | *Owner*: `weaver-daemon` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L284)
+  - *Question / Problem*: - *Контекст*: `weaver-daemon` является исполняемым бинарником (`bin`).
+    - *Вопрос*: Требуется ли вынести типы DTO-сообщений управления и доменные функции в отдельную библиотеку контрактов `weaver-core` для проведения модульного тестирования без запуска процессов ОС?
+
+- **REV-WEAVER-007**: Дисциплина Самозавершения при Сбоях Родительского Процесса
+  - *Status*: Open | *Priority*: P2 | *Owner*: `weaver-daemon` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L288)
+  - *Question / Problem*: - *Контекст*: При аварии рантайма демон должен гарантированно завершаться.
+    - *Вопрос*: Каковы специфичные механизмы отслеживания падения родительского процесса на платформах Windows и Linux?
+
+### §5.5. Слой L5 (Networking Stack & Protocols)
+
+#### [net_spec.md](./spec_L5/net_spec.md)
+*Source items: 8 / Registered items: 8*
+
+- **REV-NET-001**: Монопольное Владение Идентификаторами Нод и Зон
+  - *Status*: Open | *Priority*: P1 | *Owner*: `net` | *Duplicate Of*: - | *Source*: [net_spec.md](./spec_L5/net_spec.md#L348)
+  - *Question / Problem*: - *Контекст*: Идентификаторы нод и зон используются во всех слоях сети.
+    - *Вопрос*: В каком именно крейте (`axi-types` или отдельном легком крейте контрактов) должны окончательно зафиксироваться типы `NodeId` и `ZoneId`?
+
+- **REV-NET-002**: Первичный Источник Конфигурации MTU
+  - *Status*: Open | *Priority*: P1 | *Owner*: `net` | *Duplicate Of*: - | *Source*: [net_spec.md](./spec_L5/net_spec.md#L352)
+  - *Question / Problem*: - *Контекст*: Размер MTU фигурирует в профилях маршрутов и настройках адаптера.
+    - *Вопрос*: Кто является главным источником эффективного размера пакета при разногласиях между настройкой сокета и маршрутом?
+
+- **REV-NET-003**: Локализация Модуля Телеметрии (Axum/WebSocket)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `net` | *Duplicate Of*: - | *Source*: [net_spec.md](./spec_L5/net_spec.md#L356)
+  - *Question / Problem*: - *Контекст*: В v2 сервер телеметрии включен в `axi-net`.
+    - *Вопрос*: Следует ли в будущем вынести HTTP/WebSocket сервер телеметрии в отдельный крайний крейт `axi-telemetry-server`?
+
+- **REV-NET-004**: Детализация Семантики ACK для Протокола v3
+  - *Status*: Open | *Priority*: P2 | *Owner*: `net` | *Duplicate Of*: - | *Source*: [net_spec.md](./spec_L5/net_spec.md#L360)
+  - *Question / Problem*: - *Контекст*: В v2 используется упрощенный ACK-пакет.
+    - *Вопрос*: Какова будет точная семантика подтверждений при появлении `batch_id` и счетчиков в `wire` v3?
+
+- **REV-NET-005**: Шифрование и Аутентификация Межнодового Трафика
+  - *Status*: Open | *Priority*: P2 | *Owner*: `net` | *Duplicate Of*: - | *Source*: [net_spec.md](./spec_L5/net_spec.md#L364)
+  - *Question / Problem*: - *Контекст*: Пакеты передаются в открытом виде.
+    - *Вопрос*: В каком слое (модуль `axi-net` или надстройка над `axi-transport`) должны выполняться шифрование (TLS/Noise) и аутентификация нод?
+
+- **REV-NET-006**: Протокол Автоматического Обнаружения Нод (Discovery / Bootstrap)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `net` | *Duplicate Of*: - | *Source*: [net_spec.md](./spec_L5/net_spec.md#L368)
+  - *Question / Problem*: - *Контекст*: Маршруты задаются через `apply_route_update`.
+    - *Вопрос*: Каким образом будет реализован протокол автообнаружения соседних нод при старте кластера?
+
+- **REV-NET-007**: Политика Порядка Байт (Big-Endian vs Little-Endian)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `net` | *Duplicate Of*: - | *Source*: [net_spec.md](./spec_L5/net_spec.md#L372)
+  - *Question / Problem*: - *Контекст*: Все заголовки зафиксированы в Little-Endian.
+    - *Вопрос*: Требуется ли поддержка авто-конверсии байт при межсетевом обмене с Big-Endian устройствами?
+
+- **REV-NET-008**: Целесообразность Размещения L1-Транспонирования в Net
+  - *Status*: Open | *Priority*: P2 | *Owner*: `net` | *Duplicate Of*: - | *Source*: [net_spec.md](./spec_L5/net_spec.md#L376)
+  - *Question / Problem*: - *Контекст*: Транспонирование матриц для Python SDK сейчас описано в `axi-net`.
+    - *Вопрос*: Должна ли эта операция оставаться в `axi-net` или ее место в адаптере ввода-вывода внешней платформы?
+
+#### [protocol_spec.md](./spec_L5/protocol_spec.md)
+*Source items: 8 / Registered items: 8*
+
+- **REV-PROTOCOL-001**: Проектирование Заголовка `SpikeBatchHeaderV3`
+  - *Status*: Open | *Priority*: P1 | *Owner*: `protocol` | *Duplicate Of*: - | *Source*: [protocol_spec.md](./spec_L5/protocol_spec.md#L237)
+  - *Question / Problem*: - *Контекст*: Заголовок v2 не имеет magic-числа, `batch_id` и счетчика событий.
+    - *Вопрос*: Какие поля (magic, version, batch_id, total_event_count, checksum) должны войти в следующую версию заголовка спайков в `wire`?
+
+- **REV-PROTOCOL-002**: Согласование Разрядности Эпох (`u32` vs `u64`)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `protocol` | *Duplicate Of*: - | *Source*: [protocol_spec.md](./spec_L5/protocol_spec.md#L241)
+  - *Question / Problem*: - *Контекст*: Сетевые заголовки передают эпоху как `u32`, а внутренний `Tick` в `types` имеет разрядность `u64`.
+    - *Вопрос*: Какова официальная политика переполнения и экранирования 32-битного сетевого счетчика эпох?
+
+- **REV-PROTOCOL-003**: Обобщение L7-Фрагментации на Другие Типы Пакетов
+  - *Status*: Open | *Priority*: P2 | *Owner*: `protocol` | *Duplicate Of*: - | *Source*: [protocol_spec.md](./spec_L5/protocol_spec.md#L245)
+  - *Question / Problem*: - *Контекст*: В текущей версии фрагментация реализована строго для спайковых батчей.
+    - *Вопрос*: Требуется ли поддержка L7-фрагментации для внешнего ввода-вывода (`ExternalIo`) и телеметрии?
+
+- **REV-PROTOCOL-004**: Владение Емкостью Буферов Сборки (Reassembly Capacity)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `protocol` | *Duplicate Of*: - | *Source*: [protocol_spec.md](./spec_L5/protocol_spec.md#L249)
+  - *Question / Problem*: - *Контекст*: `protocol` принимает внешние буферы сборки.
+    - *Вопрос*: Должны ли лимиты емкости задаваться профилем маршрута в `net` или параметрами сокета в `transport`?
+
+- **REV-PROTOCOL-005**: Семантика Повторов и Подтверждений (ACK Semantics)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `protocol` | *Duplicate Of*: - | *Source*: [protocol_spec.md](./spec_L5/protocol_spec.md#L253)
+  - *Question / Problem*: - *Контекст*: `protocol` определяет бинарную структуру ACK-пакета.
+    - *Вопрос*: Как именно распределяются обязанности по обработке таймаутов и повторов между `protocol` и `transport`?
+
+- **REV-PROTOCOL-006**: Поддержка Архитектур с Big-Endian Порядком Байт
+  - *Status*: Open | *Priority*: P2 | *Owner*: `protocol` | *Duplicate Of*: - | *Source*: [protocol_spec.md](./spec_L5/protocol_spec.md#L257)
+  - *Question / Problem*: - *Контекст*: Все контракты зафиксированы в Little-Endian.
+    - *Вопрос*: Требуется ли явный конвертер байт для редких Big-Endian устройств или Little-Endian зафиксирован как аппаратный стандарт?
+
+- **REV-PROTOCOL-007**: Локализация Проверки Целостности и Аутентификации
+  - *Status*: Open | *Priority*: P2 | *Owner*: `protocol` | *Duplicate Of*: - | *Source*: [protocol_spec.md](./spec_L5/protocol_spec.md#L261)
+  - *Question / Problem*: - *Контекст*: Пакеты валидируются на структурный размер.
+    - *Вопрос*: В каком крейте (`wire`, `protocol` или будущем модуле безопасности) должны проверяться криптографические подписи или CRC32/CRC64?
+
+- **REV-PROTOCOL-008**: Источник Точного Значения MTU
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `protocol` | *Duplicate Of*: REV-NET-002 | *Source*: [protocol_spec.md](./spec_L5/protocol_spec.md#L265)
+  - *Question / Problem*: - *Контекст*: Итератор фрагментации принимает структуру `FragmentSpec`.
+    - *Вопрос*: Кто выступает источником MTU — профиль маршрута в `net` или параметры адаптера в `transport`?
+
+#### [transport_spec.md](./spec_L5/transport_spec.md)
+*Source items: 8 / Registered items: 8*
+
+- **REV-TRANSPORT-001**: Целесообразность Подключения Крейта `socket2` и Ошибка `DatagramTruncated`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `transport` | *Duplicate Of*: - | *Source*: [transport_spec.md](./spec_L5/transport_spec.md#L273)
+  - *Question / Problem*: - *Контекст*: Стандартный `std::net` не предоставляет низкоуровневых флагов детектирования усечения датограмм.
+    - *Вопрос*: Требуется ли подключение `socket2` для надёжного детектирования усечения датограмм (`DatagramTruncated`) и низкоуровневых опций сокетов (`SO_BUSY_POLL`, `SO_REUSEPORT`)?
+
+- **REV-TRANSPORT-002**: Первичный Источник Настроек MTU
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `transport` | *Duplicate Of*: REV-NET-002 | *Source*: [transport_spec.md](./spec_L5/transport_spec.md#L277)
+  - *Question / Problem*: - *Контекст*: MTU используется как в `protocol`, так и в `transport`.
+    - *Вопрос*: Кто является первичным источником конфигурации MTU — профиль маршрута в `net` или конфигурация сетевого адаптера в `transport`?
+
+- **REV-TRANSPORT-003**: Локализация Политики Бэкпрешера
+  - *Status*: Open | *Priority*: P1 | *Owner*: `transport` | *Duplicate Of*: - | *Source*: [transport_spec.md](./spec_L5/transport_spec.md#L281)
+  - *Question / Problem*: - *Контекст*: При переполнении очередей транспорт возвращает `QueueFull`.
+    - *Вопрос*: Каким образом `net` реагирует на бэкпрешер и где проходит грань между ошибкой сокета и давлением очереди?
+
+- **REV-TRANSPORT-004**: Политика Переподключения TCP-Стримов
+  - *Status*: Open | *Priority*: P2 | *Owner*: `transport` | *Duplicate Of*: - | *Source*: [transport_spec.md](./spec_L5/transport_spec.md#L285)
+  - *Question / Problem*: - *Контекст*: При разрыве TCP-соединения сокет переходит в состояние `Stopped` или `SocketClosed`.
+    - *Вопрос*: Должна ли повторная установка соединения выполняться сервисами `net` или транспорту требуется автоматический реконнект?
+
+- **REV-TRANSPORT-005**: Перспективы Перехода на Event-Loop (mio / epoll)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `transport` | *Duplicate Of*: - | *Source*: [transport_spec.md](./spec_L5/transport_spec.md#L289)
+  - *Question / Problem*: - *Контекст*: В v2 используется модель воркер-тредов ОС.
+    - *Вопрос*: Требуется ли в будущем перевод транспортов на event-loop модель (`mio`) для поддержки тысяч соединений?
+
+- **REV-TRANSPORT-006**: Платформозависимые Опции Сокетов (Windows vs Linux)
+  - *Status*: Open | *Priority*: P2 | *Owner*: `transport` | *Duplicate Of*: - | *Source*: [transport_spec.md](./spec_L5/transport_spec.md#L293)
+  - *Question / Problem*: - *Контекст*: Поведение сокетов разнится между ОС.
+    - *Вопрос*: Каковы специфичные платформенные флаги для оптимизации задержек на Linux и Windows?
+
+- **REV-TRANSPORT-007**: Безопасность Zero-Copy Буферов Между Потоками
+  - *Status*: Open | *Priority*: P2 | *Owner*: `transport` | *Duplicate Of*: - | *Source*: [transport_spec.md](./spec_L5/transport_spec.md#L297)
+  - *Question / Problem*: - *Контекст*: Буферы передаются между воркерами через `BufferId`.
+    - *Вопрос*: Каким образом обеспечить строгую проверку единственности владения буфером без накладных расходов RCU/Arc?
+
+- **REV-TRANSPORT-008**: Владение Слотом Буфера в `EgressDatagram` / `EgressStreamChunk`
+  - *Status*: Open | *Priority*: P2 | *Owner*: `transport` | *Duplicate Of*: - | *Source*: [transport_spec.md](./spec_L5/transport_spec.md#L301)
+  - *Question / Problem*: - *Контекст*: При постановке в очередь передается `BufferId`.
+    - *Вопрос*: Владеет ли сообщение слотом буфера напрямую или копирует байты в отдельный пул при постановке в очередь?
+
+### §5.6. Слой L6 (Node Runtime & Process Host)
+
+#### [boot_spec.md](./spec_L6/boot_spec.md)
+*Source items: 10 / Registered items: 10*
+
+- **REV-BOOT-001**: **Точный список обязательных файлов в `.axic`**: Точный список обязательных файлов в фазе `RequiredFilesResolved` не зафиксирован в спецификациях baker/vfs/config и может определяться динамически на основе манифеста.
+  - *Status*: Open | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L351)
+
+- **REV-BOOT-002**: **Окончательное владение файлами Ghost-связей**: Архитектурный слой для `.gxi`, `.gxo` и `.ghosts` не определен (layout vs topology).
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-TOPOLOGY-001 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L352)
+
+- **REV-BOOT-003**: **Разделение заголовка SHM**: Окончательное владение `ShmHeader`, `ShmState` и `EphysShm` находится на согласовании (layout vs ipc).
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-IPC-001 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L353)
+
+- **REV-BOOT-004**: **Модель инициализации воркеров**: Решение о выборе между Моделью А (Send) и Моделью B (Thread-Affine) зависит от технических возможностей compute бэкендов.
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-COMPUTE-004 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L354)
+
+- **REV-BOOT-005**: **Физическое размещение и контракт BootShardPlan / ShardBootPlan**: Окончательное определение места владения и контракта обмена планами между `boot` и `runtime`.
+  - *Status*: Open | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L355)
+
+- **REV-BOOT-006**: **Материализация сетевого рантайма**: Определить, должен ли `boot` возвращать живой `NetRuntime` или только спецификацию `NetInitPlan` (предпочтительно второе).
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-BOOT-005 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L356)
+
+- **REV-BOOT-007**: **RAM-диск на Windows**: Определение системного механизма памяти для Windows-платформ (virtual RAM-drive).
+  - *Status*: Deferred | *Priority*: Deferred | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L357)
+
+- **REV-BOOT-008**: **Точки интеграции службы чекпоинтов**: Правила восстановления из чекпоинта VRAM при холодном старте.
+  - *Status*: Duplicate Of | *Priority*: Deferred | *Owner*: `boot` | *Duplicate Of*: REV-NODE-004 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L358)
+
+- **REV-BOOT-009**: **Недостающие параметры TOML**: Определение полей `initial_synapse_weight`, а также физических координат сетевых сокетов.
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-CFG-004 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L359)
+
+- **REV-BOOT-010**: **Протоколы сетевого автообнаружения**: Начальная геометрия распределения соседей по зонам.
+  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `boot` | *Duplicate Of*: REV-NET-006 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L360)
+
+#### [node_spec.md](./spec_L6/node_spec.md)
+*Source items: 10 / Registered items: 10*
+
+- **REV-NODE-001**: **Спецификация команд CLI:** Требуется детализировать синтаксис дополнительных команд командной строки (например, `print-plan`, `validate`, `run` как подкоманды `clap` vs флаги).
+  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L367)
+
+- **REV-NODE-002**: **Материализация NetRuntime:** Определить, должен ли крейт `node` напрямую вызывать фабрику инициализации сети или же логику материализации следует вынести в отдельный промежуточный крейт композиции.
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `node` | *Duplicate Of*: REV-BOOT-005 | *Source*: [node_spec.md](./spec_L6/node_spec.md#L368)
+
+- **REV-NODE-003**: **Модель владения weaver-daemon:** Определить финальную схему жизненного цикла демона координации: запуск в качестве дочернего процесса самой нодой с отслеживанием PID vs управление внешним супервизором OS (systemd/kubernetes) с проксированием команд.
+  - *Status*: Deferred | *Priority*: Deferred | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L369)
+
+- **REV-NODE-004**: **Контракт Checkpoint Service:** Сформировать точный интерфейс взаимодействия ноды со службой записи чекпоинтов (gRPC-клиент, запись в локальный RAM-диск с последующим сбросом или выделенный thread-writer).
+  - *Status*: Deferred | *Priority*: Deferred | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L370)
+
+- **REV-NODE-005**: **CPU Affinity Platform Crate:** Выбрать стабильную мультиплатформенную библиотеку для управления привязкой потоков к ядрам процессора и настройки приоритетов процессов на Linux и Windows (например, `raw-cpuid`, `affinity` или платформозависимые OS-API).
+  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L371)
+
+- **REV-NODE-006**: **Версия библиотеки Tracing:** Согласовать и зафиксировать единую версию `tracing`/`tracing-subscriber` на уровне всего workspace для предотвращения конфликтов дублирования глобального диспетчера логов.
+  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L372)
+
+- **REV-NODE-007**: **Реэкспорт BackendPreference:** Подтвердить, что `BackendPreference` импортируется нодой через реэкспорт из `boot`, полностью исключая прямую зависимость от `compute`.
+  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L373)
+
+- **REV-NODE-008**: **Системные режимы OS:** Необходимость поддержки специфических режимов запуска процесса, таких как служба Windows (Windows Service) или демон systemd (уведомления через `sd_notify`).
+  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L374)
+
+- **REV-NODE-009**: **Контрольный веб-интерфейс:** В чьей зоне ответственности находится запуск HTTP/RPC сервера управления/здоровья (healthcheck): запускается ли он внутри `node` через Tokio или полностью делегирован рантайму `net`.
+  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L375)
+
+- **REV-NODE-010**: **Типизация сетевых ошибок при материализации:** Согласовать конкретный тип ошибки материализации сетевого рантайма (например, `net::NetError` или специализированный `net::NetInitError`) и интегрировать его в `NodeError` вместо промежуточных текстовых представлений.
+  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L376)
+
+#### [runtime_spec.md](./spec_L6/runtime_spec.md)
+*Source items: 4 / Registered items: 4*
+
+- **REV-RUNTIME-001**: **Точная структура полезной нагрузки спайков**: Формат исходящего сетевого контекста доставки спайков не зафиксирован в рантайме. Временное решение: передавать данные пакета через интерфейс `NetRuntime` в виде обобщенных слайсов байт или абстрактного контракта обмена.
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: REV-COMPUTE-API-004 | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L481)
+
+- **REV-RUNTIME-002**: **Механизм записи теневых чекпоинтов**: Архитектурные границы записи VRAM чекпоинтов на диск не утверждены. Не определено, должен ли рантайм генерировать событие внешней асинхронной записи, либо использовать специализированный системный сервис `CheckpointWriter`.
+  - *Status*: Duplicate Of | *Priority*: Deferred | *Owner*: `runtime` | *Duplicate Of*: REV-NODE-004 | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L482)
+
+- **REV-RUNTIME-003**: **Окончательный выбор модели инициализации воркеров**: Решение о переходе на эксклюзивную Thread-Affine инициализацию (Модель B) будет принято после закрытия технических вопросов в спецификации `compute_spec.md`.
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: REV-COMPUTE-004 | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L483)
+
+- **REV-RUNTIME-004**: **Синтаксис безопасного API применения ночных изменений**: Конкретные параметры метода `apply_night_delta` в `ShardEngine` остаются на стадии согласования с вычислительным слоем.
+  - *Status*: Open | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: - | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L484)
