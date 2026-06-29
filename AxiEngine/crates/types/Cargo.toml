@@ -1,0 +1,15 @@
+[package]
+name = "types"
+version = "0.1.0"
+edition = "2021"
+description = "Layer 0 foundational vocabulary and packed ABI contracts for AxiEngine"
+
+[dependencies]
+bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"] }
+
+[dev-dependencies]
+static_assertions = "=1.1.0"
+
+[features]
+default = []
+std = []
