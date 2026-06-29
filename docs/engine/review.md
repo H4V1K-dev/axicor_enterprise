@@ -332,27 +332,27 @@
 *Source items: 7 / Registered items: 7*
 
 - **REV-PHYS-001**: Формула Magnetic Sentinel в legacy CUDA vs Инвариант
-  - *Status*: Resolved (physics v2.1) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L278)
+  - *Status*: Resolved (physics v2.2) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L278)
   - *Decision*: Побитовая формула из `INV-PHYS-006` (`((h ^ AXON_SENTINEL) >= v_seg)`) утверждена как единый стандарт для всех бэкендов.
 
 - **REV-PHYS-002**: Граница Active Tail Hit (`< prop` vs `<= prop`)
-  - *Status*: Resolved (physics v2.1) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L281)
+  - *Status*: Resolved (physics v2.2) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L281)
   - *Decision*: Утверждено строгое неравенство `d < propagation_length` (§5.2.3).
 
 - **REV-PHYS-003**: Противоречие Spatial Cooling в GSOP
-  - *Status*: Resolved (physics v2.1) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L284)
+  - *Status*: Resolved (physics v2.2) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L284)
   - *Decision*: Spatial Cooling официально и окончательно удалён из математики GSOP в `AxiEngine`.
 
 - **REV-PHYS-004**: Типы аргументов AOT-деривации (`f32` vs Integer-scaled)
-  - *Status*: Resolved (physics v2.1) | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L287)
+  - *Status*: Resolved (physics v2.2) | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L287)
   - *Decision*: Использование `f32` в `compute_v_seg` изолировано строго на границе AOT/config (`config`, `baker`). Горячий рантайм на 100% целочисленный.
 
 - **REV-PHYS-005**: Поведение `compile_dds_heartbeat` при периодах $> 65536$
-  - *Status*: Resolved (physics v2.1) | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L290)
+  - *Status*: Resolved (physics v2.2) | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L290)
   - *Decision*: Для `period_ticks > 65536` устанавливается `heartbeat_m = 0` (спонтанный спайкинг явно отключен).
 
 - **REV-PHYS-006**: Коллизия маркеров `EMPTY_PIXEL` и `0` в `PackedTarget`
-  - *Status*: Resolved (physics v2.1) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L293)
+  - *Status*: Resolved (physics v2.2) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L293)
   - *Decision*: Синхронизировано с `types v2.2`. Физика и ядра используют предикат `PackedTarget::is_inactive()` (`0` или `EMPTY_PIXEL`).
 
 - **REV-PHYS-007**: Семантика нулевого веса в Законе Дейла
@@ -678,7 +678,7 @@
 *Source items: 6 / Registered items: 6*
 
 - **REV-COMPUTE-CUDA-001**: Механизм Кодогенерации и Верификации C++ Зеркал из Rust (`physics`/`layout`)
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-PHYS-007 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L189)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-PHYS-009 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L189)
   - *Question / Problem*: - *Контекст*: Зафиксирован запрет на ручной дублирующий C++ код.
     - *Вопрос*: Какая утилита или генератор (например, `cbindgen` или пользовательский AOT-скрипт) будет координировать автоматическую сборку C++ зеркал из источников истины?
 
@@ -716,7 +716,7 @@
     - *Вопрос*: Каким образом в будущих версиях спецификации будет организована адаптация масок вейвфронта для архитектур RDNA с режимом Wave32?
 
 - **REV-COMPUTE-HIP-002**: Единая Стратегия Автоматической Кодогенерации C++ Зеркал CUDA/HIP из Rust
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-hip` | *Duplicate Of*: REV-PHYS-007 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L199)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-hip` | *Duplicate Of*: REV-PHYS-009 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L199)
   - *Question / Problem*: - *Контекст*: Во избежание рассинхронизации математики ядра CUDA и HIP не должны содержать дублирующих ручных формул.
     - *Вопрос*: Каким образом будет организован общий пайплайн кодогенерации C++ ядер из источников истины в `physics` и `layout`?
 
@@ -797,7 +797,7 @@
     - *Вопрос*: Какие именно поля (число спайков, маски выходов, чексуммы) включаются в `BatchResult` для базового потикового сравнения?
 
 - **REV-TEST-003**: Локализация Пайплайна Генерации и Верификации ABI-Зеркал
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-PHYS-007 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L204)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-PHYS-009 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L204)
   - *Question / Problem*: - *Контекст*: Тесты дрифта ABI-зеркал проверяют совпадение типов между Rust и C++.
     - *Вопрос*: Где именно должен жить генератор C++ заголовков — в крейте `layout`, внутри бэкендов или в виде автономной build-helper утилиты?
 
