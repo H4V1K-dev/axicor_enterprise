@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 2.8 | Дата: 2026-06-29
+> Версия: 2.9 | Дата: 2026-06-29
 
 ---
 
@@ -33,6 +33,7 @@ graph TD
         topology["topology (v2.0)"]
         baker["baker (v2.0)"]
         baker_cli["baker-cli (v2.0)"]
+        edge_model["edge-model (v2.0)"]
     end
 
     types --> layout
@@ -47,6 +48,7 @@ graph TD
     types --> test_harness
     types --> topology
     types --> baker
+    types --> edge_model
     physics --> config
     physics --> compute_cpu
     physics --> compute_cuda
@@ -58,9 +60,11 @@ graph TD
     layout --> test_harness
     layout --> topology
     layout --> baker
+    layout --> edge_model
     config --> topology
     config --> baker
     vfs --> baker
+    vfs --> edge_model
     topology --> baker
     baker --> baker_cli
     compute_api --> compute
@@ -71,7 +75,7 @@ graph TD
     compute_cpu --> test_harness
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker,baker_cli active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker,baker_cli,edge_model active;
 ```
 
 ---
@@ -114,11 +118,12 @@ graph TD
 
 ### Слой 4 (Layer 4: Geometry, Growth & Connectome Generation)
 
-| Крейт | Спецификация | Статус | Назначение |
+| Крейт | Спецификация | Status | Назначение |
 |---|---|---|---|
 | `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Draft v2.0** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки и роста аксонов. |
 | `baker` | [baker_spec.md](spec_L4/baker_spec.md) | **Draft v2.0** | Оркестратор компиляции AOT, координация фаз сборки, генерация бинарных блобов по `layout` и упаковка `.axic`. |
 | `baker-cli` | [baker_cli_spec.md](spec_L4/baker_cli_spec.md) | **Draft v2.0** | Консольная утилита и sidecar-интерфейс для запуска `baker`, вывода отчетов/прогресса и управления флагами. |
+| `edge-model` | [edge_model_spec.md](spec_L4/edge_model_spec.md) | **Draft v2.0** | Оффлайн-конвертор десктопных моделей в edge-артефакты (WTA top-K срез, разделение SRAM/Flash, MMU padding). |
 
 ---
 
