@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 2.3 | Дата: 2026-06-29
+> Версия: 2.4 | Дата: 2026-06-29
 
 ---
 
@@ -26,6 +26,7 @@ graph TD
         compute["compute (v2.0)"]
         compute_cpu["compute-cpu (v2.0)"]
         compute_cuda["compute-cuda (v2.0)"]
+        compute_hip["compute-hip (v2.0)"]
     end
 
     types --> layout
@@ -36,18 +37,21 @@ graph TD
     types --> compute_api
     types --> compute_cpu
     types --> compute_cuda
+    types --> compute_hip
     physics --> config
     physics --> compute_cpu
     physics --> compute_cuda
+    physics --> compute_hip
     layout --> ipc
     wire --> ipc
     layout --> compute_api
     compute_api --> compute
     compute_api --> compute_cpu
     compute_api --> compute_cuda
+    compute_api --> compute_hip
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip active;
 ```
 
 ---
@@ -85,6 +89,7 @@ graph TD
 | `compute` | [compute_spec.md](spec_L3/compute_spec.md) | **Draft v2.0** | Фасад вычислений `ShardEngine`, автовыбор бэкендов (`BackendPreference`) и оркестрация жизненного цикла шарда. |
 | `compute-cpu` | [compute_cpu_spec.md](spec_L3/compute_cpu_spec.md) | **Draft v2.0** | Многопоточная CPU-реализация `ComputeBackend` на базе Rayon, выровненные ресурсы хоста и проверочная реализация. |
 | `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Draft v2.0** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
+| `compute-hip` | [compute_hip_spec.md](spec_L3/compute_hip_spec.md) | **Draft v2.0** | Высокопроизводительная AMD ROCm/HIP реализация `ComputeBackend` на базе Wave64 вейвфронтов и неблокирующих стримов. |
 
 ---
 
