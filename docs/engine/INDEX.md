@@ -9,7 +9,7 @@
 ```mermaid
 graph TD
     subgraph L0["Слой 0"]
-        types["types (v2.1)"]
+        types["types (v2.2)"]
         physics["physics (v2.0)"]
     end
     subgraph L1["Слой 1"]
@@ -128,7 +128,7 @@ graph TD
 
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
-| `types` | [types_spec.md](spec_L0/types_spec.md) | **Draft v2.1** | Атомарные типы (`Tick`, `Voltage`), packed ABI (`PackedPosition`, `PackedTarget`, `SomaFlags`), seed/hash, константы. |
+| `types` | [types_spec.md](spec_L0/types_spec.md) | **Approved v2.2** | Атомарные типы (`Tick`, `Voltage`), packed ABI (`PackedPosition`, `PackedTarget`, `SomaFlags`), seed/hash, константы. |
 | `physics` | [physics_spec.md](spec_L0/physics_spec.md) | **Draft v2.0** | Математика GLIF, AHP, homeostasis, Active Tail, GSOP, DDS heartbeat, `v_seg`. |
 
 ### Слой 1 (Layer 1: Data Contracts & Deserialization)

@@ -21,14 +21,15 @@
 
 ### REV-TYPES-001: Коллизия маркерного таргета `EMPTY_PIXEL` и сырого `0` при Early Exit
 - **ID**: REV-TYPES-001
-- **Status**: Open
+- **Status**: Resolved
 - **Priority**: P0
 - **Owner candidate**: `types`
-- **Source**: [types_spec.md](./spec_L0/types_spec.md#L453) (§10.1) vs [physics_spec.md](./spec_L0/physics_spec.md#L288) (§8.8) vs [compute_api_spec.md](./spec_L3/compute_api_spec.md#L56) (§3)
-- **Question / Problem**: `types` определяет `EMPTY_PIXEL = 0xFFFF_FFFF` в качестве tombstone-маркера для обрезанных синапсов, а сырой `0` — как неинициализированный target. Но ядра `physics` и бэкенды `compute-cpu/cuda/hip` проверяют только `target == 0` для аппаратного Early Exit.
+- **Source**: [types_spec.md](./spec_L0/types_spec.md#L211) (§5.2) vs [physics_spec.md](./spec_L0/physics_spec.md) vs [compute_api_spec.md](./spec_L3/compute_api_spec.md)
+- **Question / Problem**: `types` определяет `EMPTY_PIXEL = 0xFFFF_FFFF` в качестве tombstone-маркера для обрезанных синапсов, а сырой `0` — как неинициализированный target. Но ядра `physics` и бэкенды `compute-cpu/cuda/hip` проверяли только `target == 0` для аппаратного Early Exit.
 - **Why it matters**: Ядра GPU/CPU будут выполнять бессмысленные математические операции над отброшенными синапсами со значением `EMPTY_PIXEL`, что приведет к фатальному падению производительности или расхождениям в симуляции.
 - **Affected specs**: [types_spec.md](./spec_L0/types_spec.md), [physics_spec.md](./spec_L0/physics_spec.md), [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
-- **Notes**: Утвердить политику двойной проверки (`target == 0 || target == EMPTY_PIXEL`) во всех бэкендах вычислений и физических ядрах.
+- **Notes**: **[РЕШЕНО в types v2.2]**: Утверждены 3 состояния `PackedTarget` и метод проверки неактивности `is_inactive()` (`0` ИЛИ `EMPTY_PIXEL`). Функция `unpack()` возвращает `None` для любых неактивных слотов. Вычислительные ядра и топология обязаны перейти на использование `is_inactive()`. *(Спецификации physics и compute-бэкендов будут обновлены при их проходе).*
+
 
 ### REV-COMPUTE-CPU-001: Межспецификационный долг фабрики дескрипторов `VramHandle`
 - **ID**: REV-COMPUTE-CPU-001
@@ -269,7 +270,7 @@
 - **Question / Problem**: `net_spec.md` ссылается на смежные модули с префиксом (например, `axi-types`, `axi-wire`), тогда как в остальной системе утверждены чистые имена (`types`, `wire`).
 - **Why it matters**: Несоответствие имен крейтов в документации и коде.
 - **Affected specs**: [net_spec.md](./spec_L5/net_spec.md)
-- **Notes**: Заменить все вхождения `axi-` в `net_spec.md` на канонические имена workspace.
+- **Notes**: Заменить все вхождения `axi-` в `net_spec.md` на стандартные имена workspace.
 
 ### REV-BOOT-007: Унификация названия плана загрузки шарда (`BootShardPlan` vs `ShardBootPlan`)
 - **ID**: REV-BOOT-007
@@ -356,9 +357,9 @@
     - *Вопрос*: Является ли это желаемым поведением (считать периоды $> 65.5\text{k}$ тиков отключенными) или требуется расширить размерность фазового аккумулятора?
 
 - **REV-PHYS-006**: Коллизия маркеров `EMPTY_PIXEL` и `0` в `PackedTarget`
-  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L296)
+  - *Status*: Open (Cross-Ref Resolved in types v2.2) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L296)
   - *Question / Problem*: - *Контекст*: В `types` выявлен конфликт между raw 0 (зануленная память) и tombstone `EMPTY_PIXEL` (`0xFFFF_FFFF`). В физическом ядре `physics.cu` обработка `target_packed == 0` используется для Early Exit.
-    - *Вопрос*: Требуется ли синхронизация физического ядра с новым стандартом tombstone `EMPTY_PIXEL` из `types v2.1`?
+    - *Решение*: В `types v2.2` зафиксированы 3 состояния и инспектор `is_inactive()`. Физическое ядро `physics` будет обновлено для использования `is_inactive()` на своем проходе.
 
 - **REV-PHYS-007**: Семантика нулевого веса в Законе Дейла
   - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L300)
@@ -366,30 +367,41 @@
     - *Вопрос*: Требуется ли хранить биологический тип синапса (Glu/GABA) в отдельном бите (например, в `VariantParameters.is_inhibitory`), чтобы ноль не менял природу синапса?
 
 #### [types_spec.md](./spec_L0/types_spec.md)
-*Source items: 5 / Registered items: 5*
+*Source items: 8 / Registered items: 8 (All Resolved in v2.2)*
 
 - **REV-TYPES-001**: Размещение float-типов `Microns` и `Fraction`
-  - *Status*: Open | *Priority*: P0 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L455)
-  - *Question / Problem*: - *Контекст*: В §4.1 зафиксировано, что `Microns` и `Fraction` принадлежат исключительно домену конфигурации/редактора и строго запрещены в горячем цикле симуляции.
-    - *Вопрос*: Стоит ли полностью вынести их из крейта `types` в крейты `config` / `topology`, чтобы сделать `types` на 100% целочисленным и упакованным?
+  - *Status*: Resolved | *Priority*: P0 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L108)
+  - *Decision*: Float-типы `Microns` и `Fraction` полностью вынесены из крейта `types` в крейты `config`/`topology`. Крейт `types` зафиксирован как на 100% целочисленный ABI-фундамент.
 
 - **REV-TYPES-002**: Унификация `EMPTY_PIXEL` (`0xFFFF_FFFF`) и сырого `0`
-  - *Status*: Open | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L458)
-  - *Question / Problem*: - *Контекст*: Крейт `types` определяет `EMPTY_PIXEL = 0xFFFF_FFFF` как надгробный маркер обрезанных слотов (Pruned Tombstone) для Early Exit на GPU/MCU, в то время как сырой `0` в `PackedTarget` обозначает неинициализированный `None`.
-    - *Вопрос*: Требуется ли унифицировать выходы Early Exit на GPU к единому маркеру, или сохраняется текущая дуальная проверка (`target == 0 || target == EMPTY_PIXEL`)?
+  - *Status*: Resolved | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L211)
+  - *Decision*: Утверждены 3 состояния `PackedTarget` (`0` = zero-init None, `EMPTY_PIXEL` = pruned tombstone, live target) и инспекторы `is_zero_none()`, `is_tombstone()`, `is_inactive()`. Функция `unpack()` возвращает `None` для любых неактивных слотов (`is_inactive()`). Все compute-ядра оперируют `is_inactive()`.
 
 - **REV-TYPES-003**: Разрядность `SegmentIndex`
-  - *Status*: Open | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L461)
-  - *Question / Problem*: - *Контекст*: В legacy документации в одном месте упоминался 10-битный индекс сегмента (0..1023), однако `PackedTarget` битово отводит под смещение сегмента строго 8 бит (0..255).
-    - *Решение в спеке*: Зафиксировано, что внутри `PackedTarget` смещение сегмента ограничено 8 битами (`MAX_SEGMENT_OFFSET = 255`). Обобщенный тип `SegmentIndex = u32` в `types` служит контейнером верхнего уровня.
+  - *Status*: Resolved | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L98)
+  - *Decision*: Зафиксировано, что внутри `PackedTarget` смещение сегмента ограничено 8 битами (`MAX_SEGMENT_OFFSET = 255`). Обобщенный тип `SegmentIndex = u32` в `types` служит внешним контейнером верхнего уровня.
 
 - **REV-TYPES-004**: Внешняя зависимость `wyhash` vs Inline Реализация
-  - *Status*: Open | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L464)
-  - *Question / Problem*: - *Решение в спеке*: Зафиксирован курс на 0 внешних зависимостей для RNG/хеширования внутри `types` (только `bytemuck` и dev-dependency `static_assertions`). Требуется финальное утверждение в спецификации.
+  - *Status*: Resolved | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L37)
+  - *Decision*: Зафиксирован курс на 0 внешних хеш-зависимостей. Avalanche mixers реализованы inline. В prod используется только `bytemuck = "=1.25.0"`, `static_assertions` — dev-dependency.
 
 - **REV-TYPES-005**: Распиновка `SomaFlags`
-  - *Status*: Open | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L466)
-  - *Question / Problem*: - *Решение в спеке*: Зафиксирован официальный макет `SomaFlags`: Bit 0 = Spiking, Bits 1..3 = Burst_Count, Bits 4..7 = Type_ID. Требуется утвердить эту распиновку для всех compute-ядер.
+  - *Status*: Resolved | *Priority*: P2 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L349)
+  - *Decision*: Утверждена распиновка `0:spiking, 1..3:burst_count, 4..7:type_id`. Поле `type_id` в `SomaFlags` зафиксировано как рантайм-кэш зеркало для `PackedPosition.type_id` (SSOT). `baker`/`layout` формируют плоскости, `boot` валидирует при загрузке, `compute-api` фиксирует контракт, а вычислительные ядра сохраняют маску `SOMA_TYPE_MASK` (`0xF0`).
+
+
+- **REV-TYPES-006**: Резервирование `MAX_AXON_ID`
+  - *Status*: Resolved | *Priority*: P0 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L203)
+  - *Decision*: Лимит `MAX_AXON_ID` уменьшен с `16_777_214` до `16_777_213` (`0x00FF_FFFD`) во избежание коллизии `pack(16_777_214, 255) == EMPTY_PIXEL`.
+
+- **REV-TYPES-007**: Dual API Pattern для упакованных типов
+  - *Status*: Resolved | *Priority*: P1 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L151)
+  - *Decision*: Утвержден Dual API Pattern: быстрые O(1) конструкторы `new`/`pack` (с `debug_assert!` в debug-сборке), проверяемые `try_new`/`try_pack` (возвращающие `Result`) и предикаты `is_valid_*`. Upper layers обязаны использовать `try_*`.
+
+- **REV-TYPES-008**: Удаление `random_f32` и целочисленные RNG/Hash
+  - *Status*: Resolved | *Priority*: P1 | *Owner*: `types` | *Duplicate Of*: - | *Source*: [types_spec.md](./spec_L0/types_spec.md#L437)
+  - *Decision*: `random_f32` удален из `types`. Крейт предоставляет только целочисленные генераторы `random_u32`/`random_u64`. Владение UUID и текстовыми слагами закреплено за `config`/baker, не добавляя UUID в `types`.
+
     ---
 
 ### §5.1. Слой L1 (Layouts, Configuration & Binary Formats)
