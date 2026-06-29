@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 2.5 | Дата: 2026-06-29
+> Версия: 2.6 | Дата: 2026-06-29
 
 ---
 
@@ -29,6 +29,9 @@ graph TD
         compute_hip["compute-hip (v2.0)"]
         test_harness["test-harness (v2.0)"]
     end
+    subgraph L4["Слой 4"]
+        topology["topology (v2.0)"]
+    end
 
     types --> layout
     types --> config
@@ -40,6 +43,7 @@ graph TD
     types --> compute_cuda
     types --> compute_hip
     types --> test_harness
+    types --> topology
     physics --> config
     physics --> compute_cpu
     physics --> compute_cuda
@@ -48,6 +52,8 @@ graph TD
     wire --> ipc
     layout --> compute_api
     layout --> test_harness
+    layout --> topology
+    config --> topology
     compute_api --> compute
     compute_api --> compute_cpu
     compute_api --> compute_cuda
@@ -56,7 +62,7 @@ graph TD
     compute_cpu --> test_harness
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology active;
 ```
 
 ---
@@ -96,6 +102,12 @@ graph TD
 | `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Draft v2.0** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
 | `compute-hip` | [compute_hip_spec.md](spec_L3/compute_hip_spec.md) | **Draft v2.0** | Высокопроизводительная AMD ROCm/HIP реализация `ComputeBackend` на базе Wave64 вейвфронтов и неблокирующих стримов. |
 | `test-harness` | [test_harness_spec.md](spec_L3/test_harness_spec.md) | **Draft v2.0** | Вспомогательный тестовый крейт для дифференциальных проверок `ComputeBackend`, фикстур и контроля ABI-зеркал. |
+
+### Слой 4 (Layer 4: Geometry, Growth & Connectome Generation)
+
+| Крейт | Спецификация | Статус | Назначение |
+|---|---|---|---|
+| `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Draft v2.0** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки и роста аксонов. |
 
 ---
 
