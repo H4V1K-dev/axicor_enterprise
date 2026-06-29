@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 3.1 | Дата: 2026-06-29
+> Версия: 3.2 | Дата: 2026-06-29
 
 ---
 
@@ -38,6 +38,7 @@ graph TD
     end
     subgraph L5["Слой 5"]
         protocol["protocol (v2.0)"]
+        transport["transport (v2.0)"]
     end
 
     types --> layout
@@ -87,7 +88,7 @@ graph TD
     compute_cpu --> test_harness
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker,baker_cli,edge_model,weaver_daemon,protocol active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker,baker_cli,edge_model,weaver_daemon,protocol,transport active;
 ```
 
 ---
@@ -139,11 +140,11 @@ graph TD
 | `weaver-daemon` | [weaver_daemon_spec.md](spec_L4/weaver_daemon_spec.md) | **Draft v2.0** | Изолированный OS-процесс Ночной Фазы (прунинг, спраутинг, столбовое уплотнение SoA в SHM). |
 
 ### Слой 5 (Layer 5: Network Stack)
-`no_std`, 0 аллокаций.
 
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `protocol` | [protocol_spec.md](spec_L5/protocol_spec.md) | **Draft v2.0** | Stateless-парсер L7, нарезка/сборка спайковых чанков (`no_std`, zero-alloc) и валидация эпох. |
+| `transport` | [transport_spec.md](spec_L5/transport_spec.md) | **Draft v2.0** | Системный I/O сокетов ОС, неблокирующая передача UDP/TCP, предвыделенные пулы и очереди. |
 
 ---
 
