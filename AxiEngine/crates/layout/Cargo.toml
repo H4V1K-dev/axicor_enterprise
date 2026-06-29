@@ -1,0 +1,15 @@
+[package]
+name = "layout"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+types = { path = "../types" }
+bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"] }
+
+[dev-dependencies]
+static_assertions = "=1.1.0"
+
+[features]
+default = []
+std = []
