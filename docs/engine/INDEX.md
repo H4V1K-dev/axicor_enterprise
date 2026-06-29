@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 3.3 | Дата: 2026-06-29
+> Версия: 3.4 | Дата: 2026-06-29
 
 ---
 
@@ -41,6 +41,11 @@ graph TD
         transport["transport (v2.0)"]
         net["net (v2.0)"]
     end
+    subgraph L6["Слой 6"]
+        boot["boot (v1.0)"]
+        runtime["runtime (v2.0)"]
+        node["node (v1.0)"]
+    end
 
     types --> layout
     types --> config
@@ -57,6 +62,9 @@ graph TD
     types --> edge_model
     types --> weaver_daemon
     types --> protocol
+    types --> boot
+    types --> runtime
+    types --> node
     physics --> config
     physics --> compute_cpu
     physics --> compute_cuda
@@ -73,14 +81,21 @@ graph TD
     layout --> edge_model
     layout --> weaver_daemon
     layout --> net
+    layout --> boot
+    layout --> runtime
     config --> topology
     config --> baker
     config --> weaver_daemon
+    config --> boot
     wire --> weaver_daemon
+    wire --> boot
     ipc --> weaver_daemon
     ipc --> net
+    ipc --> boot
+    ipc --> runtime
     vfs --> baker
     vfs --> edge_model
+    vfs --> boot
     topology --> baker
     topology --> weaver_daemon
     baker --> baker_cli
@@ -90,11 +105,18 @@ graph TD
     compute_api --> compute_hip
     compute_api --> test_harness
     compute_cpu --> test_harness
+    compute --> boot
+    compute --> runtime
     protocol --> net
     transport --> net
+    net --> boot
+    net --> runtime
+    net --> node
+    boot --> node
+    runtime --> node
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker,baker_cli,edge_model,weaver_daemon,protocol,transport,net active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker,baker_cli,edge_model,weaver_daemon,protocol,transport,net,boot,runtime,node active;
 ```
 
 ---
@@ -152,6 +174,14 @@ graph TD
 | `protocol` | [protocol_spec.md](spec_L5/protocol_spec.md) | **Draft v2.0** | Stateless-парсер L7, нарезка/сборка спайковых чанков (`no_std`, zero-alloc) и валидация эпох. |
 | `transport` | [transport_spec.md](spec_L5/transport_spec.md) | **Draft v2.0** | Системный I/O сокетов ОС, неблокирующая передача UDP/TCP, предвыделенные пулы и очереди. |
 | `net` | [net_spec.md](spec_L5/net_spec.md) | **Draft v2.0** | Сетевой оркестратор `axi-net`: таблицы маршрутов RCU, BSP-барьеры, бэкпрешер, External IO и телеметрия. |
+
+### Слой 6 (Layer 6: Runtime Orchestration & Node Startup)
+
+| Крейт | Спецификация | Статус | Назначение |
+|---|---|---|---|
+| `boot` | [boot_spec.md](spec_L6/boot_spec.md) | **Draft v1.0** | Инициализация окружения, монтирование VFS, проверка выравнивания и flash-копирование состояния в GPU. |
+| `runtime` | [runtime_spec.md](spec_L6/runtime_spec.md) | **Draft v2.0** | Оркестратор HFT-вычислений шардов, Day/Night переходы, координация с `weaver-daemon` и сбои. |
+| `node` | [node_spec.md](spec_L6/node_spec.md) | **Draft v1.0** | Тонкий OS-демон: разбор CLI-аргументов, CPU affinity, Tokio-изоляция и graceful shutdown. |
 
 ---
 
