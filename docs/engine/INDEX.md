@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 2.6 | Дата: 2026-06-29
+> Версия: 2.7 | Дата: 2026-06-29
 
 ---
 
@@ -31,6 +31,7 @@ graph TD
     end
     subgraph L4["Слой 4"]
         topology["topology (v2.0)"]
+        baker["baker (v2.0)"]
     end
 
     types --> layout
@@ -44,16 +45,22 @@ graph TD
     types --> compute_hip
     types --> test_harness
     types --> topology
+    types --> baker
     physics --> config
     physics --> compute_cpu
     physics --> compute_cuda
     physics --> compute_hip
+    physics --> baker
     layout --> ipc
     wire --> ipc
     layout --> compute_api
     layout --> test_harness
     layout --> topology
+    layout --> baker
     config --> topology
+    config --> baker
+    vfs --> baker
+    topology --> baker
     compute_api --> compute
     compute_api --> compute_cpu
     compute_api --> compute_cuda
@@ -62,7 +69,7 @@ graph TD
     compute_cpu --> test_harness
 
     classDef active fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology active;
+    class types,physics,layout,config,wire,ipc,vfs,compute_api,compute,compute_cpu,compute_cuda,compute_hip,test_harness,topology,baker active;
 ```
 
 ---
@@ -108,6 +115,7 @@ graph TD
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Draft v2.0** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки и роста аксонов. |
+| `baker` | [baker_spec.md](spec_L4/baker_spec.md) | **Draft v2.0** | Оркестратор компиляции AOT, координация фаз сборки, генерация бинарных блобов по `layout` и упаковка `.axic`. |
 
 ---
 
