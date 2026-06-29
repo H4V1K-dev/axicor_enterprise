@@ -44,14 +44,14 @@
 
 ### REV-LAYOUT-001: Двусмысленность раскладки `.state` блоба (Header vs State Payload Align)
 - **ID**: REV-LAYOUT-001
-- **Status**: Open
+- **Status**: Resolved (layout v2.2)
 - **Priority**: P0
 - **Owner candidate**: `layout`
-- **Source**: [layout_spec.md](./spec_L1/layout_spec.md#L330) (§10.1)
-- **Question / Problem**: В `layout_spec.md` формулы смещений описывают файл с заголовком 16B и выравниванием плоскостей по 64B. В результате для `padded_n = 64` смещение `dendrite_targets` равно 960B. При этом в тексте параллельно упоминается 896B для плотного режима без падов.
-- **Why it matters**: Вызывает расхождение в расчете смещений между юнит-тестами, валидатором `baker` и вычислительными бэкендами, приводя к чтению неверных областей памяти VRAM/RAM.
+- **Source**: [layout_spec.md](./spec_L1/layout_spec.md#L208) (§6.2)
+- **Question / Problem**: В `layout_spec.md` формулы смещений описывают файл с заголовком 16B и выравниванием плоскостей по 64B. В результате для `padded_n = 64` смещение `dendrite_targets` равно 960B. При этом в тексте параллельно упоминался 896B для плотного режима без падов.
+- **Why it matters**: Вызывало расхождение в расчете смещений между юнит-тестами, валидатором `baker` и вычислительными бэкендами, приводя к чтению неверных областей памяти VRAM/RAM.
 - **Affected specs**: [layout_spec.md](./spec_L1/layout_spec.md), [baker_spec.md](./spec_L4/baker_spec.md), [compute_api_spec.md](./spec_L3/compute_api_spec.md)
-- **Notes**: Выбрать один целевой стандарт смещений: заголовок входит в файл и первый plane выравнивается на 64B.
+- **Notes**: Утвержден единый стандарт Per-Plane 64B Alignment (`PADDED_N_ALIGNMENT = 64`). Первая плоскость выравнивается по 64B (`off_voltage = 64`), смещение `off_targets` составляет строго 960B для `padded_n = 64`. Альтернативный плотный блок (896B) аннулирован.
 
 ### REV-WIRE-001: Рассогласование полей `AxonHandoverEvent` с legacy-структурой
 - **ID**: REV-WIRE-001

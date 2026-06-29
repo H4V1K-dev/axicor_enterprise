@@ -151,7 +151,7 @@
 - **Инициализация**: Пустое состояние создается конструктором `BurstHeads8::empty(types::AXON_SENTINEL)`, где все 8 полей заполняются значением `AXON_SENTINEL` (`0x80000000`).
 
 > [!WARNING]
-> В легаси-комментариях встречалась устаревшая запись `AXON_SENTINEL = 0xFFFFFFFF`. Это является ошибкой. Единственным правильным значением сентинеля неактивности из `types v2.1` является `0x80000000`.
+> В легаси-комментариях встречалась устаревшая запись `AXON_SENTINEL = 0xFFFFFFFF`. Это является ошибкой. Единственным правильным значением сентинеля неактивности из `types v2.2` является `0x80000000`.
 
 ---
 
@@ -159,6 +159,8 @@
 
 Официальный C-ABI контракт передаточного объекта (DTO) указателей для взаимодействия между Rust-оркестратором и вычислительными ядрами (CUDA/HIP/CPU).
 - **Атрибуты**: `#[repr(C)]`
+- **Действующие `derive`**: `Clone`, `Copy`, `Debug` (и `Zeroable` при безопасно проходимой не-unsafe сборке).
+- **Строгие ограничения безопасности памяти**: Структура содержит сырые указатели (`*mut T`). **Категорически запрещено** реализовывать/реализовывать через derive трейт `bytemuck::Pod` и включать ненадёжный feature-флаг `unsound_ptr_pod_impl`. Запрещён каст структуры в сырые байты через bytemuck. Тестирование размеров, выравнивания и смещений полей выполняется строго через `static_assertions` и `memoffset` в юнит-тестах.
 - **Правило**: Порядок полей является строго фиксированным. Любое изменение порядка ломает побайтовую передачу через FFI.
 
 #### Порядок полей `ShardVramPtrs`
@@ -201,6 +203,12 @@
 ### §6.2. Формулы расчёта смещений и выравнивание (`StateOffsets`)
 
 Каждая SoA-плоскость в `.state` блобе начинается со смещения, кратного 64 байтам (`CACHE_LINE_BYTES`).
+
+#### Структура `StateOffsets` DTO
+Результат функции вычисления смещений `compute_state_offsets` возвращается в виде чистой runtime DTO-структуры `StateOffsets`:
+- **Статус**: Runtime Rust DTO. Не является файловым или сетевым C-ABI бинарным представлением (не требует `#[repr(C)]` или bytemuck).
+- **Тип полей**: Все поля имеют тип `usize`.
+- **Состав полей**: `off_voltage`, `off_flags`, `off_thresh`, `off_timers`, `off_s2a`, `off_targets`, `off_weights`, `off_dtimers`, `total_state_size`.
 
 #### Формула выравнивания
 $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
@@ -247,10 +255,11 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
 
 ## §7. Форматы Заголовков Файлов
 
-Все заголовки файлов бинарных дампов имеют фиксированный размер **16 байт**.
+Все заголовки файлов бинарных дампов имеют фиксированный размер **16 байт** и выравнивание **16 байт** (`#[repr(C, align(16))]`).
 
 ### §7.1. Заголовок состояния сомы и дендритов (`StateFileHeader`)
-- **Размер**: 16 байт.
+- **Атрибуты**: `#[repr(C, align(16))]`
+- **Размер**: 16 байт; **Выравнивание**: 16 байт.
 - **Поля**:
   - `magic: [u8; 4]` — идентификатор файла (`*b"AXST"` i.e. `[0x41, 0x58, 0x53, 0x54]`).
   - `version: u32` — версия формата (текущая = 1).
@@ -258,7 +267,8 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
   - `total_axons: u32` — общее количество аксонов в шарде.
 
 ### §7.2. Заголовок аксонов (`AxonsFileHeader`)
-- **Размер**: 16 байт.
+- **Атрибуты**: `#[repr(C, align(16))]`
+- **Размер**: 16 байт; **Выравнивание**: 16 байт.
 - **Поля**:
   - `magic: [u8; 4]` — идентификатор файла (`*b"AXAX"` i.e. `[0x41, 0x58, 0x41, 0x58]`).
   - `version: u32` — версия формата (текущая = 1).
@@ -266,7 +276,8 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
   - `_padding: u32` — 4 байта выравнивания до 16 байт.
 
 ### §7.3. Заголовок трассировки путей (`PathsFileHeader`)
-- **Размер**: 16 байт.
+- **Атрибуты**: `#[repr(C, align(16))]`
+- **Размер**: 16 байт; **Выравнивание**: 16 байт.
 - **Поля**:
   - `magic: [u8; 4]` — идентификатор файла (`*b"AXPT"` i.e. `[0x41, 0x58, 0x50, 0x54]`).
   - `version: u32` — версия формата (текущая = 1).
@@ -275,11 +286,18 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
 
 #### Раскладка файла `.paths`
 1. `PathsFileHeader` (16 байт).
-2. Массив длин аксонов `lengths: [total_axons] u8` (или `u32`).
-3. Паддинг до границы 64 байт: `padding = (64 - ((16 + lengths_len) % 64)) % 64`.
-4. Матрица координат `[total_axons * MAX_SEGMENTS_PER_AXON]` элементов `PackedPosition` (4 байта на ячейку).
+2. Массив фактических длин геометрии аксонов `lengths: [u16; total_axons]` (элементы типа `u16`, так как `MAX_SEGMENTS_PER_AXON = 256` превышает вместимость `u8`).
+3. Межплоскостной паддинг до границы 64 байт.
+4. Матрица координат `[total_axons * MAX_SEGMENTS_PER_AXON]` элементов `types::PackedPosition` (4 байта на ячейку).
 
-При `total_axons == 0` файл содержит 16 байт заголовка и 48 байт паддинга (итого 64 байта).
+#### Формулы расчёта геометрии `.paths`
+- `calculate_paths_matrix_offset(total_axons: usize) -> usize`:
+  $$\text{matrix\_offset} = \text{align64}(16 + \text{total\_axons} \times 2)$$
+- `calculate_paths_file_size(total_axons: usize) -> usize`:
+  $$\text{file\_size} = \text{matrix\_offset} + \text{total\_axons} \times \text{MAX\_SEGMENTS\_PER\_AXON} \times 4$$
+
+При `total_axons == 0`: `matrix_offset = align64(16) = 64`, `file_size = 64` байт.
+При `total_axons == 100`: `matrix_offset = align64(16 + 200) = align64(216) = 256`, `file_size = 256 + 100 * 256 * 4 = 102 656` байт.
 
 ---
 
@@ -289,9 +307,9 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
 
 - **INV-LAYOUT-001**: `size_of::<VariantParameters>() == 64` и `align_of::<VariantParameters>() == 64`.
 - **INV-LAYOUT-002**: `size_of::<BurstHeads8>() == 32` и `align_of::<BurstHeads8>() == 32`.
-- **INV-LAYOUT-003**: `size_of::<StateFileHeader>() == 16`.
-- **INV-LAYOUT-004**: `size_of::<AxonsFileHeader>() == 16`.
-- **INV-LAYOUT-005**: `size_of::<PathsFileHeader>() == 16`.
+- **INV-LAYOUT-003**: `size_of::<StateFileHeader>() == 16` и `align_of::<StateFileHeader>() == 16`.
+- **INV-LAYOUT-004**: `size_of::<AxonsFileHeader>() == 16` и `align_of::<AxonsFileHeader>() == 16`.
+- **INV-LAYOUT-005**: `size_of::<PathsFileHeader>() == 16` и `align_of::<PathsFileHeader>() == 16`.
 - **INV-LAYOUT-006**: Выравнивание начала каждой SoA-плоскости в `.state` блобе кратно 64 байтам.
 
 ### §8.2. Межкрейтовые инварианты
@@ -308,7 +326,7 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
 1. **Размеры и выравнивание C-ABI структур (`test_abi_sizes_and_alignments`)**:
    - `VariantParameters`: размер 64, выравнивание 64.
    - `BurstHeads8`: размер 32, выравнивание 32.
-   - `StateFileHeader`, `AxonsFileHeader`, `PathsFileHeader`: размер ровно 16 байт.
+   - `StateFileHeader`, `AxonsFileHeader`, `PathsFileHeader`: размер ровно 16 байт, выравнивание ровно 16 байт.
 2. **Точные смещения полей `VariantParameters` (`test_variant_parameters_field_offsets`)**:
    - Проверка смещения каждого поля (`threshold` at 0, `inertia_curve` at 32, `adaptive_leak_min_shift` at 48, `heartbeat_m` at 60).
 3. **Инициализация `BurstHeads8` (`test_burst_heads_sentinel_init`)**:
@@ -320,9 +338,9 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
    - Проверка кратности 64 байтам всех возвращаемых смещений плоскостей.
    - Вычисление итогового размера `.state` блоба (`calculate_state_blob_size` = 74,688B для `padded_n = 64`).
 6. **Структура файла `.paths` (`test_paths_file_layout_math`)**:
-   - Проверка `calculate_paths_matrix_offset` и `calculate_paths_file_size` для `total_axons = 0` (минимальный размер 64B) и `total_axons = 100`.
+   - Проверка `calculate_paths_matrix_offset` и `calculate_paths_file_size` для `total_axons = 0` (matrix_offset = 64B, file_size = 64B) и `total_axons = 100` (matrix_offset = 256B, file_size = 102,656B).
 7. **Совместимость `ShardVramPtrs` (`test_vram_ptrs_layout`)**:
-   - Проверка фиксированного порядка полей, смещений и размеров указателей DTO.
+   - Проверка фиксированного порядка полей, смещений и размеров указателей DTO через static_assertions / memoffset без bytemuck byte-cast.
 8. **Изоляция ABI упаковки (`test_no_duplicate_target_packing`)**:
    - Проверка полного отсутствия дублирующих функций упаковки таргетов в `layout` и корректной работы с `types::PackedTarget`.
 
