@@ -1,8 +1,8 @@
 # spec_physics
 
-> Версия спеки: 2.0  
+> Версия спеки: 2.1  
 > Дата: 2026-06-29  
-> Статус: Draft (Architecture Pass 1)
+> Статус: Approved / Ready for Implementation (Architecture Pass 2)
 
 ---
 
@@ -78,6 +78,7 @@
 | Константа | Тип | Значение | Описание и Назначение |
 |---|---|---|---|
 | `MASS_TO_CHARGE_SHIFT` | `u32` | `16` | Арифметика сдвига при переходе из Mass Domain (`i32` вес синапса) в Charge Domain (электрический ток `i_in = weight >> 16`). Порождает эффект «немых синапсов». |
+| `MIN_WEIGHT_LIMIT` | `i32` | `1` | Минимальный абсолютный вес живого синапса (Mass Floor Guard). Гарантирует сохранение биологического знака (Закон Дейла) при сильной депрессии. |
 | `MAX_WEIGHT_LIMIT` | `i32` | `2_140_000_000` | Максимальный абсолютный вес синапса (Headroom Guard). Оставляет зазор $\approx 7.4$ млн до `i32::MAX` во избежание целочисленного переполнения до clamping. |
 | `INERTIA_RANK_SHIFT` | `u32` | `28` | Битовый сдвиг для O(1) вычисления индекса ранга инерции синапса (`abs_weight >> 28`). |
 | `MAX_INERTIA_RANK` | `usize` | `7` | Верхний граница индекса ранга инерции (диапазон `0..7`, массив `inertia_curve` на 8 элементов). |
@@ -103,15 +104,18 @@ $$\text{signal\_speed\_um\_tick} = \text{signal\_speed\_m\_s} \times 1000 \times
 $$\text{segment\_length\_um} = \text{voxel\_size\_um} \times \text{segment\_length\_voxels}$$
 $$v_{\text{seg}} = \frac{\text{signal\_speed\_um\_tick}}{\text{segment\_length\_um}}$$
 
-**Требования к валидации**:
+**Требования к границам и валидации**:
+- **Изоляция Float-аргументов**: Использование `f32` в `compute_v_seg` разрешено **строго** на границе AOT/config (`config`, `baker`) при парсинге человекочитаемых физических единиц из TOML. Внутренние горячие функции крейта `physics` остаются 100% целочисленными (Zero-Float).
 - Результат $v_{\text{seg}}$ обязан быть точным целым числом (допускается погрешность $\epsilon < 10^{-5}$ при AOT-расчёте).
 - $1 \le v_{\text{seg}} \le 255$.
 - Если $v_{\text{seg}}$ дробный, равен 0 или превышает 255, функция обязана вернуть `Err(...)`.
 
 #### 2. Компиляция шага фазы DDS (`compile_dds_heartbeat`)
 Расчет приращения фазы $m$ для спонтанного спайкирования (Heartbeat):
-- Если `period_ticks == 0`, то `heartbeat_m = 0` (спонтанный спайкинг отключен).
-- Иначе: $\text{heartbeat\_m} = \min\left(\left\lfloor \frac{65536}{\text{period\_ticks}} \right\rfloor, 65535\right)$.
+- Если `period_ticks == 0` ИЛИ `period_ticks > 65536`, то `heartbeat_m = 0` (спонтанный спайкинг явно отключен).
+  *Обоснование*: При 16-битном аккумуляторе (`DDS_PHASE_MOD = 65536`) минимальный целочисленный шаг `m = 1` соответствует периоду в 65536 тиков. Для любых периодов `period_ticks > 65536` целочисленный шаг опускается до 0, что семантически равносильно отключению спайкирования.
+- Если `period_ticks == 1`, то `heartbeat_m = MAX_HEARTBEAT_M` (65535, генерация спайка на каждом тике).
+- Иначе (при $2 \le \text{period\_ticks} \le 65536$): $\text{heartbeat\_m} = \min\left(\left\lfloor \frac{65536}{\text{period\_ticks}} \right\rfloor, 65535\right)$.
 
 ---
 
@@ -157,8 +161,11 @@ $$\text{hit}_k = (d < L_{\text{prop}})$$
 Эффективный порог: $V_{\text{th\_eff}} = V_{\text{th}} + \text{thresh\_offset}$.
 - **Биологический GLIF спайк**: $\text{is\_glif} = (\text{voltage}_{\text{new}} \ge V_{\text{th\_eff}})$.
 - **Спонтанный Heartbeat спайк**:
-  $$\text{phase} = \left((\text{current\_tick} \times \text{heartbeat\_m}) + (\text{tid} \times 104729)\right) \ \& \ 0xFFFF$$
-  $$\text{is\_heartbeat} = (\text{heartbeat\_m} > 0) \land (\text{phase} < \text{heartbeat\_m})$$
+  Предикат `is_heartbeat` генерирует регулярный сигнал:
+  - Если `heartbeat_m == MAX_HEARTBEAT_M` (65535, соответствующий `period_ticks == 1`), то `is_heartbeat = true` на каждом тике.
+  - Иначе:
+    $$\text{phase} = \left((\text{current\_tick} \times \text{heartbeat\_m}) + (\text{tid} \times 104729)\right) \ \& \ 0xFFFF$$
+    $$\text{is\_heartbeat} = (\text{heartbeat\_m} > 0) \land (\text{phase} < \text{heartbeat\_m})$$
 - **Итоговый флаг спайка**: $\text{final\_spike} = \text{is\_glif} \lor \text{is\_heartbeat}$.
 
 **Распределение побочных эффектов**:
@@ -199,9 +206,11 @@ $$\Delta_{\text{pot}} = \frac{\text{final\_pot} \times \text{inertia} \times \te
 Итоговая дельта массы: $\Delta = \begin{cases} \Delta_{\text{pot}}, & \text{is\_active} \\ -\Delta_{\text{dep}}, & \neg \text{is\_active} \end{cases}$.
 Применение дельты и clamping (защита от пробоя нуля и переполнения):
 $$\text{new\_abs} = \text{abs\_w} + \Delta$$
-$$\text{new\_abs} = \text{min}(\max(\text{new\_abs}, 0), \text{MAX\_WEIGHT\_LIMIT})$$
+$$\text{new\_abs} = \min(\max(\text{new\_abs}, \text{MIN\_WEIGHT\_LIMIT}), \text{MAX\_WEIGHT\_LIMIT})$$
 Восстановление биологического знака (Закон Дейла):
 $$\text{weight}_{\text{new}} = \text{sign} \times \text{new\_abs}$$
+
+> **Важное замечание по семантике нуля**: Настоящий 0 веса (`weight == 0`) никогда не является результатом hot-path GSOP для живого синапса. Нижний предел `MIN_WEIGHT_LIMIT` = 1 (Mass Floor Guard) гарантирует сохранение биологического знака `sign` даже при максимальной депрессии. Настоящее зануление / удаление синаптического слота выполняется исключительно алгоритмами топологии и прунинга (`baker`, `weaver-daemon`) путем установки неактивного целевого адреса (`PackedTarget::is_inactive()`).
 
 ---
 
@@ -211,7 +220,7 @@ $$\text{weight}_{\text{new}} = \text{sign} \times \text{new\_abs}$$
 
 - **INV-PHYS-001**: Zero Warp Divergence (Branchless Execution). Внутри горячего цикла симуляции строжайше запрещено использование условных ветвлений (`if`/`else`), зависящих от данных нейрона. Все ограничители и вычисления обязаны реализовываться через битовую алгебру или предикатные инструкции (`.min()`, `.max()`).
 - **INV-PHYS-002**: Hardware VRAM Guard. Вычислительные ядра обязаны начинаться со строгой проверки границ памяти (`if tid >= padded_n` или `if tid >= total_axons`) до любого чтения или записи.
-- **INV-PHYS-003**: Zero-Index Trap Protection. В упакованной структуре `PackedTarget` значение строго равное `0` означает пустоту слота. Извлечение ID аксона выполняется со смещением на -1: `(target_packed & 0x00FFFFFF) - 1`.
+- **INV-PHYS-003**: Inactive Target Slot Protection. В упакованной структуре `PackedTarget` проверка неактивности слота выполняется через предикат `is_inactive()` (`raw == 0 || raw == EMPTY_PIXEL`). Извлечение ID аксона выполняется исключительно для живых слотов со смещением на -1: `(target_packed & 0x00FFFFFF) - 1`.
 - **INV-PHYS-004**: Panic-Free Arithmetic (UB Guards). Математика не должна вызывать паник в Rust или неопределенного поведения в C++. Запрещено использовать `.abs()` на `i32` (используется `.unsigned_abs()`).
 
 ### §6.2. Семантические Инварианты Физики
@@ -246,6 +255,7 @@ $$\text{weight}_{\text{new}} = \text{sign} \times \text{new\_abs}$$
    - Превышение лимита ($v_{\text{seg}} = 256$) $\to$ проверка возврата `Err`.
 2. **DDS Heartbeat Компиляция и Фаза (`test_dds_heartbeat_matrix`)**:
    - `period = 0` $\to$ `heartbeat_m = 0`.
+   - `period = 1` $\to$ `heartbeat_m = 65535` (`MAX_HEARTBEAT_M`), генерация спайка на каждом тике (`is_heartbeat == true`).
    - `period = 500` $\to$ точный расчёт `heartbeat_m`.
    - Проверка переполнения фазы на больших тиках (`current_tick = u32::MAX as u64 + 1000`) в 64-битном типе без паники.
 3. **Spike Birth & Sentinel (`test_spike_birth_and_sentinel`)**:
@@ -263,40 +273,34 @@ $$\text{weight}_{\text{new}} = \text{sign} \times \text{new\_abs}$$
    - Проверка сохранения знака положительных и отрицательных весов (Закон Дейла).
    - Проверка работы с `i32::MIN` без паники (благодаря `unsigned_abs()`).
    - Граничные тесты рангов инерции ($abs\_w = 0, 268435455, 268435456, 2140000000$).
-   - Клампинг веса на уровне `MAX_WEIGHT_LIMIT`.
+   - Клампинг веса на уровнях `MIN_WEIGHT_LIMIT` (нижняя граница 1 для живых синапсов) и `MAX_WEIGHT_LIMIT` (верхняя граница).
+   - Проверка того, что отрицательный вес при максимальной депрессии клампится на `-MIN_WEIGHT_LIMIT` (`-1`), не достигает `0` и не меняет знак.
    - Проверка дофаминовой модуляции (награда D1/D2 и наказание).
    - Переход из Mass Domain в Charge Domain для положительных и отрицательных весов (`weight >> 16`).
 
 ---
 
-## §8. Open Questions / Conflicts (Открытые Вопросы и Противоречия)
+## §8. Resolved Architectural Decisions (Принятые Решения Pass 2)
 
-В процессе системного анализа физического ядра выявлены следующие противоречия и открытые вопросы, требующие последующего анализа и утверждения:
+Все математические и межкрейтовые противоречия в `physics` успешно закрыты в процессе системного архитектурного прохода Pass 2.
 
-1. **Формула Magnetic Sentinel в legacy CUDA vs Инвариант**:
-   - *Контекст*: В legacy CUDA-коде (`physics.cu`) проверка неактивности головы выполнена как простые ветвления `if (h.h0 != AXON_SENTINEL) h.h0 += v_seg`. Однако инвариант `INV-PHYS-006` требует побитовой проверки `((h ^ AXON_SENTINEL) >= v_seg)` во избежание перепрыгивания при $v_{\text{seg}} > 1$.
-   - *Вопрос*: Утвердить ли побитовую формулу из `INV-PHYS-006` как единый стандарт для всех бэкендов в `AxiEngine`?
+1. **[RESOLVED] Формула Magnetic Sentinel в compute-ядрах**:
+   - *Решение*: Побитовая формула из `INV-PHYS-006` (`((h ^ AXON_SENTINEL) >= v_seg)`) утверждена как единый обязательный стандарт для всех бэкендов (`compute-cpu`, `compute-cuda`, `compute-hip`). Простая проверка `h != AXON_SENTINEL` запрещена во избежание «перепрыгивания» при $v_{\text{seg}} > 1$.
 
-2. **Граница Active Tail Hit (`< prop` vs `<= prop`)**:
-   - *Контекст*: В `physics.cu` длина хвоста проверяется как `(h - seg_idx) < prop`. В некоторых ранних спецификациях встречалось включительное условие `<= prop`.
-   - *Вопрос*: Фиксируется ли строгое неравенство `< prop` (где длина хвоста равна ровно `prop` сегментам)?
+2. **[RESOLVED] Граница Active Tail Hit**:
+   - *Решение*: Утверждено строгое неравенство `head.wrapping_sub(seg_idx) < propagation_length` (§5.2.3). Сигнал находится в хвосте ровно `propagation_length` сегментов (от 0 до `propagation_length - 1`).
 
-3. **Противоречие Spatial Cooling в GSOP**:
-   - *Контекст*: В Rust-коде `axicor-core/src/physics.rs` прямо указано: `// 3. Final delta (Spatial Cooling removed - Phase 8.1)`. Однако в CUDA-ядре `physics.cu` и старых спеках сдвиг охлождения всё еще применяется: `cooling_shift = is_active ? (min_dist >> 4) : 0; delta_pot >> cooling_shift`.
-   - *Вопрос*: Фиксируется окончательное удаление Spatial Cooling из целевой математики `AxiEngine`?
+3. **[RESOLVED] Окончательное удаление GSOP Spatial Cooling**:
+   - *Решение*: Сдвиг охлаждения (Spatial Cooling) официально и окончательно удалён из математики GSOP в `AxiEngine`. Алгоритм пластичности зафиксирован строго по формулам из §5.4 без деления на дистанцию `min_dist`.
 
-4. **Типы аргументов AOT-деривации (`f32` vs Integer-scaled)**:
-   - *Контекст*: Функция `compute_v_seg` на этапе пре-бейка принимает физические величины в `f32` (`signal_speed_m_s`, `voxel_size_um`).
-   - *Вопрос*: Допускается ли использование `f32` исключительно на этапе AOT-компиляции в `config`/`baker`, или входные параметры TOML также должны передаваться в фиксированных целых единицах?
+4. **[RESOLVED] Граница Float-аргументов AOT-деривации**:
+   - *Решение*: Зафиксирована строгая изоляция: тип `f32` в `compute_v_seg` допускается **исключительно** на границе AOT/config при парсинге файлов конфигурации TOML. Все горячие функции симуляции в `physics` зафиксированы как 100% целочисленные (`Zero-Float`).
 
-5. **Поведение `compile_dds_heartbeat` при периодах $> 65536$**:
-   - *Контекст*: Если период спонтанного спайкирования превышает 65536 тиков, целочисленное деление `65536 / period_ticks` дает 0, что полностью отключает Heartbeat.
-   - *Вопрос*: Является ли это желаемым поведением (считать периоды $> 65.5\text{k}$ тиков отключенными) или требуется расширить размерность фазового аккумулятора?
+5. **[RESOLVED] Поведение `compile_dds_heartbeat` при периодах $> 65536$ и `period == 1`**:
+   - *Решение*: Для `period_ticks > 65536` (как и для `period_ticks == 0`) шаг фазы устанавливается в `heartbeat_m = 0`, что явно отключает спонтанный спайкинг. Для `period_ticks == 1` шаг устанавливается в `MAX_HEARTBEAT_M` (65535) с генерацией спайка на каждом тике.
 
-6. **Коллизия маркеров `EMPTY_PIXEL` и `0` в `PackedTarget`**:
-   - *Контекст*: В `types` выявлен конфликт между raw 0 (зануленная память) и tombstone `EMPTY_PIXEL` (`0xFFFF_FFFF`). В физическом ядре `physics.cu` обработка `target_packed == 0` используется для Early Exit.
-   - *Вопрос*: Требуется ли синхронизация физического ядра с новым стандартом tombstone `EMPTY_PIXEL` из `types v2.1`?
+6. **[RESOLVED] Синхронизация неактивных слотов `PackedTarget`**:
+   - *Решение*: Вычислительные ядра и физические функции зафиксированы на использование предиката `PackedTarget::is_inactive()` (`raw == 0 || raw == EMPTY_PIXEL`) из `types v2.2` для Early Exit и проверки неактивных синаптических слотов.
 
-7. **Семантика нулевого веса в Законе Дейла**:
-   - *Контекст*: При `weight == 0` вычисление `sign` даёт `1`. Если синапс был изначально тормозным (`-1`), но опустился до `0`, при последующем повышении массы он станет возбуждающим (+1).
-   - *Вопрос*: Требуется ли хранить биологический тип синапса (Glu/GABA) в отдельном бите (например, в `VariantParameters.is_inhibitory`), чтобы ноль не менял природу синапса?
+7. **[RESOLVED] Сохранение биологического знака при депрессии веса (REV-PHYS-007)**:
+   - *Решение*: Утверждён контракт Mass Floor Guard (`MIN_WEIGHT_LIMIT = 1`). При депрессии динамический вес живого синапса ограничен снизу значением `MIN_WEIGHT_LIMIT`, благодаря чему абсолютное значение массы никогда не опускается до 0 в hot-path GSOP и гарантированно сохраняет биологический знак (`sign`). Настоящий 0 веса не образуется при GSOP и существует только при занулении/удалении слота топологией через неактивный `PackedTarget::is_inactive()`.

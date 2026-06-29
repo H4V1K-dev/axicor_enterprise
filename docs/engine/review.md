@@ -179,8 +179,8 @@
 - **Affected specs**: [test_harness_spec.md](./spec_L3/test_harness_spec.md), [compute_api_spec.md](./spec_L3/compute_api_spec.md)
 - **Notes**: Добавить в `ComputeBackend` опциональный метод `debug_snapshot(&self, handle: &VramHandle) -> Result<ShardStateSnapshot>`.
 
-### REV-PHYS-007: Генерация и верификация C++ зеркал из Rust-источников
-- **ID**: REV-PHYS-007
+### REV-PHYS-009: Генерация и верификация C++ зеркал из Rust-источников
+- **ID**: REV-PHYS-009
 - **Status**: Open
 - **Priority**: P1
 - **Owner candidate**: `physics` / `layout`
@@ -239,16 +239,16 @@
 - **Affected specs**: [node_spec.md](./spec_L6/node_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
 - **Notes**: Зафиксировать единые версии в коренном `Cargo.toml`.
 
-### REV-PHYS-004: Крайние случаи DDS Heartbeat при `period=1`
-- **ID**: REV-PHYS-004
-- **Status**: Open
+### REV-PHYS-008: Крайние случаи DDS Heartbeat при `period=1`
+- **ID**: REV-PHYS-008
+- **Status**: Resolved (physics v2.2)
 - **Priority**: P2
 - **Owner candidate**: `physics`
-- **Source**: [physics_spec.md](./spec_L0/physics_spec.md#L280) (§8.4)
+- **Source**: [physics_spec.md](./spec_L0/physics_spec.md#L116) (§5.1.2)
 - **Question / Problem**: При `period=1` значение фазы $65535$ не вызовет спайк (`65535 < 65535` ложно), хотя legacy-документация определяет `period=1` как генерацию спайка каждый тик.
 - **Why it matters**: Приводит к пропуску спайков генераторов при определенных настройках периода.
 - **Affected specs**: [physics_spec.md](./spec_L0/physics_spec.md), [config_spec.md](./spec_L1/config_spec.md)
-- **Notes**: Расширить лимит предиката либо утвердить специальную обработку `period=1`.
+- **Notes**: Зафиксировано, что при `period_ticks == 1` шаг фазы равен `MAX_HEARTBEAT_M` (65535), а предикат `is_heartbeat` возвращает `true` на каждом тике.
 
 ### REV-LAYOUT-003: Магическая сигнатура `.paths` и эндианность
 - **ID**: REV-LAYOUT-003
@@ -332,39 +332,32 @@
 *Source items: 7 / Registered items: 7*
 
 - **REV-PHYS-001**: Формула Magnetic Sentinel в legacy CUDA vs Инвариант
-  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L276)
-  - *Question / Problem*: - *Контекст*: В legacy CUDA-коде (`physics.cu`) проверка неактивности головы выполнена как простые ветвления `if (h.h0 != AXON_SENTINEL) h.h0 += v_seg`. Однако инвариант `INV-PHYS-006` требует побитовой проверки `((h ^ AXON_SENTINEL) >= v_seg)` во избежание перепрыгивания при $$v_{\text{seg}}$ > 1$.
-    - *Вопрос*: Утвердить ли побитовую формулу из `INV-PHYS-006` как единый стандарт для всех бэкендов в `AxiEngine`?
+  - *Status*: Resolved (physics v2.1) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L278)
+  - *Decision*: Побитовая формула из `INV-PHYS-006` (`((h ^ AXON_SENTINEL) >= v_seg)`) утверждена как единый стандарт для всех бэкендов.
 
 - **REV-PHYS-002**: Граница Active Tail Hit (`< prop` vs `<= prop`)
-  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L280)
-  - *Question / Problem*: - *Контекст*: В `physics.cu` длина хвоста проверяется как `(h - seg_idx) < prop`. В некоторых ранних спецификациях встречалось включительное условие `<= prop`.
-    - *Вопрос*: Фиксируется ли строгое неравенство `< prop` (где длина хвоста равна ровно `prop` сегментам)?
+  - *Status*: Resolved (physics v2.1) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L281)
+  - *Decision*: Утверждено строгое неравенство `d < propagation_length` (§5.2.3).
 
 - **REV-PHYS-003**: Противоречие Spatial Cooling в GSOP
-  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L284)
-  - *Question / Problem*: - *Контекст*: В Rust-коде `axicor-core/src/physics.rs` прямо указано: `// 3. Final delta (Spatial Cooling removed - Phase 8.1)`. Однако в CUDA-ядре `physics.cu` и старых спеках сдвиг охлождения всё еще применяется: `cooling_shift = is_active ? (min_dist >> 4) : 0; delta_pot >> cooling_shift`.
-    - *Вопрос*: Фиксируется окончательное удаление Spatial Cooling из целевой математики `AxiEngine`?
+  - *Status*: Resolved (physics v2.1) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L284)
+  - *Decision*: Spatial Cooling официально и окончательно удалён из математики GSOP в `AxiEngine`.
 
 - **REV-PHYS-004**: Типы аргументов AOT-деривации (`f32` vs Integer-scaled)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L288)
-  - *Question / Problem*: - *Контекст*: Функция `compute_v_seg` на этапе пре-бейка принимает физические величины в `f32` (`signal_speed_m_s`, `voxel_size_um`).
-    - *Вопрос*: Допускается ли использование `f32` исключительно на этапе AOT-компиляции в `config`/`baker`, или входные параметры TOML также должны передаваться в фиксированных целых единицах?
+  - *Status*: Resolved (physics v2.1) | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L287)
+  - *Decision*: Использование `f32` в `compute_v_seg` изолировано строго на границе AOT/config (`config`, `baker`). Горячий рантайм на 100% целочисленный.
 
 - **REV-PHYS-005**: Поведение `compile_dds_heartbeat` при периодах $> 65536$
-  - *Status*: Open | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L292)
-  - *Question / Problem*: - *Контекст*: Если период спонтанного спайкирования превышает 65536 тиков, целочисленное деление `65536 / period_ticks` дает 0, что полностью отключает Heartbeat.
-    - *Вопрос*: Является ли это желаемым поведением (считать периоды $> 65.5\text{k}$ тиков отключенными) или требуется расширить размерность фазового аккумулятора?
+  - *Status*: Resolved (physics v2.1) | *Priority*: P2 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L290)
+  - *Decision*: Для `period_ticks > 65536` устанавливается `heartbeat_m = 0` (спонтанный спайкинг явно отключен).
 
 - **REV-PHYS-006**: Коллизия маркеров `EMPTY_PIXEL` и `0` в `PackedTarget`
-  - *Status*: Open (Cross-Ref Resolved in types v2.2) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L296)
-  - *Question / Problem*: - *Контекст*: В `types` выявлен конфликт между raw 0 (зануленная память) и tombstone `EMPTY_PIXEL` (`0xFFFF_FFFF`). В физическом ядре `physics.cu` обработка `target_packed == 0` используется для Early Exit.
-    - *Решение*: В `types v2.2` зафиксированы 3 состояния и инспектор `is_inactive()`. Физическое ядро `physics` будет обновлено для использования `is_inactive()` на своем проходе.
+  - *Status*: Resolved (physics v2.1) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L293)
+  - *Decision*: Синхронизировано с `types v2.2`. Физика и ядра используют предикат `PackedTarget::is_inactive()` (`0` или `EMPTY_PIXEL`).
 
 - **REV-PHYS-007**: Семантика нулевого веса в Законе Дейла
-  - *Status*: Open | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L300)
-  - *Question / Problem*: - *Контекст*: При `weight == 0` вычисление `sign` даёт `1`. Если синапс был изначально тормозным (`-1`), но опустился до `0`, при последующем повышении массы он станет возбуждающим (+1).
-    - *Вопрос*: Требуется ли хранить биологический тип синапса (Glu/GABA) в отдельном бите (например, в `VariantParameters.is_inhibitory`), чтобы ноль не менял природу синапса?
+  - *Status*: Resolved (physics v2.2) | *Priority*: P1 | *Owner*: `physics` | *Duplicate Of*: - | *Source*: [physics_spec.md](./spec_L0/physics_spec.md#L300)
+  - *Decision*: Утверждён контракт Mass Floor Guard (`MIN_WEIGHT_LIMIT = 1`). При депрессии вес живого синапса ограничен снизу значением 1, сохраняя знак. Настоящий 0 веса не образуется при GSOP и существует только при занулении/удалении слота топологией через `PackedTarget::is_inactive()`.
 
 #### [types_spec.md](./spec_L0/types_spec.md)
 *Source items: 8 / Registered items: 8 (All Resolved in v2.2)*
