@@ -22,7 +22,7 @@ graph TD
         vfs["vfs (v2.0)"]
     end
     subgraph L3["Слой 3"]
-        compute_api["compute-api (v2.0)"]
+        compute_api["compute-api (v2.1)"]
         compute["compute (v2.0)"]
         compute_cpu["compute-cpu (v2.0)"]
         compute_cuda["compute-cuda (v2.0)"]
@@ -150,12 +150,12 @@ graph TD
 
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
-| `compute-api` | [compute_api_spec.md](spec_L3/compute_api_spec.md) | **Draft v2.0** | Аппаратно-независимый HAL контракт бэкендов вычислений (`ComputeBackend`), непрозрачные VRAM handles и DTO команд. |
-| `compute` | [compute_spec.md](spec_L3/compute_spec.md) | **Draft v2.0** | Фасад вычислений `ShardEngine`, автовыбор бэкендов (`BackendPreference`) и оркестрация жизненного цикла шарда. |
-| `compute-cpu` | [compute_cpu_spec.md](spec_L3/compute_cpu_spec.md) | **Draft v2.0** | Многопоточная CPU-реализация `ComputeBackend` на базе Rayon, выровненные ресурсы хоста и проверочная реализация. |
-| `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Draft v2.0** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
-| `compute-hip` | [compute_hip_spec.md](spec_L3/compute_hip_spec.md) | **Draft v2.0** | Высокопроизводительная AMD ROCm/HIP реализация `ComputeBackend` на базе Wave64 вейвфронтов и неблокирующих стримов. |
-| `test-harness` | [test_harness_spec.md](spec_L3/test_harness_spec.md) | **Draft v2.0** | Вспомогательный тестовый крейт для дифференциальных проверок `ComputeBackend`, фикстур и контроля ABI-зеркал. |
+| `compute-api` | [compute_api_spec.md](spec_L3/compute_api_spec.md) | **Approved v2.1** | Аппаратно-независимый HAL контракт бэкендов вычислений (`ComputeBackend`), непрозрачные VRAM handles и DTO команд. |
+| `compute` | [compute_spec.md](spec_L3/compute_spec.md) | **Draft v2.1 / API Sync** | Фасад вычислений `ShardEngine`, автовыбор бэкендов (`BackendPreference`) и оркестрация жизненного цикла шарда. |
+| `compute-cpu` | [compute_cpu_spec.md](spec_L3/compute_cpu_spec.md) | **Draft v2.1 / API Sync** | Многопоточная CPU-реализация `ComputeBackend` на базе Rayon, выровненные ресурсы хоста и проверочная реализация. |
+| `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
+| `compute-hip` | [compute_hip_spec.md](spec_L3/compute_hip_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная AMD ROCm/HIP реализация `ComputeBackend` на базе Wave64 вейвфронтов и неблокирующих стримов. |
+| `test-harness` | [test_harness_spec.md](spec_L3/test_harness_spec.md) | **Draft v2.1 / API Sync** | Вспомогательный тестовый крейт для дифференциальных проверок `ComputeBackend`, фикстур и контроля ABI-зеркал. |
 
 ### Слой 4 (Layer 4: Geometry, Growth & Connectome Generation)
 

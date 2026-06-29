@@ -10,14 +10,14 @@
 
 ### REV-COMPUTE-API-001: Несоответствие имен методов аллокации/деаллокации VRAM в Layer 3
 - **ID**: REV-COMPUTE-API-001
-- **Status**: Open
+- **Status**: Resolved (compute-api v2.1)
 - **Priority**: P0
 - **Owner candidate**: `compute-api`
-- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L279) (§10.1) vs [compute_spec.md](./spec_L3/compute_spec.md#L213) (§9.1)
-- **Question / Problem**: Трейт `ComputeBackend` в `compute-api` объявляет методы `alloc_shard` и `free_shard`, тогда как фасад `ShardEngine` в `compute` использует имена `allocate_vram` и `teardown`. Разнобой в названиях мешает согласованной разработке API.
-- **Why it matters**: Приводит к невозможности компиляции фасада вычислений с бэкендами и блокирует разработку L3-крейтов.
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§10.2) vs [compute_spec.md](./spec_L3/compute_spec.md) (§9.1)
+- **Question / Problem**: Трейт `ComputeBackend` в `compute-api` и фасад `ShardEngine` использовали разный набор имен.
+- **Why it matters**: Разнобой в названиях мешает согласованной разработке API.
 - **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_spec.md](./spec_L3/compute_spec.md), [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
-- **Notes**: Требуется привести названия к единому стандарту (`alloc_shard` / `free_shard` либо `allocate_vram` / `free_vram`) во всех слоях L3.
+- **Notes**: **[РЕШЕНО в compute-api v2.1]**: Имена методов стандартизированы по всему L3 слою: `alloc_shard`, `upload_shard`, `run_day_batch`, `free_shard`, `teardown`.
 
 ### REV-TYPES-001: Коллизия маркерного таргета `EMPTY_PIXEL` и сырого `0` при Early Exit
 - **ID**: REV-TYPES-001
@@ -33,14 +33,14 @@
 
 ### REV-COMPUTE-CPU-001: Межспецификационный долг фабрики дескрипторов `VramHandle`
 - **ID**: REV-COMPUTE-CPU-001
-- **Status**: Open
+- **Status**: Resolved (compute-api v2.1)
 - **Priority**: P0
 - **Owner candidate**: `compute-api`
-- **Source**: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L199) (§11.1) vs [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L197) (§11.3) vs [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L207) (§11.4)
-- **Question / Problem**: `VramHandle` в `compute-api` имеет приватные поля и конструктор `pub(crate)`. Бэкенды `compute-cpu`, `compute-cuda` и `compute-hip` физически не могут инстанцировать `VramHandle` при аллокации буферов шарда.
-- **Why it matters**: Ни один вычислительный бэкенд не может вернуть валидный дескриптор аллоцированного шарда через trait `ComputeBackend`.
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§10.3)
+- **Question / Problem**: `VramHandle` имел приватные поля, блокирующие его создание бэкендами.
+- **Why it matters**: Ни один вычислительный бэкенд не мог вернуть валидный дескриптор аллоцированного шарда.
 - **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
-- **Notes**: Требуется предоставить фабричный метод `VramHandle::from_raw_parts(...)` с ограничением видимости для бэкендов или перенести создание в `compute-api`.
+- **Notes**: **[РЕШЕНО в compute-api v2.1]**: Добавлен публичный фабричный метод `VramHandle::from_raw_parts(kind, id, generation)` и геттеры.
 
 ### REV-LAYOUT-001: Двусмысленность раскладки `.state` блоба (Header vs State Payload Align)
 - **ID**: REV-LAYOUT-001
@@ -104,25 +104,25 @@
 
 ### REV-COMPUTE-API-002: Владение закрепленной хозяйской памятью (Pinned Host Buffers Ownership)
 - **ID**: REV-COMPUTE-API-002
-- **Status**: Open
+- **Status**: Resolved (compute-api v2.1)
 - **Priority**: P1
 - **Owner candidate**: `compute-api`
-- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L281) (§10.2) vs [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L201) (§11.4) vs [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L211) (§11.5)
-- **Question / Problem**: Для высокоскоростного H2D/D2H обмена через DMA требуется закрепленная память (`cudaHostAlloc` / `hipHostMalloc`). Не зафиксировано, кто отвечает за аллокацию и удержание этих буферов — `layout`, `vfs` или `compute-api`.
-- **Why it matters**: Аллокация обычного выравненного слайса вместо Pinned RAM снижает скорость PCIe-трансфера в 2-3 раза.
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§10.4)
+- **Question / Problem**: Не было зафиксировано владение Pinned Host буферами для DMA.
+- **Why it matters**: Влияет на скорость PCIe-трансфера.
 - **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md), [test_harness_spec.md](./spec_L3/test_harness_spec.md)
-- **Notes**: Закрепить утилиты аллокации pinned буферов за `compute-api` / `vfs`.
+- **Notes**: **[РЕШЕНО в compute-api v2.1]**: Владение Pinned Host staging буферами закреплено внутри конкретных реализаций бэкендов (`compute-cuda`, `compute-hip`). `ShardUpload` принимает заимствованные срезы.
 
 ### REV-COMPUTE-API-003: Синхронный vs асинхронный пакетный режим выполнения (Sync vs Async Batch Execution)
 - **ID**: REV-COMPUTE-API-003
-- **Status**: Open
+- **Status**: Resolved (compute-api v2.1)
 - **Priority**: P1
 - **Owner candidate**: `compute-api`
-- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L285) (§10.3) vs [compute_spec.md](./spec_L3/compute_spec.md#L225) (§9.4)
-- **Question / Problem**: Метод `step_batch` в `ComputeBackend` блокирует вызывающий поток до завершения тика GPU. Не определен стандартизированный асинхронный контракт с использованием CUDA/HIP streams и событий (`cudaEvent`).
-- **Why it matters**: Блокирующий вызов препятствует перекрытию вычислений ядра GPU и сетевого I/O.
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§10.5)
+- **Question / Problem**: Определение базовой модели выполнения батча в L3 API.
+- **Why it matters**: Влияет на блокировку потоков и синхронизацию буферов.
 - **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_spec.md](./spec_L3/compute_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md)
-- **Notes**: Вынести проектирование асинхронного `submit_batch` / `poll_completion` во второй проход L3 API.
+- **Notes**: **[РЕШЕНО в compute-api v2.1]**: Базовый контракт `run_day_batch` зафиксирован как строго синхронный (блокирующий). Асинхронный контракт оставлен как будущий extension-trait.
 
 ### REV-COMPUTE-004: Модель инициализации воркеров и Thread-Affinity GPU контекста
 - **ID**: REV-COMPUTE-004
@@ -159,25 +159,25 @@
 
 ### REV-COMPUTE-API-004: Точный состав полезной нагрузки `BatchResult`
 - **ID**: REV-COMPUTE-API-004
-- **Status**: Open
+- **Status**: Resolved (compute-api v2.1)
 - **Priority**: P1
 - **Owner candidate**: `compute-api`
-- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L289) (§10.4) vs [runtime_spec.md](./spec_L6/runtime_spec.md#L481) (§8.1) vs [test_harness_spec.md](./spec_L3/test_harness_spec.md#L200) (§10.2)
-- **Question / Problem**: `BatchResult` возвращает счетчик спайков и маску статуса, но не содержит ссылки на выходящие сетевые буферы сгенерированных спайков.
-- **Why it matters**: `runtime` не может извлечь адреса буферов спайков для отправки в `net`.
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§10.6)
+- **Question / Problem**: Разделение выходящих данных спайков и результатов телеметрии.
+- **Why it matters**: Извлечение спайков для передачи в рантайм и сеть.
 - **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [net_spec.md](./spec_L5/net_spec.md), [test_harness_spec.md](./spec_L3/test_harness_spec.md)
-- **Notes**: Добавить в `BatchResult` срез или дескриптор подготовленного сетевого пакета спайков.
+- **Notes**: **[РЕШЕНО в compute-api v2.1]**: Выходящие спайковые ID записываются в `cmd.output_spikes`, а `BatchResult` возвращает счетчики и время исполнения.
 
 ### REV-TEST-001: API снимков состояния для тестового комплекса (Debug Snapshot API)
 - **ID**: REV-TEST-001
-- **Status**: Open
+- **Status**: Resolved (compute-api v2.1)
 - **Priority**: P1
 - **Owner candidate**: `test-harness` / `compute-api`
-- **Source**: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L196) (§10.1)
-- **Question / Problem**: Тестовый комплекс требует чтение полного состояния VRAM (мембранные потенциалы, фазы, сдвиги) для пошагового сравнения с эталоном. В `ComputeBackend` такой метод отсутствует.
-- **Why it matters**: Без Snapshot API невозможно выполнять пошаговые интеграционные тесты детерминизма на GPU.
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§10.7)
+- **Question / Problem**: Чтение полного состояния VRAM для пошаговых тестов детерминизма.
+- **Why it matters**: Верификация потиковой корректности вычислений.
 - **Affected specs**: [test_harness_spec.md](./spec_L3/test_harness_spec.md), [compute_api_spec.md](./spec_L3/compute_api_spec.md)
-- **Notes**: Добавить в `ComputeBackend` опциональный метод `debug_snapshot(&self, handle: &VramHandle) -> Result<ShardStateSnapshot>`.
+- **Notes**: **[РЕШЕНО в compute-api v2.1]**: В `ComputeBackend` добавлен метод по умолчанию `debug_snapshot(&mut self, handle, snapshot: ShardSnapshotMut<'_>)`.
 
 ### REV-PHYS-009: Генерация и верификация C++ зеркал из Rust-источников
 - **ID**: REV-PHYS-009
@@ -599,53 +599,61 @@
 #### [compute_api_spec.md](./spec_L3/compute_api_spec.md)
 *Source items: 6 / Registered items: 6*
 
-- **REV-COMPUTE-API-001**: Поддержка Окружений `no_std + alloc`
-  - *Status*: Open | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L281)
+- **REV-COMPUTE-API-007**: Поддержка Окружений `no_std + alloc`
+  - *Status*: Resolved (compute-api v2.1) | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md)
   - *Question / Problem*: - *Контекст*: Крейт `compute-api` содержит только абстрактные контракты и DTO.
     - *Вопрос*: Требуется ли перевести `compute-api` в режим `no_std + alloc` для поддержки встраиваемых систем (Edge devices)?
+  - *Resolution*: Утвержден строго легкий `no_std` / `no_alloc` контракт без динамических аллокаций.
 
 - **REV-COMPUTE-API-002**: Модель Владения Pinned Host Буферами
-  - *Status*: Open | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L285)
+  - *Status*: Resolved (compute-api v2.1) | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md)
   - *Question / Problem*: - *Контекст*: Для скоростного DMA переноса требуются закрепощенные страницы памяти хоста (Pinned Memory).
     - *Вопрос*: Кто должен монопольно владеть Pinned-буферами — DTO дескриптор API, сам бэкенд или вышележащий фасад `compute`?
+  - *Resolution*: Владение Pinned Host буферами закреплено внутри конкретных реализаций бэкендов (`compute-cuda`, `compute-hip`).
 
 - **REV-COMPUTE-API-003**: Модель Выполнения Батча (Синхронная vs Асинхронная)
-  - *Status*: Open | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L289)
+  - *Status*: Resolved (compute-api v2.1) | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md)
   - *Question / Problem*: - *Контекст*: Метод `run_day_batch` может быть блокирующим синхронным вызовом или асинхронной моделью сабмита со сплитом `submit_batch` / `sync_batch`.
     - *Вопрос*: Зафиксировать ли строго синхронную модель выполнения батча на уровне API?
+  - *Resolution*: Базовый метод `run_day_batch` зафиксирован как строго синхронный (блокирующий).
 
 - **REV-COMPUTE-API-004**: Точная Форма DTO Результатов Телеметрии (`BatchResult`)
-  - *Status*: Open | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L293)
+  - *Status*: Resolved (compute-api v2.1) | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md)
   - *Question / Problem*: - *Контекст*: Структура результатов пока содержит минимальный набор полей.
     - *Вопрос*: Какая точная структура массива сгенерированных спайков должна возвращаться в `BatchResult`?
+  - *Resolution*: Выходящие спайковые ID записываются в `cmd.output_spikes`, а `BatchResult` возвращает счетчики и телеметрию.
 
 - **REV-COMPUTE-API-005**: Допустимость Частичной Загрузки Таблицы Аксонов (`.axons`)
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: REV-TEST-001 | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L297)
+  - *Status*: Resolved (compute-api v2.1) | *Priority*: P1 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md)
   - *Question / Problem*: - *Контекст*: Таблица аксонов может быть огромной.
     - *Вопрос*: Допускается ли частичная загрузка (partial upload) буфера аксонов, или требовать только полный единовременный блоб?
+  - *Resolution*: В v2.1 допускается только полная загрузка `ShardUpload`. Частичная загрузка оставлена как будущая фича.
 
 - **REV-COMPUTE-API-006**: Зона Владения Вспомогательных Команд Сортировки и Синхронизации
-  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: REV-COMPUTE-CPU-001 | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md#L301)
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: REV-COMPUTE-006 | *Source*: [compute_api_spec.md](./spec_L3/compute_api_spec.md)
   - *Question / Problem*: - *Контекст*: Команды `sort_and_prune`, синхронизация Ghost-аксонов и отладочные вызовы Ephys пересекаются с различными слоями.
     - *Вопрос*: Относятся ли данные методы к `compute-api` или выносятся на уровень фасада `compute` / `runtime`?
+  - *Notes*: Вопрос распределения владения операциями уплотнения и синхронизации Ghost-аксонов вынесен за рамки базового контракта compute-api v2.1 и остается открытым в спецификациях compute, runtime и бэкендов.
 
 #### [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
 *Source items: 7 / Registered items: 7*
 
 - **REV-COMPUTE-CPU-001**: Модель Фабричного Конструктора `VramHandle` в `compute-api`
-  - *Status*: Open | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L199)
+  - *Status*: Resolved (compute-api v2.1) | *Priority*: P0 | *Owner*: `compute-api` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
   - *Question / Problem*: - *Контекст*: Приватное поле `VramHandle` блокирует его создание внутри `compute-cpu`.
     - *Вопрос*: Как именно должен выглядеть контролируемый фабричный метод в `compute-api` для создания дескрипторов бэкендами?
+  - *Resolution*: В `VramHandle` добавлен фабричный метод `from_raw_parts(kind, id, generation)` и геттеры.
 
 - **REV-COMPUTE-CPU-002**: Окончательная Семантика Двойной Проверки Tombstone Target (`0` vs `EMPTY_PIXEL`)
-  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-cpu` | *Duplicate Of*: REV-TYPES-001 | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L203)
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-cpu` | *Duplicate Of*: REV-TYPES-001 | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
   - *Question / Problem*: - *Контекст*: В спецификациях слоя L0/L1 сохраняется долг по стандартизации проверки неактивных синапсов.
     - *Вопрос*: Какое единое побитовое правило проверки целевого пикселя должно использоваться бэкендами вычислений?
 
 - **REV-COMPUTE-CPU-003**: Окончательная Форма DTO Результатов Телеметрии в `compute-api`
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L207)
+  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: REV-COMPUTE-API-004 | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
   - *Question / Problem*: - *Контекст*: Структура `BatchResult` находится на этапе согласования.
     - *Вопрос*: Каким образом `compute-cpu` должен передавать массив сгенерированных спайков и осциллограммы телеметрии?
+  - *Resolution*: Выходящие спайковые ID записываются в `cmd.output_spikes`, потиковые счетчики спайков в `cmd.output_spike_counts`, а `BatchResult` содержит сводную телеметрию и счетчики.
 
 - **REV-COMPUTE-CPU-004**: Монопольный Владелец Маршрутизации Данных Отладчика Ephys
   - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L211)
@@ -780,9 +788,10 @@
 *Source items: 6 / Registered items: 6*
 
 - **REV-TEST-001**: Механизм Отладочного Снятия Состояния (Debug Full-State Snapshot API)
-  - *Status*: Open | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L196)
-  - *Question / Problem*: - *Контекст*: Публичный API `compute-api` не предоставляет выгрузку полных SoA-массивов VRAM.
+  - *Status*: Resolved (compute-api v2.1) | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md)
+  - *Question / Problem*: - *Контекст*: Публичный API `compute-api` не предоставлял выгрузку полных SoA-массивов VRAM.
     - *Вопрос*: Требуется ли введение отладочного extension-trait (например, `DebugSnapshotExt`), доступного только под фичей `test-harness`, или формат выгрузки `BatchResult` будет расширен?
+  - *Resolution*: В `ComputeBackend` добавлен метод по умолчанию `debug_snapshot(&mut self, handle, snapshot: ShardSnapshotMut<'_>) -> Result<(), ComputeApiError>`, возвращающий `UnsupportedFeature` по умолчанию.
 
 - **REV-TEST-002**: Окончательная Форма Полезной Нагрузки `BatchResult`
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-COMPUTE-API-004 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L200)
