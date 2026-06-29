@@ -1,8 +1,8 @@
 # spec_compute_cuda
 
-> Версия спеки: v2.1
+> Версия спеки: v2.2  
 > Дата: 2026-06-29  
-> Статус: Draft v2.1 / Synchronized with compute-api v2.1
+> Статус: Draft v2.2 / Synchronized with compute-api v2.2
 
 ---
 
@@ -74,7 +74,7 @@ BackendCapabilities {
 
 ### §4.1. Физическая Стратегия Ограниченных Аллокаций VRAM и Pinned Staging
 При вызове `alloc_shard(spec: ShardAllocSpec)` бэкенд вычисляет необходимые объемы VRAM на основе формул `layout` и создает `VramHandle` через `VramHandle::from_raw_parts(BackendKind::Cuda, id, generation)`. Аллокация VRAM под шард выполняется строго **двумя монолитными блоками памяти** (Блок 1: Соматические плоскости и синапсы; Блок 2: Аксонные головки `BurstHeads8`), предотвращая фрагментацию памяти видеокарты.
-Крейт `compute-cuda` самостоятельно владеет внутренними Pinned Host staging буферами (`cudaHostAlloc`), копируя входящие данные из заимствованных срезов `upload.state_blob` / `cmd.incoming_spikes` и выгружая результаты в `cmd.output_spikes`.
+При вызове `upload_shard(handle, upload)` бэкенд валидирует блобы данных, осуществляет загрузку состояния и аксонов во VRAM, а также выполняет синхронный H2D-перенос таблицы вариантов `upload.variant_table` в GPU Constant Memory (`__constant__`). Крейт `compute-cuda` самостоятельно владеет внутренними Pinned Host staging буферами (`cudaHostAlloc`), копируя входящие данные из заимствованных срезов `upload.state_blob` / `cmd.incoming_spikes` и выгружая результаты в `cmd.output_spikes`.
 
 ---
 
@@ -140,7 +140,7 @@ BackendCapabilities {
 6. **Защита от Невалидных Дескрипторов (`test_cuda_rejects_invalid_handles`)**: Проверка обработки битых `VramHandle`.
 7. **Изоляция Публичного API (`test_cuda_no_raw_pointers_in_api`)**: Компиляционная проверка сигнатур на отсутствие сырых указателей и вендорских типов.
 8. **Падение Сборки при Рассогласовании ABI Зеркал (`test_cuda_abi_mirror_drift_prevention`)**: Тест компиляции/верификации C++ заголовков, падающий при любом расхождении полей, смещений или выравнивания в `ShardVramPtrs`, `BurstHeads8` и `VariantParameters`.
-9. **Статус API Загрузки Constant Memory (`test_cuda_constant_upload_api_pending`)**: Статический тест, фиксирующий отсутствие публичного API загрузки Constant Memory до утверждения соответствующего DTO в `compute-api`.
+9. **Загрузка Таблицы Вариантов в Constant Memory (`test_cuda_constant_upload_api`)**: Верификация H2D загрузки таблицы вариантов `upload.variant_table` в GPU Constant Memory (`__constant__`) при вызове `upload_shard`.
 10. **Ограниченность Физических Аллокаций (`test_cuda_bounded_allocations`)**: Верификация вызова ровно 2 физических аллокаций VRAM на шард через Mock/Stub FFI.
 11. **Совпадение Порядка Этапов с CPU (`test_cuda_stage_order_matches_cpu`)**: Дифференциальный тест последовательности вычислений на эталонном фикстурном шарде.
 12. **Идемпотентность Teardown и Уничтожение Стримов (`test_cuda_idempotent_teardown`)**: Проверка уничтожения `cudaStream_t` и безопасного повторного вызова `teardown()`.
@@ -153,14 +153,17 @@ BackendCapabilities {
    - *Контекст*: Зафиксирован запрет на ручной дублирующий C++ код.
    - *Вопрос*: Какая утилита или генератор (например, `cbindgen` или пользовательский AOT-скрипт) будет координировать автоматическую сборку C++ зеркал из источников истины?
 
-2. **API и DTO Загрузки Таблицы Вариантов в Constant Memory**:
-   - *Контекст*: `ShardUpload` содержит только байтовые блобы состояния и аксонов.
-   - *Вопрос*: Через какой интерфейс (отдельный метод HAL, расширение `ShardUpload` или операция фасада `compute`) таблица вариантов нейронов должна передаваться бэкенду для загрузки в Constant Memory?
-
-3. **Аффинность Потоков ОС и Маркер `Send` для CUDA Контекста**:
+2. **Аффинность Потоков ОС и Маркер `Send` для CUDA Контекста**:
    - *Контекст*: CUDA контексты и стримы привязаны к создавшему их OS-потоку.
    - *Вопрос*: Является ли `CudaBackend` маркерным `Send`, или инициализация контекста должна происходить строго внутри целевого OS-потока шарда?
 
-4. **Владение Операциями Синхронизации Ghost-Аксонов и Сортировки**:
+3. **Владение Операциями Синхронизации Ghost-Аксонов и Сортировки**:
    - *Контекст*: Операции `sort_and_prune` и межшардовые патчи затрагивают память ускорителя.
    - *Вопрос*: Относятся ли методы уплотнения синапсов к `ComputeBackend`, или они выносятся в отдельный сервисный слой?
+
+---
+
+## §11. Resolved Architectural Decisions (Принятые Решения Pass 2.2)
+
+1. **[RESOLVED] API и DTO Загрузки Таблицы Вариантов в Constant Memory (REV-COMPUTE-CUDA-002 / Pass 2.2)**:
+   - *Решение*: В DTO `ShardUpload` добавлено фиксированное заимствованное поле `variant_table: &'a [VariantParameters; VARIANT_LUT_LEN]`. Таблица вариантов синхронно передается на GPU во время `upload_shard` и размещается в CUDA Constant Memory (`__constant__`).

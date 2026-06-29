@@ -1,6 +1,36 @@
 use compute_api::*;
 use core::num::NonZeroU64;
 
+const ZERO_VARIANT: layout::VariantParameters = layout::VariantParameters {
+    threshold: 0,
+    rest_potential: 0,
+    leak_shift: 0,
+    homeostasis_penalty: 0,
+    spontaneous_firing_period_ticks: 0,
+    initial_synapse_weight: 0,
+    gsop_potentiation: 0,
+    gsop_depression: 0,
+    homeostasis_decay: 0,
+    refractory_period: 0,
+    synapse_refractory_period: 0,
+    signal_propagation_length: 0,
+    is_inhibitory: 0,
+    inertia_curve: [0; 8],
+    ahp_amplitude: 0,
+    _pad1: [0; 6],
+    adaptive_leak_min_shift: 0,
+    adaptive_leak_gain: 0,
+    adaptive_mode: 0,
+    _leak_pad: [0; 3],
+    d1_affinity: 0,
+    d2_affinity: 0,
+    heartbeat_m: 0,
+};
+
+fn dummy_variants() -> [layout::VariantParameters; layout::VARIANT_LUT_LEN] {
+    [ZERO_VARIANT; layout::VARIANT_LUT_LEN]
+}
+
 struct MockBackend {
     handle: Option<VramHandle>,
     spec: Option<ShardAllocSpec>,
@@ -158,9 +188,11 @@ fn test_reject_invalid_vram_handle() {
     let state_size = layout::calculate_state_blob_size(64);
     let state_buf = vec![0u8; state_size];
     let axons_buf = vec![0u8; 336]; // 16 + 10 * 32 = 336
+    let dummy_variants = dummy_variants();
     let upload = ShardUpload {
         state_blob: &state_buf,
         axons_blob: &axons_buf,
+        variant_table: &dummy_variants,
     };
 
     assert_eq!(
@@ -171,6 +203,7 @@ fn test_reject_invalid_vram_handle() {
     let upload2 = ShardUpload {
         state_blob: &state_buf,
         axons_blob: &axons_buf,
+        variant_table: &dummy_variants,
     };
     assert_eq!(
         mock.upload_shard(foreign_handle, upload2),
@@ -273,11 +306,13 @@ fn test_reject_bad_state_blob_size() {
         total_ghosts: 0,
         virtual_offset: 0,
     };
+    let dummy_variants = dummy_variants();
     let bad_state = vec![0u8; 10];
     let axons = vec![0u8; 16];
     let upload = ShardUpload {
         state_blob: &bad_state,
         axons_blob: &axons,
+        variant_table: &dummy_variants,
     };
     assert_eq!(
         validate_upload(&spec, &upload),
@@ -297,12 +332,14 @@ fn test_validate_axons_blob_size_formula() {
         total_ghosts: 0,
         virtual_offset: 0,
     };
+    let dummy_variants = dummy_variants();
     let state_size = layout::calculate_state_blob_size(64);
     let state_buf = vec![0u8; state_size];
     let bad_axons_buf = vec![0u8; 100];
     let upload = ShardUpload {
         state_blob: &state_buf,
         axons_blob: &bad_axons_buf,
+        variant_table: &dummy_variants,
     };
     assert_eq!(
         validate_upload(&spec, &upload),
@@ -475,9 +512,11 @@ fn test_api_returns_result_never_panics() {
         total_ghosts: 0,
         virtual_offset: 0,
     };
+    let dummy_variants = dummy_variants();
     let upload_bad = ShardUpload {
         state_blob: &[],
         axons_blob: &[],
+        variant_table: &dummy_variants,
     };
     assert!(validate_upload(&spec, &upload_bad).is_err());
 }
@@ -493,12 +532,14 @@ fn test_mock_backend_implementation() {
     };
     let handle = mock.alloc_shard(spec).unwrap();
 
+    let dummy_variants = dummy_variants();
     let state_size = layout::calculate_state_blob_size(64);
     let state_buf = vec![0u8; state_size];
     let axons_buf = vec![0u8; 336];
     let upload = ShardUpload {
         state_blob: &state_buf,
         axons_blob: &axons_buf,
+        variant_table: &dummy_variants,
     };
     mock.upload_shard(handle, upload).unwrap();
 
@@ -538,9 +579,11 @@ fn test_validate_upload_rejects_invalid_alloc_spec() {
         total_ghosts: 0,
         virtual_offset: 0,
     };
+    let dummy_variants = dummy_variants();
     let upload = ShardUpload {
         state_blob: &[],
         axons_blob: &[],
+        variant_table: &dummy_variants,
     };
     assert_eq!(
         validate_upload(&spec_zero, &upload),
@@ -615,4 +658,17 @@ fn test_no_vendor_feature_flags() {
 
     feature_keys.sort();
     assert_eq!(feature_keys, vec!["default", "std"]);
+}
+
+#[test]
+fn test_variant_table_lut_len() {
+    let dummy_variants = dummy_variants();
+    assert_eq!(dummy_variants.len(), 16);
+    assert_eq!(layout::VARIANT_LUT_LEN, 16);
+    let upload = ShardUpload {
+        state_blob: &[],
+        axons_blob: &[],
+        variant_table: &dummy_variants,
+    };
+    assert_eq!(upload.variant_table.len(), layout::VARIANT_LUT_LEN);
 }

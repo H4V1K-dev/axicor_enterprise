@@ -656,24 +656,28 @@
   - *Resolution*: Выходящие спайковые ID записываются в `cmd.output_spikes`, потиковые счетчики спайков в `cmd.output_spike_counts`, а `BatchResult` содержит сводную телеметрию и счетчики.
 
 - **REV-COMPUTE-CPU-004**: Монопольный Владелец Маршрутизации Данных Отладчика Ephys
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L211)
+  - *Status*: Resolved (compute-cpu v2.2) | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
   - *Question / Problem*: - *Контекст*: Отладочный съем осциллограмм требует доступа к SoA-массивам мембранных потенциалов.
     - *Вопрос*: Являются ли отладочные методы частью `ComputeBackend`, или они выносятся в отдельный сервис?
+  - *Resolution*: В `compute-cpu` реализуется только метод `debug_snapshot` полных дампов; поток осциллограмм и внешняя маршрутизация вынесены в сервисный слой.
 
 - **REV-COMPUTE-CPU-005**: Владелец Операций Сортировки и Уплотнения Связей (Sort & Prune)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L215)
+  - *Status*: Resolved (compute-cpu v2.2) | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
   - *Question / Problem*: - *Контекст*: Операция `sort_and_prune` удаляет деградировавшие синапсы во время Ночной Фазы.
     - *Вопрос*: Относится ли `sort_and_prune` к методам `ComputeBackend`, или выполняется на уровне `compute`/`runtime`?
+  - *Resolution*: Операции `sort_and_prune` не являются методами `ComputeBackend` и вынесены на верхние уровни (`compute`/`runtime`/`topology`).
 
 - **REV-COMPUTE-CPU-006**: Необходимость Внутренних Зависимостей `slotmap` и `bytemuck`
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L219)
+  - *Status*: Resolved (compute-cpu v2.2) | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
   - *Question / Problem*: - *Контекст*: Текущая спецификация упоминает эти библиотеки как внутренние детали реализации.
     - *Вопрос*: Фиксируются ли эти крейты в качестве обязательных внутренних зависимостей `compute-cpu`?
+  - *Resolution*: Использование `rayon = "=1.11.0"` и `bytemuck = "=1.25.0"` разрешено. Зависимость `slotmap` исключена, используется внутренний `Vec`-реестр с генерациями.
 
 - **REV-COMPUTE-CPU-007**: Управление Пулом Потоков Rayon (Global vs Custom Threadpool)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md#L223)
+  - *Status*: Resolved (compute-cpu v2.2) | *Priority*: P2 | *Owner*: `compute-cpu` | *Duplicate Of*: - | *Source*: [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md)
   - *Question / Problem*: - *Контекст*: По умолчанию Rayon использует глобальный пул потоков процесса.
     - *Вопрос*: Должен ли `CpuBackend` создавать и хранить собственный изолированный `rayon::ThreadPool` для предотвращения конфликтов с другими модулями движка?
+  - *Resolution*: `CpuBackend` владеет собственным изолированным экземпляром `rayon::ThreadPool`, конфигурируемым при инициализации.
 
 #### [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md)
 *Source items: 6 / Registered items: 6*
@@ -684,9 +688,10 @@
     - *Вопрос*: Какая утилита или генератор (например, `cbindgen` или пользовательский AOT-скрипт) будет координировать автоматическую сборку C++ зеркал из источников истины?
 
 - **REV-COMPUTE-CUDA-002**: API и DTO Загрузки Таблицы Вариантов в Constant Memory
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L193)
-  - *Question / Problem*: - *Контекст*: `ShardUpload` содержит только байтовые блобы состояния и аксонов.
+  - *Status*: Resolved (compute-api v2.2) | *Priority*: P2 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md)
+  - *Question / Problem*: - *Контекст*: Передача профилей вариантов нейронов бэкенду.
     - *Вопрос*: Через какой интерфейс (отдельный метод HAL, расширение `ShardUpload` или операция фасада `compute`) таблица вариантов нейронов должна передаваться бэкенду для загрузки в Constant Memory?
+  - *Resolution*: В `ShardUpload` добавлено заимствованное поле `variant_table: &'a [VariantParameters; VARIANT_LUT_LEN]` для синхронной передачи профилей вариантов бэкендам при вызове `upload_shard`.
 
 - **REV-COMPUTE-CUDA-003**: Модель Фабричного Конструктора `VramHandle` в `compute-api`
   - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-CPU-001 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L197)
@@ -722,9 +727,10 @@
     - *Вопрос*: Каким образом будет организован общий пайплайн кодогенерации C++ ядер из источников истины в `physics` и `layout`?
 
 - **REV-COMPUTE-HIP-003**: API и DTO Загрузки Таблицы Вариантов в Constant Memory
-  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `compute-hip` | *Duplicate Of*: REV-COMPUTE-CUDA-002 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L203)
-  - *Question / Problem*: - *Контекст*: `ShardUpload` не содержит вариантов нейронов.
+  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `compute-hip` | *Duplicate Of*: REV-COMPUTE-CUDA-002 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
+  - *Question / Problem*: - *Контекст*: Передача профилей вариантов нейронов бэкендам вычислений.
     - *Вопрос*: Через какой интерфейс (отдельный метод HAL, расширение `ShardUpload` или операция фасада `compute`) таблица вариантов должна передаваться бэкенду?
+  - *Resolution*: Утверждено единое решение в `compute-api v2.2` через заимствованное поле `ShardUpload::variant_table`.
 
 - **REV-COMPUTE-HIP-004**: Модель Фабричного Конструктора `VramHandle` в `compute-api`
   - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-hip` | *Duplicate Of*: REV-COMPUTE-CPU-001 | *Source*: [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L207)

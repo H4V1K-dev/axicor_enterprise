@@ -20,6 +20,8 @@ pub struct ShardUpload<'a> {
     pub state_blob: &'a [u8],
     /// Axon burst table `.axons` binary blob.
     pub axons_blob: &'a [u8],
+    /// Borrowed neuron variant parameter profile table (16 entries).
+    pub variant_table: &'a [layout::VariantParameters; layout::VARIANT_LUT_LEN],
 }
 
 /// Execution command payload containing inputs, outputs, and parameters for a day batch run.

@@ -1,8 +1,8 @@
 # spec_compute_api
 
-> Версия спеки: 2.1  
+> Версия спеки: 2.2  
 > Дата: 2026-06-29  
-> Статус: Approved / Ready for Implementation (Architecture Pass 2)
+> Статус: Approved / Ready for Implementation (Architecture Pass 2.2)
 
 ---
 
@@ -134,6 +134,7 @@ pub struct ShardAllocSpec {
 pub struct ShardUpload<'a> {
     pub state_blob: &'a [u8],
     pub axons_blob: &'a [u8],
+    pub variant_table: &'a [layout::VariantParameters; layout::VARIANT_LUT_LEN],
 }
 ```
 
@@ -322,3 +323,5 @@ pub enum ComputeApiError {
    - *Решение*: Подтверждено, что горячий цикл полностью детерминирован (DDS heartbeat вычисляется от `tick_base`, neuron id и `heartbeat_m`). Передача RNG Seed в `DayBatchCmd` не требуется.
 9. **[RESOLVED] Загрузка `.axons` блоба (Pass 2)**:
    - *Решение*: В v2.1 допускается только полная загрузка `ShardUpload`. Частичная загрузка аксонов является будущим расширением. Полный размер файла аксонов валидируется по формуле `16 + total_axons * 32`.
+10. **[RESOLVED] Передача таблицы вариантов нейронов `variant_table` в `ShardUpload` (REV-COMPUTE-CUDA-002 / Pass 2.2)**:
+    - *Решение*: В DTO `ShardUpload` добавлено фиксированное заимствованное поле `variant_table: &'a [layout::VariantParameters; layout::VARIANT_LUT_LEN]`. Структура `ShardUpload` предоставляет временное заимствованное представление (`borrowed view`) строго на время выполнения метода `upload_shard`. Каждый бэкенд обязан либо синхронно перенести таблицу в память устройства (`GPU Constant Memory`), либо скопировать её во внутреннее backend-owned хранилище ресурса шарда. Сохранять и удерживать ссылку из `ShardUpload` внутри бэкенда или ресурса после завершения вызова `upload_shard` категорически запрещено.
