@@ -38,6 +38,7 @@ __global__ void inject_and_propagate_axons_tick_kernel(
     unsigned int cmd_virtual_offset,
     unsigned int num_virtual_axons,
     const unsigned int* input_bitmask,
+    unsigned int input_words_len,
     const unsigned int* incoming_spikes,
     unsigned int incoming_spikes_count
 ) {
@@ -45,13 +46,15 @@ __global__ void inject_and_propagate_axons_tick_kernel(
     if (a < total_axons) {
         // 1. Virtual input check
         unsigned int virtual_injections = 0;
-        unsigned int global_axon_id = shard_virtual_offset + a;
-        if (input_bitmask && global_axon_id >= cmd_virtual_offset && global_axon_id < cmd_virtual_offset + num_virtual_axons) {
-            unsigned int k = global_axon_id - cmd_virtual_offset;
-            unsigned int word_idx = k / 32;
-            unsigned int bit_idx = k % 32;
-            if ((input_bitmask[word_idx] & (1u << bit_idx)) != 0) {
-                virtual_injections = 1;
+        unsigned long long global_axon_id = (unsigned long long)shard_virtual_offset + (unsigned long long)a;
+        if (input_bitmask && global_axon_id >= (unsigned long long)cmd_virtual_offset) {
+            unsigned long long k = global_axon_id - (unsigned long long)cmd_virtual_offset;
+            if (k < (unsigned long long)num_virtual_axons) {
+                unsigned long long word_idx = k / 32;
+                unsigned int bit_idx = (unsigned int)(k % 32);
+                if (word_idx < (unsigned long long)input_words_len && (input_bitmask[word_idx] & (1u << bit_idx)) != 0) {
+                    virtual_injections = 1;
+                }
             }
         }
 
@@ -59,6 +62,9 @@ __global__ void inject_and_propagate_axons_tick_kernel(
         unsigned int incoming_injections = 0;
         if (incoming_spikes) {
             for (unsigned int s = 0; s < incoming_spikes_count; ++s) {
+                if (virtual_injections + incoming_injections >= AXI_HEADS_PER_BURST) {
+                    break;
+                }
                 if (incoming_spikes[s] == a) {
                     incoming_injections++;
                 }
@@ -67,9 +73,12 @@ __global__ void inject_and_propagate_axons_tick_kernel(
 
         // 3. Shift calculations
         unsigned int N = virtual_injections + incoming_injections;
+        if (N > AXI_HEADS_PER_BURST) {
+            N = AXI_HEADS_PER_BURST;
+        }
         
         unsigned int local_heads[AXI_HEADS_PER_BURST];
-        unsigned int base_idx = a * AXI_HEADS_PER_BURST;
+        size_t base_idx = (size_t)a * AXI_HEADS_PER_BURST;
         for (unsigned int h = 0; h < AXI_HEADS_PER_BURST; ++h) {
             local_heads[h] = heads[base_idx + h];
         }
@@ -271,6 +280,7 @@ int axi_cuda_inject_and_propagate_axons_tick(
     unsigned int cmd_virtual_offset,
     unsigned int num_virtual_axons,
     const unsigned int* input_bitmask,
+    unsigned int input_words_len,
     const unsigned int* incoming_spikes,
     unsigned int incoming_spikes_count
 ) {
@@ -299,6 +309,7 @@ int axi_cuda_inject_and_propagate_axons_tick(
         cmd_virtual_offset,
         num_virtual_axons,
         input_bitmask,
+        input_words_len,
         incoming_spikes,
         incoming_spikes_count
     );

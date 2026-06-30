@@ -30,6 +30,7 @@ extern "C" {
         cmd_virtual_offset: u32,
         num_virtual_axons: u32,
         input_bitmask: *const u32,
+        input_words_len: u32,
         incoming_spikes: *const u32,
         incoming_spikes_count: u32,
     ) -> i32;

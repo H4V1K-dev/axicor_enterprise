@@ -141,9 +141,15 @@ impl CudaBackend {
             return Err(ComputeApiError::BackendNotInitialized);
         }
 
+        let mut input_words_len = 0u32;
         let mut d_bitmask = std::ptr::null_mut();
         if let Some(mask) = input_bitmask {
+            let required_words = num_virtual_axons.div_ceil(32) as usize;
+            if mask.len() < required_words {
+                return Err(ComputeApiError::InvalidBatch);
+            }
             if !mask.is_empty() {
+                input_words_len = mask.len() as u32;
                 let size = std::mem::size_of_val(mask);
                 let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut d_bitmask) };
                 if res != 0 {
@@ -164,6 +170,9 @@ impl CudaBackend {
         let mut d_spikes = std::ptr::null_mut();
         let mut spikes_count = 0u32;
         if let Some(spikes) = incoming_spikes {
+            if spikes.len() > u32::MAX as usize {
+                return Err(ComputeApiError::CapacityExceeded);
+            }
             if !spikes.is_empty() {
                 spikes_count = spikes.len() as u32;
                 let size = std::mem::size_of_val(spikes);
@@ -196,6 +205,7 @@ impl CudaBackend {
                 cmd_virtual_offset,
                 num_virtual_axons,
                 d_bitmask as *const u32,
+                input_words_len,
                 d_spikes as *const u32,
                 spikes_count,
             )
@@ -1259,6 +1269,144 @@ mod tests {
             .copy_from_slice(bytemuck::cast_slice(&expected_heads2));
 
         assert_eq!(snap_axons, expected_axons_blob2);
+
+        // 1. Test short input_bitmask fails with InvalidBatch
+        let short_mask = vec![];
+        let res_short = backend.inject_and_propagate_axons_tick_for_test(
+            handle,
+            v_seg,
+            95,
+            10,
+            Some(&short_mask),
+            None,
+        );
+        assert!(matches!(res_short, Err(ComputeApiError::InvalidBatch)));
+
+        // 2. Test virtual range near u32::MAX does not overflow
+        let mask_ok = vec![0; 1];
+        let res_u32_max = backend.inject_and_propagate_axons_tick_for_test(
+            handle,
+            v_seg,
+            u32::MAX - 5,
+            10,
+            Some(&mask_ok),
+            None,
+        );
+        assert!(res_u32_max.is_ok());
+
+        // 3. Test 9+ duplicate incoming spikes in one axon
+        let upload3 = compute_api::ShardUpload {
+            state_blob: &vec![0u8; state_size],
+            axons_blob: &initial_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload3).unwrap();
+
+        let duplicate_spikes = vec![1; 10]; // 10 spikes for local axon 1
+        backend
+            .inject_and_propagate_axons_tick_for_test(
+                handle,
+                v_seg,
+                95,
+                10,
+                None,
+                Some(&duplicate_spikes),
+            )
+            .unwrap();
+
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        let mut expected_heads3 = heads;
+        apply_injections_and_propagate(&mut expected_heads3[0], 0);
+        apply_injections_and_propagate(&mut expected_heads3[1], 8); // Clamped to 8
+        apply_injections_and_propagate(&mut expected_heads3[2], 0);
+        apply_injections_and_propagate(&mut expected_heads3[3], 0);
+
+        let mut expected_axons_blob3 = vec![0u8; axons_size];
+        expected_axons_blob3[..16].copy_from_slice(bytemuck::bytes_of(&header));
+        expected_axons_blob3[16..16 + heads_bytes.len()]
+            .copy_from_slice(bytemuck::cast_slice(&expected_heads3));
+
+        assert_eq!(snap_axons, expected_axons_blob3);
+
+        // 4. Test virtual range near u32::MAX with actual injections (overflow check)
+        let spec_overflow = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 2,
+            total_ghosts: 0,
+            virtual_offset: u32::MAX - 1,
+        };
+        let handle_overflow = backend.alloc_shard(spec_overflow).unwrap();
+        let state_size_ov = layout::calculate_state_blob_size(spec_overflow.padded_n as usize);
+        let axons_size_ov =
+            compute_api::validation::expected_axons_blob_size(spec_overflow.total_axons).unwrap();
+
+        let header_ov = layout::AxonsFileHeader::new(spec_overflow.total_axons);
+        let mut initial_axons_blob_ov = vec![0u8; axons_size_ov];
+        initial_axons_blob_ov[..16].copy_from_slice(bytemuck::bytes_of(&header_ov));
+
+        let mut heads_ov = [
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+        ];
+        heads_ov[0].h0 = 1000;
+        heads_ov[1].h0 = 2000;
+
+        let heads_bytes_ov = bytemuck::cast_slice(&heads_ov);
+        initial_axons_blob_ov[16..16 + heads_bytes_ov.len()].copy_from_slice(heads_bytes_ov);
+
+        let upload_ov = compute_api::ShardUpload {
+            state_blob: &vec![0u8; state_size_ov],
+            axons_blob: &initial_axons_blob_ov,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle_overflow, upload_ov).unwrap();
+
+        // cmd_virtual_offset = u32::MAX - 1, num_virtual_axons = 2, bitmask = [3] (activates both)
+        let mask_overflow = vec![3];
+        backend
+            .inject_and_propagate_axons_tick_for_test(
+                handle_overflow,
+                v_seg,
+                u32::MAX - 1,
+                2,
+                Some(&mask_overflow),
+                None,
+            )
+            .unwrap();
+
+        let mut snap_state_ov = vec![0u8; state_size_ov];
+        let mut snap_axons_ov = vec![0u8; axons_size_ov];
+        backend
+            .debug_snapshot(
+                handle_overflow,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state_ov,
+                    axons_blob: &mut snap_axons_ov,
+                },
+            )
+            .unwrap();
+
+        // Both axons should have 1 injection (virtual) and then propagated
+        let mut expected_heads_ov = heads_ov;
+        apply_injections_and_propagate(&mut expected_heads_ov[0], 1);
+        apply_injections_and_propagate(&mut expected_heads_ov[1], 1);
+
+        let mut expected_axons_blob_ov = vec![0u8; axons_size_ov];
+        expected_axons_blob_ov[..16].copy_from_slice(bytemuck::bytes_of(&header_ov));
+        expected_axons_blob_ov[16..16 + heads_bytes_ov.len()]
+            .copy_from_slice(bytemuck::cast_slice(&expected_heads_ov));
+
+        assert_eq!(snap_axons_ov, expected_axons_blob_ov);
+        backend.free_shard(handle_overflow).unwrap();
 
         backend.free_shard(handle).unwrap();
     }
