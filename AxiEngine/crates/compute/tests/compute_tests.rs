@@ -37,7 +37,15 @@ fn test_auto_backend_selection_priority() {
     let engine = ShardEngine::new(BackendPreference::Auto);
     assert!(engine.is_ok());
     let engine = engine.unwrap();
-    assert_eq!(engine.backend_kind(), BackendKind::Cpu);
+    #[cfg(feature = "cuda-native")]
+    {
+        let kind = engine.backend_kind();
+        assert!(matches!(kind, BackendKind::Cuda | BackendKind::Cpu));
+    }
+    #[cfg(not(feature = "cuda-native"))]
+    {
+        assert_eq!(engine.backend_kind(), BackendKind::Cpu);
+    }
 }
 
 #[cfg(not(feature = "cpu"))]
@@ -60,13 +68,33 @@ fn test_explicit_backend_error_policy() {
     #[cfg(feature = "cuda")]
     {
         let engine = ShardEngine::new(BackendPreference::Cuda { device_id: 0 });
-        assert!(matches!(
-            engine,
-            Err(ComputeError::BackendUnavailable {
-                backend: BackendKind::Cuda,
-                ..
-            })
-        ));
+        #[cfg(feature = "cuda-native")]
+        {
+            match engine {
+                Err(e) => {
+                    assert!(matches!(
+                        e,
+                        ComputeError::BackendUnavailable {
+                            backend: BackendKind::Cuda,
+                            ..
+                        }
+                    ));
+                }
+                Ok(engine) => {
+                    assert_eq!(engine.backend_kind(), BackendKind::Cuda);
+                }
+            }
+        }
+        #[cfg(not(feature = "cuda-native"))]
+        {
+            assert!(matches!(
+                engine,
+                Err(ComputeError::BackendUnavailable {
+                    backend: BackendKind::Cuda,
+                    ..
+                })
+            ));
+        }
     }
 
     #[cfg(not(feature = "hip"))]

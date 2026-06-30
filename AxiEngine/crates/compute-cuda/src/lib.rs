@@ -8,6 +8,10 @@ use compute_api::{BackendCapabilities, BackendKind, ComputeApiError, ComputeBack
 #[cfg(feature = "native")]
 mod native;
 
+mod resource;
+
+use resource::ResourceRegistry;
+
 /// Configuration parameters for the CudaBackend.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CudaBackendConfig {
@@ -20,6 +24,7 @@ pub struct CudaBackendConfig {
 /// Thread-affine: statically restricted to a single OS thread.
 pub struct CudaBackend {
     _config: CudaBackendConfig,
+    registry: ResourceRegistry,
     // Statically prevent Send and Sync
     _marker: PhantomData<Rc<()>>,
 }
@@ -30,9 +35,9 @@ impl CudaBackend {
     /// # Errors
     /// Returns `ComputeApiError::UnsupportedBackend` in Stage 1A when native drivers/features are absent.
     pub fn new(config: CudaBackendConfig) -> Result<Self, ComputeApiError> {
-        let _ = config;
         #[cfg(not(feature = "native"))]
         {
+            let _ = config;
             Err(ComputeApiError::UnsupportedBackend)
         }
         #[cfg(feature = "native")]
@@ -43,6 +48,7 @@ impl CudaBackend {
             }
             Ok(Self {
                 _config: config,
+                registry: ResourceRegistry::default(),
                 _marker: PhantomData,
             })
         }
@@ -100,17 +106,17 @@ impl ComputeBackend for CudaBackend {
 
     fn alloc_shard(
         &mut self,
-        _spec: compute_api::ShardAllocSpec,
+        spec: compute_api::ShardAllocSpec,
     ) -> Result<compute_api::VramHandle, ComputeApiError> {
-        Err(ComputeApiError::UnsupportedBackend)
+        self.registry.alloc_shard(spec)
     }
 
     fn upload_shard(
         &mut self,
-        _handle: compute_api::VramHandle,
-        _upload: compute_api::ShardUpload<'_>,
+        handle: compute_api::VramHandle,
+        upload: compute_api::ShardUpload<'_>,
     ) -> Result<(), ComputeApiError> {
-        Err(ComputeApiError::UnsupportedBackend)
+        self.registry.upload_shard(handle, upload)
     }
 
     fn run_day_batch(
@@ -118,23 +124,59 @@ impl ComputeBackend for CudaBackend {
         _handle: compute_api::VramHandle,
         _cmd: compute_api::DayBatchCmd<'_>,
     ) -> Result<compute_api::BatchResult, ComputeApiError> {
+        // Stage 1D: run_day_batch implementation is deferred.
         Err(ComputeApiError::UnsupportedBackend)
     }
 
-    fn free_shard(&mut self, _handle: compute_api::VramHandle) -> Result<(), ComputeApiError> {
-        Err(ComputeApiError::UnsupportedBackend)
+    fn free_shard(&mut self, handle: compute_api::VramHandle) -> Result<(), ComputeApiError> {
+        self.registry.free_shard(handle)
     }
 
     fn debug_snapshot(
         &mut self,
-        _handle: compute_api::VramHandle,
-        _snapshot: compute_api::ShardSnapshotMut<'_>,
+        handle: compute_api::VramHandle,
+        snapshot: compute_api::ShardSnapshotMut<'_>,
     ) -> Result<(), ComputeApiError> {
-        Err(ComputeApiError::UnsupportedBackend)
+        let resource = self.registry.get_resource_mut(handle)?;
+        if !resource.uploaded {
+            return Err(ComputeApiError::BackendNotInitialized);
+        }
+        compute_api::validation::validate_snapshot_buffers(&resource.spec, &snapshot)?;
+
+        #[cfg(feature = "native")]
+        {
+            let res = unsafe {
+                native::axi_cuda_copy_d2h(
+                    snapshot.state_blob.as_mut_ptr(),
+                    resource.state_ptr,
+                    resource.state_size,
+                )
+            };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+
+            let res = unsafe {
+                native::axi_cuda_copy_d2h(
+                    snapshot.axons_blob.as_mut_ptr(),
+                    resource.axons_ptr,
+                    resource.axons_size,
+                )
+            };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "native"))]
+        {
+            let _ = snapshot;
+            Err(ComputeApiError::UnsupportedBackend)
+        }
     }
 
     fn teardown(&mut self) -> Result<(), ComputeApiError> {
-        Ok(())
+        self.registry.teardown()
     }
 }
 
@@ -152,6 +194,7 @@ mod tests {
     fn test_cuda_backend_kind_compile_surface() {
         let backend = CudaBackend {
             _config: CudaBackendConfig::default(),
+            registry: ResourceRegistry::default(),
             _marker: std::marker::PhantomData,
         };
         assert_eq!(backend.kind(), BackendKind::Cuda);
@@ -361,5 +404,283 @@ mod tests {
                 head, seg_idx, prop_len
             );
         }
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_alloc_shard_returns_cuda_handle() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 10,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+        assert_eq!(handle.kind(), BackendKind::Cuda);
+        assert_eq!(handle.generation(), 1);
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_upload_and_debug_snapshot_byte_exact() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 10,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
+        let axons_size =
+            compute_api::validation::expected_axons_blob_size(spec.total_axons).unwrap();
+
+        let mut test_state = vec![0u8; state_size];
+        for (i, val) in test_state.iter_mut().enumerate() {
+            *val = (i & 0xFF) as u8;
+        }
+
+        let mut test_axons = vec![0u8; axons_size];
+        for (i, val) in test_axons.iter_mut().enumerate() {
+            *val = ((i * 3 + 7) & 0xFF) as u8;
+        }
+
+        let const_zero_variant = layout::VariantParameters {
+            threshold: 0,
+            rest_potential: 0,
+            leak_shift: 0,
+            homeostasis_penalty: 0,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 0,
+            refractory_period: 0,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 0,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 0,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+        let variant_table = [const_zero_variant; layout::VARIANT_LUT_LEN];
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons,
+            variant_table: &variant_table,
+        };
+
+        backend.upload_shard(handle, upload).unwrap();
+
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        let snapshot = compute_api::ShardSnapshotMut {
+            state_blob: &mut snap_state,
+            axons_blob: &mut snap_axons,
+        };
+
+        backend.debug_snapshot(handle, snapshot).unwrap();
+
+        assert_eq!(snap_state, test_state);
+        assert_eq!(snap_axons, test_axons);
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_rejects_bad_upload_sizes() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 10,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
+        let axons_size =
+            compute_api::validation::expected_axons_blob_size(spec.total_axons).unwrap();
+
+        let test_state = vec![0u8; state_size - 1]; // bad size
+        let test_axons = vec![0u8; axons_size];
+
+        let const_zero_variant = layout::VariantParameters {
+            threshold: 0,
+            rest_potential: 0,
+            leak_shift: 0,
+            homeostasis_penalty: 0,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 0,
+            refractory_period: 0,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 0,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 0,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+        let variant_table = [const_zero_variant; layout::VARIANT_LUT_LEN];
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons,
+            variant_table: &variant_table,
+        };
+
+        let res = backend.upload_shard(handle, upload);
+        assert!(matches!(res, Err(ComputeApiError::SizeMismatch)));
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_rejects_foreign_invalid_freed_handles() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 10,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let foreign_handle = compute_api::VramHandle::from_raw_parts(
+            BackendKind::Cpu,
+            handle.id(),
+            handle.generation(),
+        );
+        let res = backend.free_shard(foreign_handle);
+        assert!(matches!(res, Err(ComputeApiError::ForeignHandle)));
+
+        backend.free_shard(handle).unwrap();
+        let res_freed = backend.free_shard(handle);
+        assert!(matches!(res_freed, Err(ComputeApiError::AlreadyFreed)));
+
+        let stale_handle = compute_api::VramHandle::from_raw_parts(
+            BackendKind::Cuda,
+            handle.id(),
+            handle.generation() + 10,
+        );
+        let res_stale = backend.free_shard(stale_handle);
+        assert!(matches!(res_stale, Err(ComputeApiError::InvalidHandle)));
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_teardown_invalidates_existing_handles() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 10,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        backend.teardown().unwrap();
+
+        let res = backend.free_shard(handle);
+        assert!(matches!(res, Err(ComputeApiError::InvalidHandle)));
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_variant_table_upload_smoke() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 10,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
+        let axons_size =
+            compute_api::validation::expected_axons_blob_size(spec.total_axons).unwrap();
+
+        let test_state = vec![0u8; state_size];
+        let test_axons = vec![0u8; axons_size];
+
+        let const_variant = layout::VariantParameters {
+            threshold: 1000,
+            rest_potential: -70,
+            leak_shift: 5,
+            homeostasis_penalty: 2,
+            spontaneous_firing_period_ticks: 10,
+            initial_synapse_weight: 4000,
+            gsop_potentiation: 10,
+            gsop_depression: 5,
+            homeostasis_decay: 1,
+            refractory_period: 3,
+            synapse_refractory_period: 2,
+            signal_propagation_length: 5,
+            is_inhibitory: 0,
+            inertia_curve: [0, 1, 2, 3, 4, 5, 6, 7],
+            ahp_amplitude: 2,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 1,
+            adaptive_leak_gain: 2,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+        let mut variant_table = [const_variant; layout::VARIANT_LUT_LEN];
+        variant_table[1].threshold = 2000;
+        variant_table[2].rest_potential = -60;
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons,
+            variant_table: &variant_table,
+        };
+
+        backend.upload_shard(handle, upload).unwrap();
+
+        backend.free_shard(handle).unwrap();
     }
 }

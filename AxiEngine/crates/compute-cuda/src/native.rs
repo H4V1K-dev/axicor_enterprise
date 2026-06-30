@@ -11,6 +11,12 @@ extern "C" {
         propagation_length: u32,
         out: *mut u8,
     ) -> i32;
+
+    pub fn axi_cuda_alloc_bytes(size: usize, out_ptr: *mut *mut u8) -> i32;
+    pub fn axi_cuda_free(ptr: *mut u8) -> i32;
+    pub fn axi_cuda_copy_h2d(dst: *mut u8, src: *const u8, size: usize) -> i32;
+    pub fn axi_cuda_copy_d2h(dst: *mut u8, src: *const u8, size: usize) -> i32;
+    pub fn axi_cuda_upload_variant_table(src: *const u8, size: usize) -> i32;
 }
 
 /// Maps native C API return code to `ComputeApiError`.

@@ -19,5 +19,6 @@ static_assertions = "=1.1.0"
 default = ["cpu"]
 cpu = ["dep:compute-cpu"]
 cuda = ["dep:compute-cuda"]
+cuda-native = ["cuda", "compute-cuda/native"]
 hip = []
 mock = ["dep:layout"]

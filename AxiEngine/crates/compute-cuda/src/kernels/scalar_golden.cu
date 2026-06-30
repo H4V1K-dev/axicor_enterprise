@@ -13,6 +13,8 @@ __global__ void active_tail_hit_kernel(unsigned int head, unsigned int seg_idx, 
     *out = (d < propagation_length) ? 1 : 0;
 }
 
+__constant__ unsigned char axi_variant_table_bytes[AXI_SIZE_VariantParameters * AXI_VARIANT_LUT_LEN];
+
 extern "C" {
 
 int axi_cuda_probe_device(unsigned int device_id) {
@@ -88,6 +90,54 @@ int axi_cuda_active_tail_hit(unsigned int head, unsigned int seg_idx, unsigned i
         return -5;
     }
 
+    return 0;
+}
+
+int axi_cuda_alloc_bytes(size_t size, void** out_ptr) {
+    if (!out_ptr) return -1;
+    cudaError_t err = cudaMalloc(out_ptr, size);
+    if (err != cudaSuccess) {
+        return -2;
+    }
+    return 0;
+}
+
+int axi_cuda_free(void* ptr) {
+    if (!ptr) return 0;
+    cudaError_t err = cudaFree(ptr);
+    if (err != cudaSuccess) {
+        return -1;
+    }
+    return 0;
+}
+
+int axi_cuda_copy_h2d(void* dst, const void* src, size_t size) {
+    if (!dst || !src) return -1;
+    cudaError_t err = cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+        return -5;
+    }
+    return 0;
+}
+
+int axi_cuda_copy_d2h(void* dst, const void* src, size_t size) {
+    if (!dst || !src) return -1;
+    cudaError_t err = cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        return -5;
+    }
+    return 0;
+}
+
+int axi_cuda_upload_variant_table(const void* src, size_t size) {
+    if (!src) return -1;
+    if (size > AXI_SIZE_VariantParameters * AXI_VARIANT_LUT_LEN) {
+        return -1;
+    }
+    cudaError_t err = cudaMemcpyToSymbol(axi_variant_table_bytes, src, size);
+    if (err != cudaSuccess) {
+        return -5;
+    }
     return 0;
 }
 
