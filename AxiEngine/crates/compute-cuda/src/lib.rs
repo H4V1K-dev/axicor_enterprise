@@ -367,6 +367,111 @@ impl CudaBackend {
 
         Ok(())
     }
+
+    /// Native-only test utility that runs variant-aware compute_input_current_probe
+    /// and apply_glif_final_spike_probe in one tick.
+    #[cfg(feature = "native")]
+    #[allow(clippy::too_many_arguments)] // Takes discrete parameter slices to precisely mimic CPU-matching test interface
+    pub fn run_current_glif_final_tick_probe_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        current_tick: u64,
+        v_seg: u32,
+        mapped_soma_ids: &[u32],
+        max_spikes_per_tick: u32,
+        output_spikes: &mut [u32],
+        output_spike_counts: &mut [u32],
+    ) -> Result<compute_api::BatchResult, ComputeApiError> {
+        let padded_n = {
+            let resource = self.registry.get_resource_mut(handle)?;
+            if !resource.uploaded {
+                return Err(ComputeApiError::BackendNotInitialized);
+            }
+            resource.spec.padded_n as usize
+        };
+
+        if !(1..=255).contains(&v_seg) {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+
+        if output_spike_counts.is_empty() {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+
+        if output_spikes.len() < max_spikes_per_tick as usize {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+
+        let mut i_in = vec![0i32; padded_n];
+
+        // 1. Compute input currents via variant-aware probe
+        self.compute_input_current_probe_for_test(handle, &mut i_in)?;
+
+        // Now we can safely borrow resource for the rest of the method
+        let resource = self.registry.get_resource_mut(handle)?;
+
+        // 2. Re-upload this resource's variant_table to device constant memory
+        let variant_bytes = resource.variant_table.as_ptr() as *const u8;
+        let variant_size = std::mem::size_of_val(&resource.variant_table);
+        let upload_res =
+            unsafe { native::axi_cuda_upload_variant_table(variant_bytes, variant_size) };
+        if upload_res != 0 {
+            return Err(native::map_cuda_error(upload_res));
+        }
+
+        let offsets = layout::compute_state_offsets(padded_n);
+        if offsets.off_voltage > u32::MAX as usize
+            || offsets.off_flags > u32::MAX as usize
+            || offsets.off_thresh > u32::MAX as usize
+            || offsets.off_timers > u32::MAX as usize
+            || offsets.off_s2a > u32::MAX as usize
+        {
+            return Err(ComputeApiError::CapacityExceeded);
+        }
+
+        let mut output_count = 0u32;
+        let mut generated_spikes_count = 0u32;
+        let mut dropped_spikes_count = 0u32;
+
+        let res = unsafe {
+            native::axi_cuda_apply_glif_final_spike_probe(
+                resource.state_ptr,
+                resource.axons_ptr,
+                resource.spec.padded_n,
+                resource.spec.total_axons,
+                offsets.off_voltage as u32,
+                offsets.off_flags as u32,
+                offsets.off_thresh as u32,
+                offsets.off_timers as u32,
+                offsets.off_s2a as u32,
+                i_in.as_ptr(),
+                i_in.len() as u32,
+                current_tick,
+                v_seg,
+                mapped_soma_ids.as_ptr(),
+                mapped_soma_ids.len() as u32,
+                max_spikes_per_tick,
+                output_spikes.as_mut_ptr(),
+                &mut output_count,
+                &mut generated_spikes_count,
+                &mut dropped_spikes_count,
+            )
+        };
+
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+
+        output_spike_counts[0] = output_count;
+
+        Ok(compute_api::BatchResult {
+            ticks_executed: 1,
+            generated_spikes_count,
+            output_spikes_written: output_count,
+            dropped_spikes_count,
+            execution_time_us: 0,
+        })
+    }
 }
 
 impl ComputeBackend for CudaBackend {
@@ -678,6 +783,10 @@ mod tests {
         assert!(header_content.contains(&format!(
             "#define AXI_OFFSET_VariantParameters_signal_propagation_length {}",
             (&dummy.signal_propagation_length as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_heartbeat_m {}",
+            (&dummy.heartbeat_m as *const _ as usize) - base_ptr
         )));
 
         assert!(header_content.contains(&format!(
@@ -2524,6 +2633,271 @@ mod tests {
                 i
             );
         }
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_native_current_glif_final_spike_probe() {
+        if !is_gpu_available() {
+            return;
+        }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 5,
+            total_ghosts: 0,
+            virtual_offset: 100,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(64);
+        let axons_size = compute_api::validation::expected_axons_blob_size(5).unwrap();
+
+        let mut test_state = vec![0u8; state_size];
+        let offsets = layout::compute_state_offsets(64);
+
+        // Initialize soma planes
+        let mut voltages = vec![-70_000i32; 64];
+        let mut flags = vec![0u8; 64];
+        let mut thresh_offsets = vec![0i32; 64];
+        let mut timers = vec![0u8; 64];
+        let mut soma_to_axon = vec![0xFFFFFFFFu32; 64];
+
+        // Variant parameters for Soma
+        let variant_0 = layout::VariantParameters {
+            threshold: -50_000,
+            rest_potential: -70_000,
+            leak_shift: 4,
+            homeostasis_penalty: 1000,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 100,
+            refractory_period: 5,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 5,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 10_000,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+
+        // Variant 1: heartbeat_m = MAX_HEARTBEAT_M
+        let mut variant_1 = variant_0;
+        variant_1.heartbeat_m = physics::constants::MAX_HEARTBEAT_M;
+
+        let mut variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+        variant_table[1] = variant_1;
+
+        // Soma 0: GLIF-only spike (voltage trigger)
+        voltages[0] = -48_000;
+        flags[0] = types::SomaFlags::new(false, 0, 0).0; // Type 0 (no heartbeat)
+        thresh_offsets[0] = 0;
+        timers[0] = 0;
+        soma_to_axon[0] = 0;
+
+        // Soma 1: Heartbeat-only spike (no GLIF spike because voltage is low)
+        voltages[1] = -60_000;
+        flags[1] = types::SomaFlags::new(false, 0, 1).0; // Type 1 (heartbeat always)
+        thresh_offsets[1] = 0;
+        timers[1] = 0;
+        soma_to_axon[1] = 1;
+
+        // Soma 2: GLIF + Heartbeat spike simultaneously
+        voltages[2] = -48_000;
+        flags[2] = types::SomaFlags::new(false, 0, 1).0; // Type 1 (heartbeat always)
+        thresh_offsets[2] = 0;
+        timers[2] = 0;
+        soma_to_axon[2] = 2;
+
+        // Soma 3: Refractory + Heartbeat spike (timer > 0, decrement timer, heartbeat still fires)
+        voltages[3] = -80_000;
+        flags[3] = types::SomaFlags::new(false, 0, 1).0; // Type 1 (heartbeat always)
+        thresh_offsets[3] = 1000;
+        timers[3] = 3;
+        soma_to_axon[3] = 3;
+
+        // Soma 4: No spike (voltage low, no heartbeat)
+        voltages[4] = -80_000;
+        flags[4] = types::SomaFlags::new(false, 0, 0).0;
+        thresh_offsets[4] = 0;
+        timers[4] = 0;
+        soma_to_axon[4] = 4;
+
+        // Copy soma planes to state blob
+        test_state[offsets.off_voltage..offsets.off_voltage + voltages.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&voltages));
+        test_state[offsets.off_flags..offsets.off_flags + flags.len()].copy_from_slice(&flags);
+        test_state[offsets.off_thresh..offsets.off_thresh + thresh_offsets.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&thresh_offsets));
+        test_state[offsets.off_timers..offsets.off_timers + timers.len()].copy_from_slice(&timers);
+        test_state[offsets.off_s2a..offsets.off_s2a + soma_to_axon.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&soma_to_axon));
+
+        // Axon heads setup
+        let header = layout::AxonsFileHeader::new(5);
+        let mut test_axons_blob = vec![0u8; axons_size];
+        test_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+        let heads = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 5];
+        test_axons_blob[16..16 + 5 * 32].copy_from_slice(bytemuck::cast_slice(&heads));
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        // Outputs setup
+        let mapped_soma_ids = vec![0, 1, 2, 3];
+        let max_spikes_per_tick = 3;
+        let mut output_spikes = vec![0u32; 3];
+        let mut output_spike_counts = vec![0u32; 1];
+
+        // Run final tick probe
+        let result = backend
+            .run_current_glif_final_tick_probe_for_test(
+                handle,
+                1, // current_tick
+                2, // v_seg
+                &mapped_soma_ids,
+                max_spikes_per_tick,
+                &mut output_spikes,
+                &mut output_spike_counts,
+            )
+            .unwrap();
+
+        // 1. Assert BatchResult
+        assert_eq!(result.ticks_executed, 1);
+        assert_eq!(result.generated_spikes_count, 4);
+        assert_eq!(result.output_spikes_written, 3);
+        assert_eq!(result.dropped_spikes_count, 1);
+        assert_eq!(output_spike_counts[0], 3);
+
+        // 2. Output spikes check: should be soma 0, 1, 2 (soma 3 dropped)
+        assert_eq!(output_spikes[0], 0);
+        assert_eq!(output_spikes[1], 1);
+        assert_eq!(output_spikes[2], 2);
+
+        // 3. Download snapshot
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        let snap_voltages: &[i32] =
+            bytemuck::cast_slice(&snap_state[offsets.off_voltage..offsets.off_voltage + 256]);
+        let snap_flags: &[u8] = &snap_state[offsets.off_flags..offsets.off_flags + 64];
+        let snap_thresh: &[i32] =
+            bytemuck::cast_slice(&snap_state[offsets.off_thresh..offsets.off_thresh + 256]);
+        let snap_timers: &[u8] = &snap_state[offsets.off_timers..offsets.off_timers + 64];
+
+        // Soma 0 check (GLIF-only spike):
+        // Expected voltage reset: rest_potential - ahp_amplitude = -70,000 - 10,000 = -80,000
+        assert_eq!(snap_voltages[0], -80_000);
+        // Expected timer set to refractory_period: 5
+        assert_eq!(snap_timers[0], 5);
+        // Expected threshold offset: decayed_offset + homeostasis_penalty = 0 + 1000 = 1000
+        assert_eq!(snap_thresh[0], 1000);
+        // Expected flags: spiking bit set, burst_count = 1, type = 0
+        let flags_0 = types::SomaFlags(snap_flags[0]);
+        assert!(flags_0.spiking());
+        assert_eq!(flags_0.burst_count(), 1);
+        assert_eq!(flags_0.type_id(), 0);
+
+        // Soma 1 check (Heartbeat-only spike):
+        // Expected voltage: no GLIF reset, but leak decay happens (-60,625)
+        assert_eq!(snap_voltages[1], -60_625);
+        // Expected timer: 0
+        assert_eq!(snap_timers[1], 0);
+        // Expected threshold: decayed_offset = 0
+        assert_eq!(snap_thresh[1], 0);
+        // Expected flags: spiking bit set, burst_count = 1, type = 1
+        let flags_1 = types::SomaFlags(snap_flags[1]);
+        assert!(flags_1.spiking());
+        assert_eq!(flags_1.burst_count(), 1);
+        assert_eq!(flags_1.type_id(), 1);
+
+        // Soma 2 check (GLIF + Heartbeat spike):
+        // Expected voltage: reset to -80,000
+        assert_eq!(snap_voltages[2], -80_000);
+        // Expected timer: 5
+        assert_eq!(snap_timers[2], 5);
+        // Expected threshold: 1000
+        assert_eq!(snap_thresh[2], 1000);
+        // Expected flags: spiking bit set, burst_count = 1 (burst count increments only once per tick), type = 1
+        let flags_2 = types::SomaFlags(snap_flags[2]);
+        assert!(flags_2.spiking());
+        assert_eq!(flags_2.burst_count(), 1);
+        assert_eq!(flags_2.type_id(), 1);
+
+        // Soma 3 check (Refractory + Heartbeat spike):
+        // Expected voltage: unchanged (-80,000)
+        assert_eq!(snap_voltages[3], -80_000);
+        // Expected timer: decremented from 3 to 2
+        assert_eq!(snap_timers[3], 2);
+        // Expected threshold: decayed from 1000 by 100 to 900
+        assert_eq!(snap_thresh[3], 900);
+        // Expected flags: spiking bit set, burst_count = 1, type = 1
+        let flags_3 = types::SomaFlags(snap_flags[3]);
+        assert!(flags_3.spiking());
+        assert_eq!(flags_3.burst_count(), 1);
+        assert_eq!(flags_3.type_id(), 1);
+
+        // Soma 4 check (No spike):
+        // Expected voltage: no GLIF reset, but leak decay happens (-79,375)
+        assert_eq!(snap_voltages[4], -79_375);
+        // Expected timer: 0
+        assert_eq!(snap_timers[4], 0);
+        // Expected threshold: 0
+        assert_eq!(snap_thresh[4], 0);
+        // Expected flags: spiking bit clear, burst_count = 0, type = 0
+        let flags_4 = types::SomaFlags(snap_flags[4]);
+        assert!(!flags_4.spiking());
+        assert_eq!(flags_4.burst_count(), 0);
+        assert_eq!(flags_4.type_id(), 0);
+
+        // Axon heads check
+        let mut snap_heads = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 5];
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                snap_axons[16..16 + 5 * 32].as_ptr(),
+                snap_heads.as_mut_ptr() as *mut u8,
+                5 * 32,
+            );
+        }
+        let expected_head = physics::initial_axon_head(2);
+
+        // Axon 0 pushed
+        assert_eq!(snap_heads[0].h0, expected_head);
+        // Axon 1 pushed
+        assert_eq!(snap_heads[1].h0, expected_head);
+        // Axon 2 pushed
+        assert_eq!(snap_heads[2].h0, expected_head);
+        // Axon 3 pushed
+        assert_eq!(snap_heads[3].h0, expected_head);
+        // Axon 4 NOT pushed
+        assert_eq!(snap_heads[4].h0, types::AXON_SENTINEL);
 
         backend.free_shard(handle).unwrap();
     }

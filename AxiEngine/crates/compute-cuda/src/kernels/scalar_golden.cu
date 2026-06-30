@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <stdio.h>
 #include "axi_cuda_abi.h"
 
 static_assert(AXI_SIZE_AxonsFileHeader == 16, "AXI_SIZE_AxonsFileHeader must be exactly 16 bytes");
@@ -285,6 +286,158 @@ __global__ void apply_glif_membrane_probe_kernel(
                 soma_flags[idx] = (flags & AXI_SOMA_TYPE_MASK) | ((old_burst << AXI_SOMA_BURST_SHIFT) & AXI_SOMA_BURST_MASK);
             }
         }
+    }
+}
+
+__global__ void apply_glif_final_spike_probe_kernel(
+    void* state_ptr,
+    void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_voltage,
+    unsigned int off_flags,
+    unsigned int off_thresh,
+    unsigned int off_timers,
+    unsigned int off_s2a,
+    const int* i_in_device,
+    unsigned long long current_tick,
+    unsigned int v_seg,
+    const unsigned int* mapped_soma_ids,
+    unsigned int num_outputs,
+    unsigned int max_spikes_per_tick,
+    unsigned int* output_spikes,
+    unsigned int* output_count,
+    unsigned int* generated_spikes_count,
+    unsigned int* dropped_spikes_count
+) {
+    int* soma_voltage = (int*)((char*)state_ptr + off_voltage);
+    unsigned char* soma_flags = (unsigned char*)((char*)state_ptr + off_flags);
+    int* threshold_offset = (int*)((char*)state_ptr + off_thresh);
+    unsigned char* timers = (unsigned char*)((char*)state_ptr + off_timers);
+    const unsigned int* soma_to_axon = (const unsigned int*)((const char*)state_ptr + off_s2a);
+    unsigned int* heads = (unsigned int*)((char*)axons_ptr + AXI_SIZE_AxonsFileHeader);
+
+    for (unsigned int i = 0; i < padded_n; ++i) {
+        unsigned char flags = soma_flags[i];
+        unsigned int type_id = (flags & AXI_SOMA_TYPE_MASK) >> AXI_SOMA_TYPE_SHIFT;
+        unsigned int variant_idx = type_id;
+        if (variant_idx >= AXI_VARIANT_LUT_LEN) {
+            variant_idx = AXI_VARIANT_LUT_LEN - 1;
+        }
+
+        // 1. Decay threshold offset
+        int thresh_offset = threshold_offset[i];
+        int homeostasis_decay_val = (int)read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_homeostasis_decay);
+        int decayed_offset = thresh_offset - homeostasis_decay_val;
+        decayed_offset = decayed_offset & ~(decayed_offset >> 31);
+
+        // 2. GLIF update
+        int threshold = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_threshold);
+        int rest_potential = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_rest_potential);
+        unsigned int leak_shift = read_variant_u32(variant_idx, AXI_OFFSET_VariantParameters_leak_shift);
+        int homeostasis_penalty = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_homeostasis_penalty);
+        unsigned char refractory_period = read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_refractory_period);
+        unsigned short ahp_amplitude = read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_ahp_amplitude);
+        int adaptive_leak_min_shift = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_adaptive_leak_min_shift);
+        int adaptive_leak_gain_val = (int)read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_adaptive_leak_gain);
+        int adaptive_mode_val = (int)read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_adaptive_mode);
+
+        unsigned char timer = timers[i];
+        bool is_glif = false;
+
+        if (timer > 0) {
+            timers[i] = timer - 1;
+            threshold_offset[i] = decayed_offset;
+            // voltage unchanged
+            is_glif = false;
+        } else {
+            int voltage = soma_voltage[i];
+            int i_in = i_in_device[i];
+
+            long long adaptive_sub = ((long long)decayed_offset * (long long)adaptive_leak_gain_val) / 256 * (long long)adaptive_mode_val;
+            long long current_shift = (long long)leak_shift - adaptive_sub;
+            if (current_shift < (long long)adaptive_leak_min_shift) {
+                current_shift = (long long)adaptive_leak_min_shift;
+            }
+            if (current_shift < 0) current_shift = 0;
+            if (current_shift > 63) current_shift = 63;
+            unsigned int shift = (unsigned int)current_shift;
+
+            long long v_diff = (long long)voltage - (long long)rest_potential;
+            int delta_v_leak = (int)(v_diff >> shift);
+
+            int v_new = voltage + i_in - delta_v_leak;
+
+            int v_th_eff = threshold + decayed_offset;
+            is_glif = (v_new >= v_th_eff);
+
+            if (is_glif) {
+                soma_voltage[i] = (int)((unsigned int)rest_potential - (unsigned int)ahp_amplitude);
+                timers[i] = refractory_period;
+                threshold_offset[i] = (int)((unsigned int)decayed_offset + (unsigned int)homeostasis_penalty);
+            } else {
+                soma_voltage[i] = v_new;
+                threshold_offset[i] = decayed_offset;
+            }
+        }
+
+        // 3. DDS heartbeat spike
+        unsigned int heartbeat_m = read_variant_u32(variant_idx, AXI_OFFSET_VariantParameters_heartbeat_m);
+        bool is_heartbeat = false;
+        if (heartbeat_m == AXI_MAX_HEARTBEAT_M) {
+            is_heartbeat = true;
+        } else if (heartbeat_m == 0) {
+            is_heartbeat = false;
+        } else {
+            unsigned long long phase = ((current_tick * (unsigned long long)heartbeat_m) +
+                                       ((unsigned long long)i * AXI_DDS_SCATTER_PRIME)) & AXI_DDS_PHASE_MASK;
+            is_heartbeat = (phase < (unsigned long long)heartbeat_m);
+        }
+
+        // 4. Final spike & soma_to_axon & output spikes
+        bool final_spike = is_glif || is_heartbeat;
+        unsigned char old_burst = (flags & AXI_SOMA_BURST_MASK) >> AXI_SOMA_BURST_SHIFT;
+        unsigned char new_burst = old_burst;
+        if (final_spike) {
+            new_burst = old_burst + 1;
+            if (new_burst > 7) {
+                new_burst = 7;
+            }
+            *generated_spikes_count = *generated_spikes_count + 1;
+
+            unsigned int axon_id = soma_to_axon[i];
+            if (axon_id < total_axons) {
+                size_t base_idx = (size_t)axon_id * AXI_HEADS_PER_BURST;
+                for (int h = (int)AXI_HEADS_PER_BURST - 1; h > 0; --h) {
+                    heads[base_idx + h] = heads[base_idx + h - 1];
+                }
+                heads[base_idx + 0] = 0u - v_seg;
+            }
+
+            bool is_mapped = false;
+            for (unsigned int o = 0; o < num_outputs; ++o) {
+                if (mapped_soma_ids[o] == i) {
+                    is_mapped = true;
+                    break;
+                }
+            }
+
+            if (is_mapped) {
+                unsigned int current_out_count = *output_count;
+                if (current_out_count < max_spikes_per_tick) {
+                    output_spikes[current_out_count] = i;
+                    *output_count = current_out_count + 1;
+                } else {
+                    *dropped_spikes_count = *dropped_spikes_count + 1;
+                }
+            }
+        }
+
+        unsigned char new_flags = (flags & AXI_SOMA_TYPE_MASK) | ((new_burst << AXI_SOMA_BURST_SHIFT) & AXI_SOMA_BURST_MASK);
+        if (final_spike) {
+            new_flags |= AXI_SOMA_SPIKING_MASK;
+        }
+        soma_flags[i] = new_flags;
     }
 }
 
@@ -631,6 +784,187 @@ int axi_cuda_apply_glif_membrane_probe(
     }
 
     return 0;
+}
+
+int axi_cuda_apply_glif_final_spike_probe(
+    void* state_ptr,
+    void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_voltage,
+    unsigned int off_flags,
+    unsigned int off_thresh,
+    unsigned int off_timers,
+    unsigned int off_s2a,
+    const int* i_in_host,
+    unsigned int i_in_len,
+    unsigned long long current_tick,
+    unsigned int v_seg,
+    const unsigned int* mapped_soma_ids_host,
+    unsigned int num_outputs,
+    unsigned int max_spikes_per_tick,
+    unsigned int* output_spikes_host,
+    unsigned int* output_spike_counts_host,
+    unsigned int* generated_spikes_count_host,
+    unsigned int* dropped_spikes_count_host
+) {
+    if (!state_ptr || !axons_ptr || !i_in_host || !output_spikes_host || 
+        !output_spike_counts_host || !generated_spikes_count_host || !dropped_spikes_count_host) {
+        return -1;
+    }
+    if (i_in_len < padded_n) {
+        return -1;
+    }
+
+    // Temporary device allocations
+    int* d_i_in = nullptr;
+    unsigned int* d_mapped_soma_ids = nullptr;
+    unsigned int* d_output_spikes = nullptr;
+    unsigned int* d_output_count = nullptr;
+    unsigned int* d_generated_spikes_count = nullptr;
+    unsigned int* d_dropped_spikes_count = nullptr;
+
+    cudaError_t err = cudaMalloc(&d_i_in, padded_n * sizeof(int));
+    if (err != cudaSuccess) return -2;
+
+    if (num_outputs > 0 && mapped_soma_ids_host) {
+        err = cudaMalloc(&d_mapped_soma_ids, num_outputs * sizeof(unsigned int));
+        if (err != cudaSuccess) {
+            cudaFree(d_i_in);
+            return -2;
+        }
+    }
+
+    if (max_spikes_per_tick > 0) {
+        err = cudaMalloc(&d_output_spikes, max_spikes_per_tick * sizeof(unsigned int));
+        if (err != cudaSuccess) {
+            cudaFree(d_i_in);
+            if (d_mapped_soma_ids) cudaFree(d_mapped_soma_ids);
+            return -2;
+        }
+    }
+
+    err = cudaMalloc(&d_output_count, sizeof(unsigned int));
+    if (err != cudaSuccess) goto cleanup_err;
+
+    err = cudaMalloc(&d_generated_spikes_count, sizeof(unsigned int));
+    if (err != cudaSuccess) goto cleanup_err;
+
+    err = cudaMalloc(&d_dropped_spikes_count, sizeof(unsigned int));
+    if (err != cudaSuccess) goto cleanup_err;
+
+    // Memcpy host to device
+    err = cudaMemcpy(d_i_in, i_in_host, padded_n * sizeof(int), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) goto cleanup_dma_err;
+
+    if (num_outputs > 0 && mapped_soma_ids_host) {
+        err = cudaMemcpy(d_mapped_soma_ids, mapped_soma_ids_host, num_outputs * sizeof(unsigned int), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) goto cleanup_dma_err;
+    }
+
+    err = cudaMemset(d_output_count, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) goto cleanup_dma_err;
+
+    err = cudaMemset(d_generated_spikes_count, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) goto cleanup_dma_err;
+
+    err = cudaMemset(d_dropped_spikes_count, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) goto cleanup_dma_err;
+
+    // Launch single-threaded kernel
+    apply_glif_final_spike_probe_kernel<<<1, 1>>>(
+        state_ptr,
+        axons_ptr,
+        padded_n,
+        total_axons,
+        off_voltage,
+        off_flags,
+        off_thresh,
+        off_timers,
+        off_s2a,
+        d_i_in,
+        current_tick,
+        v_seg,
+        d_mapped_soma_ids,
+        num_outputs,
+        max_spikes_per_tick,
+        d_output_spikes,
+        d_output_count,
+        d_generated_spikes_count,
+        d_dropped_spikes_count
+    );
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess) goto cleanup_launch_err;
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) goto cleanup_sync_err;
+
+    // Copy results back
+    unsigned int h_output_count;
+    err = cudaMemcpy(&h_output_count, d_output_count, sizeof(unsigned int), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) goto cleanup_dma_err;
+    *output_spike_counts_host = h_output_count;
+
+    if (h_output_count > 0 && max_spikes_per_tick > 0) {
+        unsigned int copy_len = h_output_count;
+        if (copy_len > max_spikes_per_tick) {
+            copy_len = max_spikes_per_tick;
+        }
+        err = cudaMemcpy(output_spikes_host, d_output_spikes, copy_len * sizeof(unsigned int), cudaMemcpyDeviceToHost);
+        if (err != cudaSuccess) goto cleanup_dma_err;
+    }
+
+    err = cudaMemcpy(generated_spikes_count_host, d_generated_spikes_count, sizeof(unsigned int), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) goto cleanup_dma_err;
+
+    err = cudaMemcpy(dropped_spikes_count_host, d_dropped_spikes_count, sizeof(unsigned int), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) goto cleanup_dma_err;
+
+    // Free device memory
+    cudaFree(d_i_in);
+    if (d_mapped_soma_ids) cudaFree(d_mapped_soma_ids);
+    if (d_output_spikes) cudaFree(d_output_spikes);
+    cudaFree(d_output_count);
+    cudaFree(d_generated_spikes_count);
+    cudaFree(d_dropped_spikes_count);
+    return 0;
+
+cleanup_launch_err:
+    cudaFree(d_i_in);
+    if (d_mapped_soma_ids) cudaFree(d_mapped_soma_ids);
+    if (d_output_spikes) cudaFree(d_output_spikes);
+    cudaFree(d_output_count);
+    cudaFree(d_generated_spikes_count);
+    cudaFree(d_dropped_spikes_count);
+    return -3;
+
+cleanup_sync_err:
+    cudaFree(d_i_in);
+    if (d_mapped_soma_ids) cudaFree(d_mapped_soma_ids);
+    if (d_output_spikes) cudaFree(d_output_spikes);
+    cudaFree(d_output_count);
+    cudaFree(d_generated_spikes_count);
+    cudaFree(d_dropped_spikes_count);
+    return -4;
+
+cleanup_dma_err:
+    cudaFree(d_i_in);
+    if (d_mapped_soma_ids) cudaFree(d_mapped_soma_ids);
+    if (d_output_spikes) cudaFree(d_output_spikes);
+    cudaFree(d_output_count);
+    cudaFree(d_generated_spikes_count);
+    cudaFree(d_dropped_spikes_count);
+    return -5;
+
+cleanup_err:
+    cudaFree(d_i_in);
+    if (d_mapped_soma_ids) cudaFree(d_mapped_soma_ids);
+    if (d_output_spikes) cudaFree(d_output_spikes);
+    if (d_output_count) cudaFree(d_output_count);
+    if (d_generated_spikes_count) cudaFree(d_generated_spikes_count);
+    if (d_dropped_spikes_count) cudaFree(d_dropped_spikes_count);
+    return -2;
 }
 
 } // extern "C"

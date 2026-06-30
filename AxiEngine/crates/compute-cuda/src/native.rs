@@ -55,6 +55,29 @@ extern "C" {
         i_in_host: *const i32,
         i_in_len: u32,
     ) -> i32;
+
+    pub fn axi_cuda_apply_glif_final_spike_probe(
+        state_ptr: *mut u8,
+        axons_ptr: *mut u8,
+        padded_n: u32,
+        total_axons: u32,
+        off_voltage: u32,
+        off_flags: u32,
+        off_thresh: u32,
+        off_timers: u32,
+        off_s2a: u32,
+        i_in_host: *const i32,
+        i_in_len: u32,
+        current_tick: u64,
+        v_seg: u32,
+        mapped_soma_ids_host: *const u32,
+        num_outputs: u32,
+        max_spikes_per_tick: u32,
+        output_spikes_host: *mut u32,
+        output_spike_counts_host: *mut u32,
+        generated_spikes_count_host: *mut u32,
+        dropped_spikes_count_host: *mut u32,
+    ) -> i32;
 }
 
 /// Maps native C API return code to `ComputeApiError`.

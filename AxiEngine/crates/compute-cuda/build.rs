@@ -85,6 +85,7 @@ fn main() {
     let off_adaptive_mode = (&dummy.adaptive_mode as *const _ as usize) - base_ptr;
     let off_signal_propagation_length =
         (&dummy.signal_propagation_length as *const _ as usize) - base_ptr;
+    let off_heartbeat_m = (&dummy.heartbeat_m as *const _ as usize) - base_ptr;
 
     let soma_spiking_mask = types::SOMA_SPIKING_MASK;
     let soma_burst_mask = types::SOMA_BURST_MASK;
@@ -154,6 +155,7 @@ fn main() {
 #define AXI_OFFSET_VariantParameters_adaptive_leak_gain {off_adaptive_leak_gain}
 #define AXI_OFFSET_VariantParameters_adaptive_mode {off_adaptive_mode}
 #define AXI_OFFSET_VariantParameters_signal_propagation_length {off_signal_propagation_length}
+#define AXI_OFFSET_VariantParameters_heartbeat_m {off_heartbeat_m}
 
 #endif /* AXI_CUDA_ABI_H */
 "#
