@@ -334,6 +334,27 @@ impl CudaBackend {
 
         Ok(())
     }
+
+    /// Native-only test utility that runs compute_input_current_probe and apply_glif_membrane_probe in one tick.
+    #[cfg(feature = "native")]
+    pub fn run_current_glif_tick_probe_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        propagation_length: u32,
+    ) -> Result<(), ComputeApiError> {
+        let resource = self.registry.get_resource_mut(handle)?;
+        if !resource.uploaded {
+            return Err(ComputeApiError::BackendNotInitialized);
+        }
+
+        let padded_n = resource.spec.padded_n as usize;
+        let mut i_in = vec![0i32; padded_n];
+
+        self.compute_input_current_probe_for_test(handle, propagation_length, &mut i_in)?;
+        self.apply_glif_membrane_probe_for_test(handle, &i_in)?;
+
+        Ok(())
+    }
 }
 
 impl ComputeBackend for CudaBackend {
@@ -1863,9 +1884,10 @@ mod tests {
         };
 
         let mut variant_1 = variant_0;
-        variant_1.leak_shift = 8;
+        variant_1.homeostasis_decay = 256;
+        variant_1.leak_shift = 16;
         variant_1.adaptive_leak_min_shift = 2;
-        variant_1.adaptive_leak_gain = 512;
+        variant_1.adaptive_leak_gain = 4;
         variant_1.adaptive_mode = 1;
 
         let mut variant_table = [variant_0; layout::VARIANT_LUT_LEN];
@@ -1903,7 +1925,7 @@ mod tests {
         // Starting voltage: -60_000, type = 1 (Variant 1)
         voltages[4] = -60_000;
         flags[4] = types::SomaFlags::new(false, 0, 1).0;
-        thresh_offsets[4] = 2000;
+        thresh_offsets[4] = 512;
         timers[4] = 0;
 
         // Write to state blob
@@ -1998,20 +2020,20 @@ mod tests {
                     voltage,
                     i_in_val,
                     var.rest_potential,
-                    thresh_offset,
+                    decayed_offset,
                     var.leak_shift as i32,
                     var.adaptive_leak_gain as i32,
                     var.adaptive_leak_min_shift as i32,
                     var.adaptive_mode as i32,
                 );
 
-                let is_glif = physics::is_glif_spike(v_new, var.threshold, thresh_offset);
+                let is_glif = physics::is_glif_spike(v_new, var.threshold, decayed_offset);
 
                 if is_glif {
                     expected_voltages[i] =
                         var.rest_potential.wrapping_sub(var.ahp_amplitude as i32);
                     expected_timers[i] = var.refractory_period;
-                    expected_thresh[i] = thresh_offset.wrapping_add(var.homeostasis_penalty);
+                    expected_thresh[i] = decayed_offset.wrapping_add(var.homeostasis_penalty);
                     let new_burst = (types::SomaFlags(flags[i]).burst_count() + 1).min(7);
                     expected_flags[i] = types::SomaFlags::new(true, new_burst, variant_idx as u8).0;
                 } else {
@@ -2033,7 +2055,7 @@ mod tests {
         assert_eq!(expected_voltages[1], -80000);
         assert_eq!(expected_voltages[2], -80000);
         assert_eq!(expected_voltages[3], -80000);
-        assert_eq!(expected_voltages[4], -60500);
+        assert_eq!(expected_voltages[4], -58002);
 
         for i in 0..5 {
             assert_eq!(
@@ -2156,12 +2178,9 @@ mod tests {
             )
             .unwrap();
 
-        // 3. Call apply_glif_membrane_probe_for_test on Shard A
-        let mut i_in = vec![0i32; 64];
-        i_in[0] = 2000;
-
+        // 3. Call run_current_glif_tick_probe_for_test on Shard A
         backend
-            .apply_glif_membrane_probe_for_test(handle_a, &i_in)
+            .run_current_glif_tick_probe_for_test(handle_a, 5)
             .unwrap();
 
         // 4. Download Shard A snapshot and check it matches variant A (leak_shift = 4)
@@ -2180,10 +2199,314 @@ mod tests {
         let snap_voltages_a: &[i32] =
             bytemuck::cast_slice(&snap_state_a[offsets.off_voltage..offsets.off_voltage + 256]);
 
-        // Under variant A: expected = -58625
-        assert_eq!(snap_voltages_a[0], -58625);
+        // Under variant A (leak_shift = 4): expected = -60625
+        assert_eq!(snap_voltages_a[0], -60625);
 
         backend.free_shard(handle_a).unwrap();
         backend.free_shard(handle_b).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    #[allow(clippy::needless_range_loop, clippy::identity_op, clippy::erasing_op)]
+    fn test_cuda_native_current_glif_tick_probe() {
+        if !is_gpu_available() {
+            return;
+        }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 3,
+            total_ghosts: 0,
+            virtual_offset: 100,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(64);
+        let axons_size = compute_api::validation::expected_axons_blob_size(3).unwrap();
+
+        let mut test_state = vec![0u8; state_size];
+        let offsets = layout::compute_state_offsets(64);
+
+        // Synapses targets & weights:
+        let mut dendrite_targets = vec![0u32; 64 * 128];
+        let mut dendrite_weights = vec![0i32; 64 * 128];
+
+        // Soma 0: target local axon 0 segment 5, positive weight (charge 1600)
+        dendrite_targets[0 * 64 + 0] = types::PackedTarget::pack(0, 5).0;
+        dendrite_weights[0 * 64 + 0] = 1600 << 16;
+
+        // Soma 1: target local axon 1 segment 10, negative weight (charge -800)
+        dendrite_targets[0 * 64 + 1] = types::PackedTarget::pack(1, 10).0;
+        dendrite_weights[0 * 64 + 1] = -800 << 16;
+
+        // Soma 2: target local axon 2 segment 20, positive weight (charge 500)
+        dendrite_targets[0 * 64 + 2] = types::PackedTarget::pack(2, 20).0;
+        dendrite_weights[0 * 64 + 2] = 500 << 16;
+
+        // Copy dendrite planes to state blob
+        test_state[offsets.off_targets..offsets.off_targets + dendrite_targets.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+        test_state[offsets.off_weights..offsets.off_weights + dendrite_weights.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+        // Initialize soma planes
+        let mut voltages = vec![0i32; 64];
+        let mut flags = vec![0u8; 64];
+        let mut thresh_offsets = vec![0i32; 64];
+        let mut timers = vec![0u8; 64];
+
+        // Soma 0: normal voltage trigger spike
+        voltages[0] = -49_000;
+        flags[0] = types::SomaFlags::new(false, 0, 0).0;
+        thresh_offsets[0] = 0;
+        timers[0] = 0;
+
+        // Soma 1: normal negative update, no spike
+        voltages[1] = -60_000;
+        flags[1] = types::SomaFlags::new(false, 0, 0).0;
+        thresh_offsets[1] = 0;
+        timers[1] = 0;
+
+        // Soma 2: refractory period, decrement timer, decay threshold
+        voltages[2] = -80_000;
+        flags[2] = types::SomaFlags::new(false, 0, 0).0;
+        thresh_offsets[2] = 1000;
+        timers[2] = 3;
+
+        // Soma 3: check variant 2 and type_id preservation
+        voltages[3] = -60_000;
+        flags[3] = types::SomaFlags::new(false, 0, 2).0;
+        thresh_offsets[3] = 0;
+        timers[3] = 0;
+
+        // Copy soma planes to state blob
+        test_state[offsets.off_voltage..offsets.off_voltage + voltages.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&voltages));
+        test_state[offsets.off_flags..offsets.off_flags + flags.len()].copy_from_slice(&flags);
+        test_state[offsets.off_thresh..offsets.off_thresh + thresh_offsets.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&thresh_offsets));
+        test_state[offsets.off_timers..offsets.off_timers + timers.len()].copy_from_slice(&timers);
+
+        // Axon heads Setup:
+        let header = layout::AxonsFileHeader::new(3);
+        let mut test_axons_blob = vec![0u8; axons_size];
+        test_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+        let mut heads = [
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+        ];
+        heads[0].h0 = 5;
+        heads[1].h0 = 10;
+        heads[2].h0 = 20;
+        test_axons_blob[16..16 + 3 * 32].copy_from_slice(bytemuck::cast_slice(&heads));
+
+        // Variant parameters:
+        let variant_0 = layout::VariantParameters {
+            threshold: -50_000,
+            rest_potential: -70_000,
+            leak_shift: 4,
+            homeostasis_penalty: 1000,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 100,
+            refractory_period: 5,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 5,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 10_000,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+
+        let mut variant_2 = variant_0;
+        variant_2.rest_potential = -65_000;
+        variant_2.leak_shift = 5;
+
+        let mut variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+        variant_table[2] = variant_2;
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        // 3. Run tick probe
+        let propagation_length = 5;
+        backend
+            .run_current_glif_tick_probe_for_test(handle, propagation_length)
+            .unwrap();
+
+        // 4. Download snapshot
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        // Check that axons snapshot is byte-exact compared to original axons blob
+        assert_eq!(snap_axons, test_axons_blob);
+
+        let snap_voltages: &[i32] =
+            bytemuck::cast_slice(&snap_state[offsets.off_voltage..offsets.off_voltage + 256]);
+        let snap_flags: &[u8] = &snap_state[offsets.off_flags..offsets.off_flags + 64];
+        let snap_thresh: &[i32] =
+            bytemuck::cast_slice(&snap_state[offsets.off_thresh..offsets.off_thresh + 256]);
+        let snap_timers: &[u8] = &snap_state[offsets.off_timers..offsets.off_timers + 64];
+
+        // Compute expectations on CPU
+        let mut expected_voltages = voltages.clone();
+        let mut expected_flags = flags.clone();
+        let mut expected_thresh = thresh_offsets.clone();
+        let mut expected_timers = timers.clone();
+        let mut expected_i_in = vec![0i32; 64];
+
+        for s in 0..64 {
+            let mut charge_sum = 0i32;
+            for d in 0..128 {
+                let d_idx = d * 64 + s;
+                let target_raw = dendrite_targets[d_idx];
+                if target_raw != 0 {
+                    let target = types::PackedTarget(target_raw);
+                    if let Some((axon_id, segment_index)) = target.unpack() {
+                        let local_axon = axon_id as usize;
+                        if local_axon < spec.total_axons as usize {
+                            let mut axon_heads_array = [types::AXON_SENTINEL; 8];
+                            let h = heads[local_axon];
+                            axon_heads_array[0] = h.h0;
+                            axon_heads_array[1] = h.h1;
+                            axon_heads_array[2] = h.h2;
+                            axon_heads_array[3] = h.h3;
+                            axon_heads_array[4] = h.h4;
+                            axon_heads_array[5] = h.h5;
+                            axon_heads_array[6] = h.h6;
+                            axon_heads_array[7] = h.h7;
+
+                            if physics::active_tail_hit(
+                                &axon_heads_array,
+                                segment_index,
+                                propagation_length,
+                            ) {
+                                let weight = dendrite_weights[d_idx];
+                                charge_sum =
+                                    charge_sum.wrapping_add(physics::weight_to_charge(weight));
+                            }
+                        }
+                    }
+                }
+            }
+            expected_i_in[s] = charge_sum;
+        }
+
+        for i in 0..4 {
+            let variant_idx = types::SomaFlags(flags[i]).type_id() as usize;
+            let var = variant_table[variant_idx];
+
+            let timer = timers[i];
+            let thresh_offset = thresh_offsets[i];
+            let voltage = voltages[i];
+            let i_in_val = expected_i_in[i];
+
+            let decayed_offset =
+                physics::homeostasis_decay(thresh_offset, var.homeostasis_decay as i32);
+
+            if timer > 0 {
+                expected_timers[i] = timer - 1;
+                expected_thresh[i] = decayed_offset;
+                expected_voltages[i] = voltage;
+                expected_flags[i] = types::SomaFlags::new(
+                    false,
+                    types::SomaFlags(flags[i]).burst_count(),
+                    variant_idx as u8,
+                )
+                .0;
+            } else {
+                let v_new = physics::update_glif_voltage(
+                    voltage,
+                    i_in_val,
+                    var.rest_potential,
+                    decayed_offset,
+                    var.leak_shift as i32,
+                    var.adaptive_leak_gain as i32,
+                    var.adaptive_leak_min_shift as i32,
+                    var.adaptive_mode as i32,
+                );
+
+                let is_glif = physics::is_glif_spike(v_new, var.threshold, decayed_offset);
+
+                if is_glif {
+                    expected_voltages[i] =
+                        var.rest_potential.wrapping_sub(var.ahp_amplitude as i32);
+                    expected_timers[i] = var.refractory_period;
+                    expected_thresh[i] = decayed_offset.wrapping_add(var.homeostasis_penalty);
+                    let new_burst = (types::SomaFlags(flags[i]).burst_count() + 1).min(7);
+                    expected_flags[i] = types::SomaFlags::new(true, new_burst, variant_idx as u8).0;
+                } else {
+                    expected_voltages[i] = v_new;
+                    expected_timers[i] = 0;
+                    expected_thresh[i] = decayed_offset;
+                    expected_flags[i] = types::SomaFlags::new(
+                        false,
+                        types::SomaFlags(flags[i]).burst_count(),
+                        variant_idx as u8,
+                    )
+                    .0;
+                }
+            }
+        }
+
+        // Assert expected properties
+        assert_eq!(expected_voltages[0], -80_000);
+        assert_eq!(expected_voltages[1], -61_425);
+        assert_eq!(expected_voltages[2], -80_000);
+        assert_eq!(expected_timers[2], 2);
+        assert_eq!(expected_thresh[2], 900);
+        assert_eq!(types::SomaFlags(expected_flags[3]).type_id(), 2);
+
+        for i in 0..4 {
+            assert_eq!(
+                snap_voltages[i], expected_voltages[i],
+                "Soma {} voltage mismatch",
+                i
+            );
+            assert_eq!(
+                snap_flags[i], expected_flags[i],
+                "Soma {} flags mismatch",
+                i
+            );
+            assert_eq!(
+                snap_thresh[i], expected_thresh[i],
+                "Soma {} thresh mismatch",
+                i
+            );
+            assert_eq!(
+                snap_timers[i], expected_timers[i],
+                "Soma {} timer mismatch",
+                i
+            );
+        }
+
+        backend.free_shard(handle).unwrap();
     }
 }
