@@ -41,7 +41,7 @@ extern "C" {
         total_axons: u32,
         off_targets: u32,
         off_weights: u32,
-        propagation_length: u32,
+        off_flags: u32,
         out_i_in_host: *mut i32,
         out_len: u32,
     ) -> i32;

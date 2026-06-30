@@ -5,6 +5,36 @@ static_assert(AXI_SIZE_AxonsFileHeader == 16, "AXI_SIZE_AxonsFileHeader must be 
 static_assert(AXI_SIZE_BurstHeads8 % sizeof(unsigned int) == 0, "AXI_SIZE_BurstHeads8 must be a multiple of sizeof(unsigned int)");
 static_assert(AXI_SIZE_BurstHeads8 / sizeof(unsigned int) == 8, "AXI_SIZE_BurstHeads8 must represent exactly 8 heads");
 
+__constant__ unsigned char axi_variant_table_bytes[AXI_SIZE_VariantParameters * AXI_VARIANT_LUT_LEN];
+
+// Helper functions to read from constant table.
+// The constant table is stored as Rust POD little-endian bytes.
+__device__ unsigned char read_variant_u8(unsigned int variant_idx, unsigned int field_offset) {
+    size_t base = (size_t)variant_idx * AXI_SIZE_VariantParameters + field_offset;
+    return axi_variant_table_bytes[base];
+}
+__device__ unsigned short read_variant_u16(unsigned int variant_idx, unsigned int field_offset) {
+    size_t base = (size_t)variant_idx * AXI_SIZE_VariantParameters + field_offset;
+    unsigned short val = 0;
+    val |= (unsigned short)axi_variant_table_bytes[base + 0];
+    val |= (unsigned short)axi_variant_table_bytes[base + 1] << 8;
+    return val;
+}
+__device__ unsigned int read_variant_u32(unsigned int variant_idx, unsigned int field_offset) {
+    size_t base = (size_t)variant_idx * AXI_SIZE_VariantParameters + field_offset;
+    unsigned int val = 0;
+    val |= (unsigned int)axi_variant_table_bytes[base + 0];
+    val |= (unsigned int)axi_variant_table_bytes[base + 1] << 8;
+    val |= (unsigned int)axi_variant_table_bytes[base + 2] << 16;
+    val |= (unsigned int)axi_variant_table_bytes[base + 3] << 24;
+    return val;
+}
+__device__ int read_variant_i32(unsigned int variant_idx, unsigned int field_offset) {
+    unsigned int val = read_variant_u32(variant_idx, field_offset);
+    return (int)val;
+}
+
+#define AXI_HEADS_PER_BURST (AXI_SIZE_BurstHeads8 / sizeof(unsigned int))
 
 // Scalar GPU kernels
 __global__ void propagate_head_kernel(unsigned int head, unsigned int v_seg, unsigned int* out) {
@@ -27,8 +57,6 @@ __global__ void propagate_uploaded_axons_kernel(unsigned int* heads, unsigned in
         heads[idx] = ((head + v_seg) & mask) | (AXI_AXON_SENTINEL & ~mask);
     }
 }
-
-#define AXI_HEADS_PER_BURST (AXI_SIZE_BurstHeads8 / sizeof(unsigned int))
 
 __global__ void inject_and_propagate_axons_tick_kernel(
     unsigned int* heads,
@@ -103,8 +131,162 @@ __global__ void inject_and_propagate_axons_tick_kernel(
     }
 }
 
+__global__ void compute_input_current_probe_kernel(
+    const void* state_ptr,
+    const void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_targets,
+    unsigned int off_weights,
+    unsigned int off_flags,
+    int* out_i_in
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < padded_n) {
+        unsigned int sum = 0;
+        const unsigned int* targets = (const unsigned int*)((const char*)state_ptr + off_targets);
+        const int* weights = (const int*)((const char*)state_ptr + off_weights);
+        const unsigned char* flags = (const unsigned char*)((const char*)state_ptr + off_flags);
+        const unsigned int* axons_heads = (const unsigned int*)((const char*)axons_ptr + AXI_SIZE_AxonsFileHeader);
 
-__constant__ unsigned char axi_variant_table_bytes[AXI_SIZE_VariantParameters * AXI_VARIANT_LUT_LEN];
+        unsigned char flags_val = flags[idx];
+        unsigned int variant_idx = (flags_val & AXI_SOMA_TYPE_MASK) >> AXI_SOMA_TYPE_SHIFT;
+        if (variant_idx >= AXI_VARIANT_LUT_LEN) {
+            variant_idx = AXI_VARIANT_LUT_LEN - 1;
+        }
+        unsigned int propagation_length = (unsigned int)read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_signal_propagation_length);
+
+        for (unsigned int d = 0; d < AXI_MAX_DENDRITES; ++d) {
+            size_t target_idx = (size_t)d * padded_n + idx;
+            unsigned int raw = targets[target_idx];
+            if (raw == 0 || raw == AXI_EMPTY_PIXEL) {
+                continue;
+            }
+
+            unsigned int axon_q = raw & 0x00FFFFFF;
+            if (axon_q < 1 || axon_q > AXI_MAX_AXON_ID + 1) {
+                continue;
+            }
+            unsigned int axon_id = axon_q - 1;
+            if (axon_id >= total_axons) {
+                continue;
+            }
+
+            unsigned int seg_idx = (raw >> 24) & 0xFF;
+
+            // Check active tail hits
+            bool hit = false;
+            const unsigned int* heads = axons_heads + (size_t)axon_id * AXI_HEADS_PER_BURST;
+            for (unsigned int h = 0; h < AXI_HEADS_PER_BURST; ++h) {
+                unsigned int head = heads[h];
+                unsigned int d_val = head - seg_idx;
+                if (d_val < propagation_length) {
+                    hit = true;
+                    break;
+                }
+            }
+
+            if (hit) {
+                int weight = weights[target_idx];
+                int charge = weight >> AXI_MASS_TO_CHARGE_SHIFT;
+                sum = sum + (unsigned int)charge;
+            }
+        }
+
+        out_i_in[idx] = (int)sum;
+    }
+}
+
+__global__ void apply_glif_membrane_probe_kernel(
+    void* state_ptr,
+    unsigned int padded_n,
+    unsigned int off_voltage,
+    unsigned int off_flags,
+    unsigned int off_thresh,
+    unsigned int off_timers,
+    const int* i_in_device
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < padded_n) {
+        int* soma_voltage = (int*)((char*)state_ptr + off_voltage);
+        unsigned char* soma_flags = (unsigned char*)((char*)state_ptr + off_flags);
+        int* threshold_offset = (int*)((char*)state_ptr + off_thresh);
+        unsigned char* timers = (unsigned char*)((char*)state_ptr + off_timers);
+
+        unsigned char flags = soma_flags[idx];
+        unsigned int type_id = (flags & AXI_SOMA_TYPE_MASK) >> AXI_SOMA_TYPE_SHIFT;
+        unsigned int variant_idx = type_id;
+        if (variant_idx >= AXI_VARIANT_LUT_LEN) {
+            variant_idx = AXI_VARIANT_LUT_LEN - 1;
+        }
+
+        // Load variant parameters via generated offsets
+        int threshold = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_threshold);
+        int rest_potential = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_rest_potential);
+        unsigned int leak_shift = read_variant_u32(variant_idx, AXI_OFFSET_VariantParameters_leak_shift);
+        int homeostasis_penalty = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_homeostasis_penalty);
+        int homeostasis_decay_val = (int)read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_homeostasis_decay);
+        unsigned char refractory_period = read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_refractory_period);
+        unsigned short ahp_amplitude = read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_ahp_amplitude);
+        int adaptive_leak_min_shift = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_adaptive_leak_min_shift);
+        int adaptive_leak_gain_val = (int)read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_adaptive_leak_gain);
+        int adaptive_mode_val = (int)read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_adaptive_mode);
+
+        // 1. Decay threshold offset
+        int thresh_offset = threshold_offset[idx];
+        int decayed = (int)((unsigned int)thresh_offset - (unsigned int)homeostasis_decay_val);
+        thresh_offset = decayed & ~(decayed >> 31);
+        threshold_offset[idx] = thresh_offset;
+
+        unsigned char timer = timers[idx];
+        unsigned char old_burst = (flags & AXI_SOMA_BURST_MASK) >> AXI_SOMA_BURST_SHIFT;
+
+        if (timer > 0) {
+            // Refractory period: decrement timer, voltage unchanged, no spike
+            timers[idx] = timer - 1;
+            // Write back flags: clear spiking (bit 0), type & burst preserved
+            soma_flags[idx] = (flags & AXI_SOMA_TYPE_MASK) | (flags & AXI_SOMA_BURST_MASK);
+        } else {
+            // Integrate voltage
+            int voltage = soma_voltage[idx];
+            int i_in = i_in_device[idx];
+
+            long long adaptive_sub = ((long long)thresh_offset * (long long)adaptive_leak_gain_val) / 256 * (long long)adaptive_mode_val;
+            long long current_shift = (long long)leak_shift - adaptive_sub;
+            if (current_shift < (long long)adaptive_leak_min_shift) {
+                current_shift = (long long)adaptive_leak_min_shift;
+            }
+            if (current_shift < 0) current_shift = 0;
+            if (current_shift > 63) current_shift = 63;
+            unsigned int shift = (unsigned int)current_shift;
+
+            long long v_diff = (long long)voltage - (long long)rest_potential;
+            int delta_v_leak = (int)(v_diff >> shift);
+
+            int v_new = (int)((unsigned int)voltage + (unsigned int)i_in - (unsigned int)delta_v_leak);
+
+            int v_th_eff = (int)((unsigned int)threshold + (unsigned int)thresh_offset);
+            bool is_glif = (v_new >= v_th_eff);
+
+            if (is_glif) {
+                soma_voltage[idx] = (int)((unsigned int)rest_potential - (unsigned int)ahp_amplitude);
+                timers[idx] = refractory_period;
+                threshold_offset[idx] = (int)((unsigned int)thresh_offset + (unsigned int)homeostasis_penalty);
+                
+                unsigned char new_burst = old_burst + 1;
+                if (new_burst > 7) {
+                    new_burst = 7;
+                }
+                // Spiking is true (bit 0 = 1), set burst and preserve type
+                soma_flags[idx] = (flags & AXI_SOMA_TYPE_MASK) | AXI_SOMA_SPIKING_MASK | ((new_burst << AXI_SOMA_BURST_SHIFT) & AXI_SOMA_BURST_MASK);
+            } else {
+                soma_voltage[idx] = v_new;
+                // Spiking is false (bit 0 = 0), set old burst and preserve type
+                soma_flags[idx] = (flags & AXI_SOMA_TYPE_MASK) | ((old_burst << AXI_SOMA_BURST_SHIFT) & AXI_SOMA_BURST_MASK);
+            }
+        }
+    }
+}
 
 extern "C" {
 
@@ -327,64 +509,6 @@ int axi_cuda_inject_and_propagate_axons_tick(
     return 0;
 }
 
-__global__ void compute_input_current_probe_kernel(
-    const void* state_ptr,
-    const void* axons_ptr,
-    unsigned int padded_n,
-    unsigned int total_axons,
-    unsigned int off_targets,
-    unsigned int off_weights,
-    unsigned int propagation_length,
-    int* out_i_in
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < padded_n) {
-        unsigned int sum = 0;
-        const unsigned int* targets = (const unsigned int*)((const char*)state_ptr + off_targets);
-        const int* weights = (const int*)((const char*)state_ptr + off_weights);
-        const unsigned int* axons_heads = (const unsigned int*)((const char*)axons_ptr + AXI_SIZE_AxonsFileHeader);
-
-        for (unsigned int d = 0; d < AXI_MAX_DENDRITES; ++d) {
-            size_t target_idx = (size_t)d * padded_n + idx;
-            unsigned int raw = targets[target_idx];
-            if (raw == 0 || raw == AXI_EMPTY_PIXEL) {
-                continue;
-            }
-
-            unsigned int axon_q = raw & 0x00FFFFFF;
-            if (axon_q < 1 || axon_q > AXI_MAX_AXON_ID + 1) {
-                continue;
-            }
-            unsigned int axon_id = axon_q - 1;
-            if (axon_id >= total_axons) {
-                continue;
-            }
-
-            unsigned int seg_idx = (raw >> 24) & 0xFF;
-
-            // Check active tail hits
-            bool hit = false;
-            const unsigned int* heads = axons_heads + (size_t)axon_id * AXI_HEADS_PER_BURST;
-            for (unsigned int h = 0; h < AXI_HEADS_PER_BURST; ++h) {
-                unsigned int head = heads[h];
-                unsigned int d_val = head - seg_idx;
-                if (d_val < propagation_length) {
-                    hit = true;
-                    break;
-                }
-            }
-
-            if (hit) {
-                int weight = weights[target_idx];
-                int charge = weight >> AXI_MASS_TO_CHARGE_SHIFT;
-                sum = sum + (unsigned int)charge;
-            }
-        }
-
-        out_i_in[idx] = (int)sum;
-    }
-}
-
 int axi_cuda_compute_input_current_probe(
     const void* state_ptr,
     const void* axons_ptr,
@@ -392,7 +516,7 @@ int axi_cuda_compute_input_current_probe(
     unsigned int total_axons,
     unsigned int off_targets,
     unsigned int off_weights,
-    unsigned int propagation_length,
+    unsigned int off_flags,
     int* out_i_in_host,
     unsigned int out_len
 ) {
@@ -425,7 +549,7 @@ int axi_cuda_compute_input_current_probe(
         total_axons,
         off_targets,
         off_weights,
-        propagation_length,
+        off_flags,
         d_out
     );
 
@@ -449,124 +573,6 @@ int axi_cuda_compute_input_current_probe(
     }
 
     return 0;
-}
-
-// Helper functions to read from constant table.
-// The constant table is stored as Rust POD little-endian bytes.
-__device__ unsigned char read_variant_u8(unsigned int variant_idx, unsigned int field_offset) {
-    size_t base = (size_t)variant_idx * AXI_SIZE_VariantParameters + field_offset;
-    return axi_variant_table_bytes[base];
-}
-__device__ unsigned short read_variant_u16(unsigned int variant_idx, unsigned int field_offset) {
-    size_t base = (size_t)variant_idx * AXI_SIZE_VariantParameters + field_offset;
-    unsigned short val = 0;
-    val |= (unsigned short)axi_variant_table_bytes[base + 0];
-    val |= (unsigned short)axi_variant_table_bytes[base + 1] << 8;
-    return val;
-}
-__device__ unsigned int read_variant_u32(unsigned int variant_idx, unsigned int field_offset) {
-    size_t base = (size_t)variant_idx * AXI_SIZE_VariantParameters + field_offset;
-    unsigned int val = 0;
-    val |= (unsigned int)axi_variant_table_bytes[base + 0];
-    val |= (unsigned int)axi_variant_table_bytes[base + 1] << 8;
-    val |= (unsigned int)axi_variant_table_bytes[base + 2] << 16;
-    val |= (unsigned int)axi_variant_table_bytes[base + 3] << 24;
-    return val;
-}
-__device__ int read_variant_i32(unsigned int variant_idx, unsigned int field_offset) {
-    unsigned int val = read_variant_u32(variant_idx, field_offset);
-    return (int)val;
-}
-
-__global__ void apply_glif_membrane_probe_kernel(
-    void* state_ptr,
-    unsigned int padded_n,
-    unsigned int off_voltage,
-    unsigned int off_flags,
-    unsigned int off_thresh,
-    unsigned int off_timers,
-    const int* i_in_device
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < padded_n) {
-        int* soma_voltage = (int*)((char*)state_ptr + off_voltage);
-        unsigned char* soma_flags = (unsigned char*)((char*)state_ptr + off_flags);
-        int* threshold_offset = (int*)((char*)state_ptr + off_thresh);
-        unsigned char* timers = (unsigned char*)((char*)state_ptr + off_timers);
-
-        unsigned char flags = soma_flags[idx];
-        unsigned int type_id = (flags & AXI_SOMA_TYPE_MASK) >> AXI_SOMA_TYPE_SHIFT;
-        unsigned int variant_idx = type_id;
-        if (variant_idx >= AXI_VARIANT_LUT_LEN) {
-            variant_idx = AXI_VARIANT_LUT_LEN - 1;
-        }
-
-        // Load variant parameters via generated offsets
-        int threshold = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_threshold);
-        int rest_potential = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_rest_potential);
-        unsigned int leak_shift = read_variant_u32(variant_idx, AXI_OFFSET_VariantParameters_leak_shift);
-        int homeostasis_penalty = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_homeostasis_penalty);
-        int homeostasis_decay_val = (int)read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_homeostasis_decay);
-        unsigned char refractory_period = read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_refractory_period);
-        unsigned short ahp_amplitude = read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_ahp_amplitude);
-        int adaptive_leak_min_shift = read_variant_i32(variant_idx, AXI_OFFSET_VariantParameters_adaptive_leak_min_shift);
-        int adaptive_leak_gain_val = (int)read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_adaptive_leak_gain);
-        int adaptive_mode_val = (int)read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_adaptive_mode);
-
-        // 1. Decay threshold offset
-        int thresh_offset = threshold_offset[idx];
-        int decayed = (int)((unsigned int)thresh_offset - (unsigned int)homeostasis_decay_val);
-        thresh_offset = decayed & ~(decayed >> 31);
-        threshold_offset[idx] = thresh_offset;
-
-        unsigned char timer = timers[idx];
-        unsigned char old_burst = (flags & AXI_SOMA_BURST_MASK) >> AXI_SOMA_BURST_SHIFT;
-
-        if (timer > 0) {
-            // Refractory period: decrement timer, voltage unchanged, no spike
-            timers[idx] = timer - 1;
-            // Write back flags: clear spiking (bit 0), type & burst preserved
-            soma_flags[idx] = (flags & AXI_SOMA_TYPE_MASK) | (flags & AXI_SOMA_BURST_MASK);
-        } else {
-            // Integrate voltage
-            int voltage = soma_voltage[idx];
-            int i_in = i_in_device[idx];
-
-            long long adaptive_sub = ((long long)thresh_offset * (long long)adaptive_leak_gain_val) / 256 * (long long)adaptive_mode_val;
-            long long current_shift = (long long)leak_shift - adaptive_sub;
-            if (current_shift < (long long)adaptive_leak_min_shift) {
-                current_shift = (long long)adaptive_leak_min_shift;
-            }
-            if (current_shift < 0) current_shift = 0;
-            if (current_shift > 63) current_shift = 63;
-            unsigned int shift = (unsigned int)current_shift;
-
-            long long v_diff = (long long)voltage - (long long)rest_potential;
-            int delta_v_leak = (int)(v_diff >> shift);
-
-            int v_new = (int)((unsigned int)voltage + (unsigned int)i_in - (unsigned int)delta_v_leak);
-
-            int v_th_eff = (int)((unsigned int)threshold + (unsigned int)thresh_offset);
-            bool is_glif = (v_new >= v_th_eff);
-
-            if (is_glif) {
-                soma_voltage[idx] = (int)((unsigned int)rest_potential - (unsigned int)ahp_amplitude);
-                timers[idx] = refractory_period;
-                threshold_offset[idx] = (int)((unsigned int)thresh_offset + (unsigned int)homeostasis_penalty);
-                
-                unsigned char new_burst = old_burst + 1;
-                if (new_burst > 7) {
-                    new_burst = 7;
-                }
-                // Spiking is true (bit 0 = 1), set burst and preserve type
-                soma_flags[idx] = (flags & AXI_SOMA_TYPE_MASK) | AXI_SOMA_SPIKING_MASK | ((new_burst << AXI_SOMA_BURST_SHIFT) & AXI_SOMA_BURST_MASK);
-            } else {
-                soma_voltage[idx] = v_new;
-                // Spiking is false (bit 0 = 0), set old burst and preserve type
-                soma_flags[idx] = (flags & AXI_SOMA_TYPE_MASK) | ((old_burst << AXI_SOMA_BURST_SHIFT) & AXI_SOMA_BURST_MASK);
-            }
-        }
-    }
 }
 
 int axi_cuda_apply_glif_membrane_probe(
@@ -626,4 +632,5 @@ int axi_cuda_apply_glif_membrane_probe(
 
     return 0;
 }
-}
+
+} // extern "C"

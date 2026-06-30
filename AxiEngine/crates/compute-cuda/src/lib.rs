@@ -235,7 +235,6 @@ impl CudaBackend {
     pub fn compute_input_current_probe_for_test(
         &mut self,
         handle: compute_api::VramHandle,
-        propagation_length: u32,
         out_i_in: &mut [i32],
     ) -> Result<(), ComputeApiError> {
         let resource = self.registry.get_resource_mut(handle)?;
@@ -252,8 +251,22 @@ impl CudaBackend {
         }
 
         let offsets = layout::compute_state_offsets(resource.spec.padded_n as usize);
-        if offsets.off_targets > u32::MAX as usize || offsets.off_weights > u32::MAX as usize {
+        if offsets.off_targets > u32::MAX as usize
+            || offsets.off_weights > u32::MAX as usize
+            || offsets.off_flags > u32::MAX as usize
+        {
             return Err(ComputeApiError::CapacityExceeded);
+        }
+
+        // Upload variant_table to constant memory
+        let upload_res = unsafe {
+            native::axi_cuda_upload_variant_table(
+                resource.variant_table.as_ptr() as *const u8,
+                resource.variant_table.len() * std::mem::size_of::<layout::VariantParameters>(),
+            )
+        };
+        if upload_res != 0 {
+            return Err(native::map_cuda_error(upload_res));
         }
 
         let res = unsafe {
@@ -264,7 +277,7 @@ impl CudaBackend {
                 resource.spec.total_axons,
                 offsets.off_targets as u32,
                 offsets.off_weights as u32,
-                propagation_length,
+                offsets.off_flags as u32,
                 out_i_in.as_mut_ptr(),
                 out_i_in.len() as u32,
             )
@@ -340,7 +353,6 @@ impl CudaBackend {
     pub fn run_current_glif_tick_probe_for_test(
         &mut self,
         handle: compute_api::VramHandle,
-        propagation_length: u32,
     ) -> Result<(), ComputeApiError> {
         let resource = self.registry.get_resource_mut(handle)?;
         if !resource.uploaded {
@@ -350,7 +362,7 @@ impl CudaBackend {
         let padded_n = resource.spec.padded_n as usize;
         let mut i_in = vec![0i32; padded_n];
 
-        self.compute_input_current_probe_for_test(handle, propagation_length, &mut i_in)?;
+        self.compute_input_current_probe_for_test(handle, &mut i_in)?;
         self.apply_glif_membrane_probe_for_test(handle, &i_in)?;
 
         Ok(())
@@ -662,6 +674,10 @@ mod tests {
         assert!(header_content.contains(&format!(
             "#define AXI_OFFSET_VariantParameters_adaptive_mode {}",
             (&dummy.adaptive_mode as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_signal_propagation_length {}",
+            (&dummy.signal_propagation_length as *const _ as usize) - base_ptr
         )));
 
         assert!(header_content.contains(&format!(
@@ -1790,9 +1806,8 @@ mod tests {
             out_i_in[i] = 999;
         }
 
-        let propagation_length = 5;
         backend
-            .compute_input_current_probe_for_test(handle, propagation_length, &mut out_i_in)
+            .compute_input_current_probe_for_test(handle, &mut out_i_in)
             .unwrap();
 
         // Soma 0: Dendrite 0 (hit, weight = 1600 >> 16 -> charge 1600)
@@ -2180,7 +2195,7 @@ mod tests {
 
         // 3. Call run_current_glif_tick_probe_for_test on Shard A
         backend
-            .run_current_glif_tick_probe_for_test(handle_a, 5)
+            .run_current_glif_tick_probe_for_test(handle_a)
             .unwrap();
 
         // 4. Download Shard A snapshot and check it matches variant A (leak_shift = 4)
@@ -2347,9 +2362,8 @@ mod tests {
         backend.upload_shard(handle, upload).unwrap();
 
         // 3. Run tick probe
-        let propagation_length = 5;
         backend
-            .run_current_glif_tick_probe_for_test(handle, propagation_length)
+            .run_current_glif_tick_probe_for_test(handle)
             .unwrap();
 
         // 4. Download snapshot
@@ -2383,6 +2397,10 @@ mod tests {
         let mut expected_i_in = vec![0i32; 64];
 
         for s in 0..64 {
+            let variant_idx = types::SomaFlags(flags[s]).type_id() as usize;
+            let var = variant_table[variant_idx];
+            let propagation_length = var.signal_propagation_length as u32;
+
             let mut charge_sum = 0i32;
             for d in 0..128 {
                 let d_idx = d * 64 + s;
@@ -2506,6 +2524,169 @@ mod tests {
                 i
             );
         }
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    #[allow(clippy::needless_range_loop, clippy::identity_op, clippy::erasing_op)]
+    fn test_cuda_native_variant_aware_current_probe() {
+        if !is_gpu_available() {
+            return;
+        }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 1,
+            total_ghosts: 0,
+            virtual_offset: 100,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(64);
+        let axons_size = compute_api::validation::expected_axons_blob_size(1).unwrap();
+
+        let mut test_state = vec![0u8; state_size];
+        let offsets = layout::compute_state_offsets(64);
+
+        // Synapses targets & weights:
+        let mut dendrite_targets = vec![0u32; 64 * 128];
+        let mut dendrite_weights = vec![0i32; 64 * 128];
+
+        // Soma 0 (type_id = 0, Variant 0: signal_propagation_length = 5)
+        // target axon 0 segment 5. weight = 1000 << 16 (charge 1000)
+        dendrite_targets[0 * 64 + 0] = types::PackedTarget::pack(0, 5).0;
+        dendrite_weights[0 * 64 + 0] = 1000 << 16;
+
+        // Soma 1 (type_id = 1, Variant 1: signal_propagation_length = 3)
+        // target axon 0 segment 5. weight = 1000 << 16 (charge 1000)
+        dendrite_targets[0 * 64 + 1] = types::PackedTarget::pack(0, 5).0;
+        dendrite_weights[0 * 64 + 1] = 1000 << 16;
+
+        // Copy targets/weights to state
+        test_state[offsets.off_targets..offsets.off_targets + dendrite_targets.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+        test_state[offsets.off_weights..offsets.off_weights + dendrite_weights.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+        // Initialize soma planes
+        let mut flags = vec![0u8; 64];
+        flags[0] = types::SomaFlags::new(false, 0, 0).0; // Variant 0
+        flags[1] = types::SomaFlags::new(false, 0, 1).0; // Variant 1
+
+        test_state[offsets.off_flags..offsets.off_flags + flags.len()].copy_from_slice(&flags);
+
+        // Axon heads Setup:
+        let header = layout::AxonsFileHeader::new(1);
+        let mut test_axons_blob = vec![0u8; axons_size];
+        test_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+        let mut heads = [layout::BurstHeads8::empty(types::AXON_SENTINEL)];
+        // Set head to 9
+        heads[0].h0 = 9;
+        test_axons_blob[16..16 + 32].copy_from_slice(bytemuck::cast_slice(&heads));
+
+        // Variant parameters:
+        let variant_0 = layout::VariantParameters {
+            threshold: -50_000,
+            rest_potential: -70_000,
+            leak_shift: 4,
+            homeostasis_penalty: 1000,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 100,
+            refractory_period: 5,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 5,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 10_000,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+
+        let mut variant_1 = variant_0;
+        variant_1.signal_propagation_length = 3;
+
+        let mut variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+        variant_table[1] = variant_1;
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        // 3. Compute input current probe
+        let mut out_i_in = vec![0i32; 64];
+        backend
+            .compute_input_current_probe_for_test(handle, &mut out_i_in)
+            .unwrap();
+
+        // Compute expectations on CPU
+        let mut expected_i_in = vec![0i32; 64];
+        for s in 0..64 {
+            let variant_idx = types::SomaFlags(flags[s]).type_id() as usize;
+            let var = variant_table[variant_idx];
+            let propagation_length = var.signal_propagation_length as u32;
+
+            let mut charge_sum = 0i32;
+            for d in 0..128 {
+                let d_idx = d * 64 + s;
+                let target_raw = dendrite_targets[d_idx];
+                if target_raw != 0 {
+                    let target = types::PackedTarget(target_raw);
+                    if let Some((axon_id, segment_index)) = target.unpack() {
+                        let local_axon = axon_id as usize;
+                        if local_axon < spec.total_axons as usize {
+                            let mut axon_heads_array = [types::AXON_SENTINEL; 8];
+                            let h = heads[local_axon];
+                            axon_heads_array[0] = h.h0;
+                            axon_heads_array[1] = h.h1;
+                            axon_heads_array[2] = h.h2;
+                            axon_heads_array[3] = h.h3;
+                            axon_heads_array[4] = h.h4;
+                            axon_heads_array[5] = h.h5;
+                            axon_heads_array[6] = h.h6;
+                            axon_heads_array[7] = h.h7;
+
+                            if physics::active_tail_hit(
+                                &axon_heads_array,
+                                segment_index,
+                                propagation_length,
+                            ) {
+                                let weight = dendrite_weights[d_idx];
+                                charge_sum =
+                                    charge_sum.wrapping_add(physics::weight_to_charge(weight));
+                            }
+                        }
+                    }
+                }
+            }
+            expected_i_in[s] = charge_sum;
+        }
+
+        // Soma 0 expects charge 1000:
+        // Head (9) - seg (5) = 4 < propagation_length (5) -> hit!
+        assert_eq!(expected_i_in[0], 1000);
+        assert_eq!(out_i_in[0], 1000);
+
+        // Soma 1 expects charge 0:
+        // Head (9) - seg (5) = 4 >= propagation_length (3) -> miss!
+        assert_eq!(expected_i_in[1], 0);
+        assert_eq!(out_i_in[1], 0);
 
         backend.free_shard(handle).unwrap();
     }
