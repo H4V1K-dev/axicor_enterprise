@@ -170,14 +170,14 @@
 
 ### REV-TEST-001: API снимков состояния для тестового комплекса (Debug Snapshot API)
 - **ID**: REV-TEST-001
-- **Status**: Resolved (compute-api v2.1)
+- **Status**: Resolved (compute-api v2.2)
 - **Priority**: P1
 - **Owner candidate**: `test-harness` / `compute-api`
 - **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§10.7)
 - **Question / Problem**: Чтение полного состояния VRAM для пошаговых тестов детерминизма.
 - **Why it matters**: Верификация потиковой корректности вычислений.
 - **Affected specs**: [test_harness_spec.md](./spec_L3/test_harness_spec.md), [compute_api_spec.md](./spec_L3/compute_api_spec.md)
-- **Notes**: **[РЕШЕНО в compute-api v2.1]**: В `ComputeBackend` добавлен метод по умолчанию `debug_snapshot(&mut self, handle, snapshot: ShardSnapshotMut<'_>)`.
+- **Notes**: **[РЕШЕНО в compute-api v2.2]**: В `ComputeBackend` зафиксирован метод `debug_snapshot(&mut self, handle, snapshot: ShardSnapshotMut<'_>)` для выгрузки полного состояния SoA в host slices.
 
 ### REV-PHYS-009: Генерация и верификация C++ зеркал из Rust-источников
 - **ID**: REV-PHYS-009
@@ -794,15 +794,16 @@
 *Source items: 6 / Registered items: 6*
 
 - **REV-TEST-001**: Механизм Отладочного Снятия Состояния (Debug Full-State Snapshot API)
-  - *Status*: Resolved (compute-api v2.1) | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md)
+  - *Status*: Resolved (compute-api v2.2) | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md)
   - *Question / Problem*: - *Контекст*: Публичный API `compute-api` не предоставлял выгрузку полных SoA-массивов VRAM.
     - *Вопрос*: Требуется ли введение отладочного extension-trait (например, `DebugSnapshotExt`), доступного только под фичей `test-harness`, или формат выгрузки `BatchResult` будет расширен?
-  - *Resolution*: В `ComputeBackend` добавлен метод по умолчанию `debug_snapshot(&mut self, handle, snapshot: ShardSnapshotMut<'_>) -> Result<(), ComputeApiError>`, возвращающий `UnsupportedFeature` по умолчанию.
+  - *Resolution*: В `ComputeBackend` добавлен метод по умолчанию `debug_snapshot(&mut self, handle, snapshot: ShardSnapshotMut<'_>) -> Result<(), ComputeApiError>` для выгрузки полного состояния SoA в host-срезы.
 
 - **REV-TEST-002**: Окончательная Форма Полезной Нагрузки `BatchResult`
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-COMPUTE-API-004 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L200)
+  - *Status*: Resolved (Duplicate of REV-COMPUTE-API-004) | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-COMPUTE-API-004 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L200)
   - *Question / Problem*: - *Контекст*: Структура результатов батча находится на этапе согласования.
     - *Вопрос*: Какие именно поля (число спайков, маски выходов, чексуммы) включаются в `BatchResult` для базового потикового сравнения?
+  - *Resolution*: Выходные спайки пишутся напрямую в предоставленные `DayBatchCmd.output_spikes` буферы хоста, а `BatchResult` возвращает детерминированные счетчики (ticks_executed, spikes written/dropped/generated) и телеметрию времени выполнения (`execution_time_us`). Для дифференциального сравнения используются детерминированные поля, а время выполнения исключается.
 
 - **REV-TEST-003**: Локализация Пайплайна Генерации и Верификации ABI-Зеркал
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-PHYS-009 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L204)
@@ -810,19 +811,22 @@
     - *Вопрос*: Где именно должен жить генератор C++ заголовков — в крейте `layout`, внутри бэкендов или в виде автономной build-helper утилиты?
 
 - **REV-TEST-004**: Организация Автоматического Запуска Аппаратных Тестов в CI/CD
-  - *Status*: Open | *Priority*: P2 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L208)
+  - *Status*: Resolved | *Priority*: P2 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L208)
   - *Question / Problem*: - *Контекст*: Тестирование CUDA и HIP требует наличия физических GPU и установленных SDK на раннерах.
     - *Вопрос*: Каким образом маркируются тесты для запуска на специализированных CI-раннерах с GPU ускорителями?
+  - *Resolution*: Для Stage 1 аппаратные тесты для CUDA/HIP являются feature-gated. При недоступности физического оборудования/драйверов бэкенд возвращает статус `HarnessOutcome::Skipped`. Отдельные GPU CI runners вынесены в будущие инфраструктурные задачи и не блокируют реализацию harness.
 
 - **REV-TEST-005**: Разграничение Дифференциальных и Свойственных/Фаззинг Тестов (Property/Fuzzing Tests)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L212)
+  - *Status*: Resolved | *Priority*: P2 | *Owner*: `test-harness` | *Duplicate Of*: - | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L212)
   - *Question / Problem*: - *Контекст*: Помимо детерминированных фикстур, эффективен случайный фаззинг входных буферов.
     - *Вопрос*: Должны ли property-based тесты (на базе `proptest` / `quickcheck`) жить внутри `test-harness` или выноситься в отдельный крейт `compute-fuzz`?
+  - *Resolution*: Решено ограничить `test-harness` детерминированными conformance фикстурами в Stage 1. Свойственные и fuzz тесты вынесены в будущий отдельный крейт `compute-fuzz` или optional layer.
 
 - **REV-TEST-006**: Управление Pinned-Буферами Хоста для Снэпшотов
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L216)
+  - *Status*: Resolved (Duplicate of REV-COMPUTE-API-002) | *Priority*: P1 | *Owner*: `test-harness` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [test_harness_spec.md](./spec_L3/test_harness_spec.md#L216)
   - *Question / Problem*: - *Контекст*: Для скоростного снятия дампов VRAM требуется Page-Locked память.
     - *Вопрос*: Кто выделяет и утилизирует Pinned-буферы при отладочном снятии дампов состояний в `test-harness`?
+  - *Resolution*: Бэкенд сам владеет и управляет внутренними pinned/staging буферами, если они ему нужны. Harness передает обычные host-срезы через `ShardSnapshotMut`.
 
 ### §5.4. Слой L4 (Baker & Topology Tools)
 

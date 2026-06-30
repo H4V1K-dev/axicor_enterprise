@@ -27,7 +27,7 @@ graph TD
         compute_cpu["compute-cpu (v2.2)"]
         compute_cuda["compute-cuda (v2.1)"]
         compute_hip["compute-hip (v2.1)"]
-        test_harness["test-harness (v2.1)"]
+        test_harness["test-harness (v2.2)"]
     end
     subgraph L4["Слой 4"]
         topology["topology (v2.0)"]
@@ -152,10 +152,10 @@ graph TD
 |---|---|---|---|
 | `compute-api` | [compute_api_spec.md](spec_L3/compute_api_spec.md) | **Approved v2.2 / Implemented** | Аппаратно-независимый HAL контракт бэкендов вычислений (`ComputeBackend`), непрозрачные VRAM handles и DTO команд. |
 | `compute` | [compute_spec.md](spec_L3/compute_spec.md) | **Draft v2.1 / API Sync** | Фасад вычислений `ShardEngine`, автовыбор бэкендов (`BackendPreference`) и оркестрация жизненного цикла шарда. |
-| `compute-cpu` | [compute_cpu_spec.md](spec_L3/compute_cpu_spec.md) | **Approved v2.2 / Ready for Implementation** | Многопоточная CPU-реализация `ComputeBackend` на базе Rayon, выровненные ресурсы хоста и проверочная реализация. |
+| `compute-cpu` | [compute_cpu_spec.md](spec_L3/compute_cpu_spec.md) | **Approved v2.2 / Implemented** | Многопоточная CPU-реализация `ComputeBackend` на базе Rayon, выровненные ресурсы хоста и проверочная реализация. |
 | `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
 | `compute-hip` | [compute_hip_spec.md](spec_L3/compute_hip_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная AMD ROCm/HIP реализация `ComputeBackend` на базе Wave64 вейвфронтов и неблокирующих стримов. |
-| `test-harness` | [test_harness_spec.md](spec_L3/test_harness_spec.md) | **Draft v2.1 / API Sync** | Вспомогательный тестовый крейт для дифференциальных проверок `ComputeBackend`, фикстур и контроля ABI-зеркал. |
+| `test-harness` | [test_harness_spec.md](spec_L3/test_harness_spec.md) | **Approved v2.2 / Ready for Implementation** | Вспомогательный тестовый крейт для дифференциальных проверок `ComputeBackend`, фикстур и контроля ABI-зеркал. |
 
 ### Слой 4 (Layer 4: Geometry, Growth & Connectome Generation)
 
@@ -180,7 +180,7 @@ graph TD
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `boot` | [boot_spec.md](spec_L6/boot_spec.md) | **Draft v1.0** | Инициализация окружения, монтирование VFS, проверка выравнивания и flash-копирование состояния в GPU. |
-| `runtime` | [runtime_spec.md](spec_L6/runtime_spec.md) | **Draft v2.0** | Оркестратор HFT-вычислений шардов, Day/Night переходы, координация с `weaver-daemon` и сбои. |
+| `runtime` | [runtime_spec.md](spec_L6/runtime_spec.md) | **Draft v2.0** | Оркестратор вычислений шардов, Day/Night переходы, координация с `weaver-daemon` и сбои. |
 | `node` | [node_spec.md](spec_L6/node_spec.md) | **Draft v1.0** | Тонкий OS-демон: разбор CLI-аргументов, CPU affinity, Tokio-изоляция и graceful shutdown. |
 
 ---
