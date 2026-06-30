@@ -181,14 +181,14 @@
 
 ### REV-PHYS-009: Генерация и верификация C++ зеркал из Rust-источников
 - **ID**: REV-PHYS-009
-- **Status**: Open
+- **Status**: Partially Resolved
 - **Priority**: P1
 - **Owner candidate**: `physics` / `layout`
-- **Source**: [physics_spec.md](./spec_L0/physics_spec.md#L286) (§8.7) vs [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L189) (§11.1) vs [compute_hip_spec.md](./spec_L3/compute_hip_spec.md#L199) (§11.2) vs [test_harness_spec.md](./spec_L3/test_harness_spec.md#L204) (§10.3)
+- **Source**: [physics_spec.md](./spec_L0/physics_spec.md) (§8.7) vs [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md) (§11.2) vs [compute_hip_spec.md](./spec_L3/compute_hip_spec.md) (§11.2) vs [test_harness_spec.md](./spec_L3/test_harness_spec.md) (§10.3)
 - **Question / Problem**: C++ заголовки CUDA/HIP ядер ручным образом дублируют Rust-структуры из `physics` и `layout`. Требуется автоматическая кодогенерация или статическая верификация размеров/смещений полей.
 - **Why it matters**: Любое изменение типов в Rust без обновления C++ файлов приведет к невидимому повреждению памяти в GPU ядер.
 - **Affected specs**: [physics_spec.md](./spec_L0/physics_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md), [test_harness_spec.md](./spec_L3/test_harness_spec.md)
-- **Notes**: Вынести вопрос разработки AOT-кодогенератора C++ зеркал на следующий архитектурный проход.
+- **Notes**: **[ЧАСТИЧНО РЕШЕНО в compute-cuda v2.3]**: Для CUDA-бэкенда утверждено решение генерации заголовка `axi_cuda_abi.h` в `OUT_DIR` силами `build.rs` на базе Rust-крейтов `types`, `layout` и `physics`. Для HIP-бэкенда вопрос остается открытым в рамках `REV-COMPUTE-HIP-002` и не блокирует реализацию `compute-cuda`.
 
 ### REV-CFG-004: Размещение параметра `initial_synapse_weight` в TOML
 - **ID**: REV-CFG-004
@@ -683,9 +683,10 @@
 *Source items: 6 / Registered items: 6*
 
 - **REV-COMPUTE-CUDA-001**: Механизм Кодогенерации и Верификации C++ Зеркал из Rust (`physics`/`layout`)
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-PHYS-009 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L189)
+  - *Status*: Resolved (Pass 2.3) | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md) (§11.2)
   - *Question / Problem*: - *Контекст*: Зафиксирован запрет на ручной дублирующий C++ код.
     - *Вопрос*: Какая утилита или генератор (например, `cbindgen` или пользовательский AOT-скрипт) будет координировать автоматическую сборку C++ зеркал из источников истины?
+  - *Resolution*: Утвержден сборщик `cc` и запуск генератора в `build.rs` крейта `compute-cuda`. Генератор считывает константы, размеры и выравнивания C-ABI структур из Rust-зависимостей `types`, `layout` и `physics`, сохраняя их в `generated/axi_cuda_abi.h` внутри `OUT_DIR`. Ручное дублирование в `.cu/.h` коде запрещено. Математическая логика тестируется автономными scalar golden-тестами.
 
 - **REV-COMPUTE-CUDA-002**: API и DTO Загрузки Таблицы Вариантов в Constant Memory
   - *Status*: Resolved (compute-api v2.2) | *Priority*: P2 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md)
@@ -694,24 +695,26 @@
   - *Resolution*: В `ShardUpload` добавлено заимствованное поле `variant_table: &'a [VariantParameters; VARIANT_LUT_LEN]` для синхронной передачи профилей вариантов бэкендам при вызове `upload_shard`.
 
 - **REV-COMPUTE-CUDA-003**: Модель Фабричного Конструктора `VramHandle` в `compute-api`
-  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-CPU-001 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L197)
+  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-CPU-001 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md)
   - *Question / Problem*: - *Контекст*: Приватность `VramHandle` блокирует создание дескрипторов бэкендами.
     - *Вопрос*: Каким образом бэкенд вычислений будет получать экземпляры `VramHandle` из `compute-api`?
 
 - **REV-COMPUTE-CUDA-004**: Формат и Владелец Pinned-Буферов Результатов
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L201)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md)
   - *Question / Problem*: - *Контекст*: Требование `pinned_host_required = true` необходимо для скорейшего DMA D2H.
     - *Вопрос*: Кто создает и держит Pinned-буферы для результатов — `compute-cuda` или IPC/runtime swapchain?
 
 - **REV-COMPUTE-CUDA-005**: Аффинность Потоков ОС и Маркер `Send` для CUDA Контекста
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: REV-COMPUTE-004 | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L205)
+  - *Status*: Resolved (Pass 2.3) | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md) (§11.3)
   - *Question / Problem*: - *Контекст*: CUDA контексты и стримы привязаны к создавшему их OS-потоку.
     - *Вопрос*: Является ли `CudaBackend` маркерным `Send`, или инициализация контекста должна происходить строго внутри целевого OS-потока шарда?
+  - *Resolution*: Контекст CUDA инициализируется строго внутри целевого OS-потока шарда. `CudaBackend` не реализует трейты `Send`/`Sync`. Это полностью синхронизировано с `compute` v2.2.
 
 - **REV-COMPUTE-CUDA-006**: Владение Операциями Синхронизации Ghost-Аксонов и Сортировки
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md#L209)
-  - *Question / Problem*: - *Контекст*: Операции `sort_and_prune` и межшардовые патчи затрагивают памяти ускорителя.
+  - *Status*: Resolved (Pass 2.3) | *Priority*: P2 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md) (§11.4)
+  - *Question / Problem*: - *Контекст*: Операции `sort_and_prune` и межшардовые патчи затрагивают память ускорителя.
     - *Вопрос*: Относятся ли методы уплотнения синапсов к `ComputeBackend`, или они выносятся в отдельный сервисный слой?
+  - *Resolution*: Операции сортировки и уплотнения синапсов вынесены на уровень рантайма/сети и исключены из ответственности `ComputeBackend` в Stage 1. Бэкенд реализует исключительно базовые методы HAL API.
 
 #### [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
 *Source items: 7 / Registered items: 7*

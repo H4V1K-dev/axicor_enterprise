@@ -1,8 +1,8 @@
 # spec_compute_cuda
 
-> Версия спеки: v2.2  
-> Дата: 2026-06-29  
-> Статус: Draft v2.2 / Synchronized with compute-api v2.2
+> Версия спеки: v2.3  
+> Дата: 2026-06-30  
+> Статус: Approved v2.3 / Ready for Implementation (Architecture Pass 2.3)
 
 ---
 
@@ -97,7 +97,7 @@ BackendCapabilities {
 ## §6. Параллелизм, Защита от Гонки и Детерминизм
 
 1. **Строгий Побитовый Детерминизм**: Результат вычислений на GPU побитово идентичен `compute-cpu`.
-2. **Защита от Гонок Данныхво VRAM**: Запись спайков в `axon_heads` ядрами GPU исключает гонки данных во VRAM за счет использования дисюнктной карты `soma_to_axon` или буфера накопления во VRAM.
+2. **Защита от Гонок Данных во VRAM**: Запись спайков в `axon_heads` ядрами GPU исключает гонки данных во VRAM за счет использования дисюнктной карты `soma_to_axon` или буфера накопления во VRAM.
 
 ---
 
@@ -125,6 +125,7 @@ BackendCapabilities {
 - **INV-COMPUTE-CUDA-006**: Публичный API бэкенда на Rust не раскрывает сырые указатели (`*mut u8`), `cudaStream_t` и C-ABI структуры указателей.
 - **INV-COMPUTE-CUDA-007**: Все вызовы CUDA API обернуты в проверки семейств ошибок с маппингом в `ComputeApiError`, паники запрещены.
 - **INV-COMPUTE-CUDA-008**: CUDA-ядра проверяют неактивные синаптические таргеты строго через `PackedTarget::is_inactive()`.
+- **INV-COMPUTE-CUDA-009**: `CudaBackend` не реализует маркерные авто-трейты `Send` и `Sync` (Thread-Affine привязка контекста).
 
 ---
 
@@ -139,31 +140,38 @@ BackendCapabilities {
 5. **Браковка Неверных Размеров до FFI (`test_cuda_upload_rejects_bad_sizes`)**: Проверка возврата `SizeMismatch` до обращения к CUDA API.
 6. **Защита от Невалидных Дескрипторов (`test_cuda_rejects_invalid_handles`)**: Проверка обработки битых `VramHandle`.
 7. **Изоляция Публичного API (`test_cuda_no_raw_pointers_in_api`)**: Компиляционная проверка сигнатур на отсутствие сырых указателей и вендорских типов.
-8. **Падение Сборки при Рассогласовании ABI Зеркал (`test_cuda_abi_mirror_drift_prevention`)**: Тест компиляции/верификации C++ заголовков, падающий при любом расхождении полей, смещений или выравнивания в `ShardVramPtrs`, `BurstHeads8` и `VariantParameters`.
+8. **Падение Сборки при Рассогласовании ABI Зеркал (`test_cuda_abi_mirror_drift_prevention`)**: Тест компиляции/верификации сгенерированного CUDA-заголовка, падающий при любом расхождении размеров, выравнивания или полей с Rust-крейтами.
 9. **Загрузка Таблицы Вариантов в Constant Memory (`test_cuda_constant_upload_api`)**: Верификация H2D загрузки таблицы вариантов `upload.variant_table` в GPU Constant Memory (`__constant__`) при вызове `upload_shard`.
 10. **Ограниченность Физических Аллокаций (`test_cuda_bounded_allocations`)**: Верификация вызова ровно 2 физических аллокаций VRAM на шард через Mock/Stub FFI.
 11. **Совпадение Порядка Этапов с CPU (`test_cuda_stage_order_matches_cpu`)**: Дифференциальный тест последовательности вычислений на эталонном фикстурном шарде.
 12. **Идемпотентность Teardown и Уничтожение Стримов (`test_cuda_idempotent_teardown`)**: Проверка уничтожения `cudaStream_t` и безопасного повторного вызова `teardown()`.
+13. **Контроль Угрозы Смещения ABI констант (`test_cuda_constants_generated_match`)**: Статическая верификация того, что все константы (`AXON_SENTINEL`, `EMPTY_PIXEL`, лимиты весов) соответствуют значениям из Rust.
+14. **Математика Скалярных Ядер (`test_cuda_scalar_physics_golden_vectors`)**: Автономные unit-тесты CUDA-ядер против оригинальных Rust-вычислений (`physics`): `propagate_head`, `active_tail_hit`, `update_glif_voltage`, `is_glif_spike`, `heartbeat_spike`, `homeostasis_decay`, `weight_to_charge`, `inertia_rank`, `apply_gsop_plasticity`.
+15. **Интеграционный Сквозной Дифференциальный Тест (`test_cuda_differential_runner`)**: Запуск прогона ConformanceFixture на CPU бэкенде и CUDA бэкенде через `test-harness`.
+16. **Проверка Поведения Фасада Вычислений (`test_cuda_facade_behavior_policy`)**: Проверка того, что при отключенной фиче `cuda` фасад возвращает `FeatureNotCompiled`, а при включенной фиче, но отсутствии GPU — `BackendUnavailable` без тихого фолбэка, в то время как Auto-режим корректно переключается на CPU.
 
 ---
 
 ## §10. Open Questions / Review Debt (Открытые Вопросы и Противоречия)
 
-1. **Механизм Кодогенерации и Верификации C++ Зеркал из Rust (`physics`/`layout`)**:
-   - *Контекст*: Зафиксирован запрет на ручной дублирующий C++ код.
-   - *Вопрос*: Какая утилита или генератор (например, `cbindgen` или пользовательский AOT-скрипт) будет координировать автоматическую сборку C++ зеркал из источников истины?
-
-2. **Аффинность Потоков ОС и Маркер `Send` для CUDA Контекста**:
-   - *Контекст*: CUDA контексты и стримы привязаны к создавшему их OS-потоку.
-   - *Вопрос*: Является ли `CudaBackend` маркерным `Send`, или инициализация контекста должна происходить строго внутри целевого OS-потока шарда?
-
-3. **Владение Операциями Синхронизации Ghost-Аксонов и Сортировки**:
-   - *Контекст*: Операции `sort_and_prune` и межшардовые патчи затрагивают память ускорителя.
-   - *Вопрос*: Относятся ли методы уплотнения синапсов к `ComputeBackend`, или они выносятся в отдельный сервисный слой?
+Все архитектурные и интеграционные вопросы по крейту `compute-cuda` были полностью разрешены в рамках прохода ревью Pass 2.3. Новые блокирующие вопросы отсутствуют.
 
 ---
 
-## §11. Resolved Architectural Decisions (Принятые Решения Pass 2.2)
+## §11. Resolved Architectural Decisions (Принятые Решения Pass 2.3)
 
 1. **[RESOLVED] API и DTO Загрузки Таблицы Вариантов в Constant Memory (REV-COMPUTE-CUDA-002 / Pass 2.2)**:
    - *Решение*: В DTO `ShardUpload` добавлено фиксированное заимствованное поле `variant_table: &'a [VariantParameters; VARIANT_LUT_LEN]`. Таблица вариантов синхронно передается на GPU во время `upload_shard` и размещается в CUDA Constant Memory (`__constant__`).
+
+2. **[RESOLVED] Механизм Кодогенерации и Верификации ABI Зеркал (REV-COMPUTE-CUDA-001 / Pass 2.3)**:
+   - *Решение*: В Stage 1 полноценные вычислительные алгоритмы CUDA пишутся вручную. Для исключения дублирования констант и ABI-структур, файл `build.rs` крейта `compute-cuda` генерирует во время сборки в `OUT_DIR` C-совместимый заголовочный файл `generated/axi_cuda_abi.h`, используя Rust-зависимости `types`, `layout` и `physics` в качестве единого источника истины. Заголовок содержит:
+     - Размеры и выравнивания (`align`/`size_of`): `VariantParameters`, `BurstHeads8`, `StateFileHeader`, `AxonsFileHeader`, `PathsFileHeader`, `ShardVramPtrs`.
+     - Константы раскладки: `CACHE_LINE_BYTES`, `PADDED_N_ALIGNMENT`.
+     - Константы физики/типов: `AXON_SENTINEL`, `EMPTY_PIXEL`, `MIN_WEIGHT_LIMIT`, `MAX_WEIGHT_LIMIT` и коэффициенты DDS.
+     CUDA/C++ код подключает данный заголовок и использует эти значения, ручное дублирование запрещено. Полнота математики тестируется через скалярные golden-тесты ядер.
+
+3. **[RESOLVED] Аффинность Потоков ОС и Потокобезопасность (REV-COMPUTE-CUDA-005 / Pass 2.3)**:
+   - *Решение*: Крейт `CudaBackend` и его внутренние ресурсы (контекст CUDA, стримы) являются строго `!Send` и `!Sync`. Все операции инициализации, запуска ядер, переноса памяти и teardown выполняются строго в рамках одного системного OS-потока шарда-владельца. Это полностью согласуется с `compute` v2.2.
+
+4. **[RESOLVED] Владение Операциями sort_and_prune и Ghost-синхронизацией (REV-COMPUTE-CUDA-006 / Pass 2.3)**:
+   - *Решение*: Уплотнение синапсов (`sort_and_prune`), межшардовые патчи спайков и прочие фоновые/ночные операции перенесены на уровень рантайма/сети и исключены из рамок ответственности `ComputeBackend` в Stage 1. Бэкенд реализует исключительно базовые методы HAL API.
