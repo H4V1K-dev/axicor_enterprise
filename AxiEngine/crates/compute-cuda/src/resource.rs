@@ -22,6 +22,7 @@ pub struct CudaResource {
     #[allow(dead_code)]
     pub axons_size: usize,
     pub uploaded: bool,
+    pub variant_table: [layout::VariantParameters; layout::VARIANT_LUT_LEN],
 }
 
 impl Drop for CudaResource {
@@ -84,6 +85,32 @@ impl ResourceRegistry {
                 return Err(native::map_cuda_error(res));
             }
 
+            let zero_param = layout::VariantParameters {
+                threshold: 0,
+                rest_potential: 0,
+                leak_shift: 0,
+                homeostasis_penalty: 0,
+                spontaneous_firing_period_ticks: 0,
+                initial_synapse_weight: 0,
+                gsop_potentiation: 0,
+                gsop_depression: 0,
+                homeostasis_decay: 0,
+                refractory_period: 0,
+                synapse_refractory_period: 0,
+                signal_propagation_length: 0,
+                is_inhibitory: 0,
+                inertia_curve: [0; 8],
+                ahp_amplitude: 0,
+                _pad1: [0; 6],
+                adaptive_leak_min_shift: 0,
+                adaptive_leak_gain: 0,
+                adaptive_mode: 0,
+                _leak_pad: [0; 3],
+                d1_affinity: 0,
+                d2_affinity: 0,
+                heartbeat_m: 0,
+            };
+
             let resource = CudaResource {
                 spec,
                 state_ptr,
@@ -91,6 +118,7 @@ impl ResourceRegistry {
                 state_size,
                 axons_size,
                 uploaded: false,
+                variant_table: [zero_param; layout::VARIANT_LUT_LEN],
             };
 
             let mut found_idx = None;
@@ -214,6 +242,7 @@ impl ResourceRegistry {
                 return Err(native::map_cuda_error(res));
             }
 
+            resource.variant_table.copy_from_slice(upload.variant_table);
             resource.uploaded = true;
             Ok(())
         }

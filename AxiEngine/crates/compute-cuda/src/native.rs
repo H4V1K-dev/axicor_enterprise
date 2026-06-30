@@ -45,6 +45,16 @@ extern "C" {
         out_i_in_host: *mut i32,
         out_len: u32,
     ) -> i32;
+    pub fn axi_cuda_apply_glif_membrane_probe(
+        state_ptr: *mut u8,
+        padded_n: u32,
+        off_voltage: u32,
+        off_flags: u32,
+        off_thresh: u32,
+        off_timers: u32,
+        i_in_host: *const i32,
+        i_in_len: u32,
+    ) -> i32;
 }
 
 /// Maps native C API return code to `ComputeApiError`.

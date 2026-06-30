@@ -276,6 +276,64 @@ impl CudaBackend {
 
         Ok(())
     }
+
+    /// Native-only test utility for GLIF membrane updates.
+    #[cfg(feature = "native")]
+    pub fn apply_glif_membrane_probe_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        i_in: &[i32],
+    ) -> Result<(), ComputeApiError> {
+        let resource = self.registry.get_resource_mut(handle)?;
+        if !resource.uploaded {
+            return Err(ComputeApiError::BackendNotInitialized);
+        }
+
+        if i_in.len() > u32::MAX as usize {
+            return Err(ComputeApiError::CapacityExceeded);
+        }
+
+        if i_in.len() < resource.spec.padded_n as usize {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+
+        let offsets = layout::compute_state_offsets(resource.spec.padded_n as usize);
+        if offsets.off_voltage > u32::MAX as usize
+            || offsets.off_flags > u32::MAX as usize
+            || offsets.off_thresh > u32::MAX as usize
+            || offsets.off_timers > u32::MAX as usize
+        {
+            return Err(ComputeApiError::CapacityExceeded);
+        }
+
+        // Re-upload this resource's variant_table to device constant memory
+        let variant_bytes = resource.variant_table.as_ptr() as *const u8;
+        let variant_size = std::mem::size_of_val(&resource.variant_table);
+        let upload_res =
+            unsafe { native::axi_cuda_upload_variant_table(variant_bytes, variant_size) };
+        if upload_res != 0 {
+            return Err(native::map_cuda_error(upload_res));
+        }
+
+        let res = unsafe {
+            native::axi_cuda_apply_glif_membrane_probe(
+                resource.state_ptr,
+                resource.spec.padded_n,
+                offsets.off_voltage as u32,
+                offsets.off_flags as u32,
+                offsets.off_thresh as u32,
+                offsets.off_timers as u32,
+                i_in.as_ptr(),
+                i_in.len() as u32,
+            )
+        };
+
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+
+        Ok(())
+    }
 }
 
 impl ComputeBackend for CudaBackend {
@@ -366,6 +424,9 @@ impl ComputeBackend for CudaBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "native")]
+    static GPU_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn test_cuda_implements_compute_backend() {
@@ -514,6 +575,94 @@ mod tests {
             "#define AXI_MASS_TO_CHARGE_SHIFT {}",
             physics::constants::MASS_TO_CHARGE_SHIFT
         )));
+
+        let dummy = layout::VariantParameters {
+            threshold: 0,
+            rest_potential: 0,
+            leak_shift: 0,
+            homeostasis_penalty: 0,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 0,
+            refractory_period: 0,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 0,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 0,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+        let base_ptr = &dummy as *const _ as usize;
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_threshold {}",
+            (&dummy.threshold as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_rest_potential {}",
+            (&dummy.rest_potential as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_leak_shift {}",
+            (&dummy.leak_shift as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_homeostasis_penalty {}",
+            (&dummy.homeostasis_penalty as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_homeostasis_decay {}",
+            (&dummy.homeostasis_decay as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_refractory_period {}",
+            (&dummy.refractory_period as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_ahp_amplitude {}",
+            (&dummy.ahp_amplitude as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_adaptive_leak_min_shift {}",
+            (&dummy.adaptive_leak_min_shift as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_adaptive_leak_gain {}",
+            (&dummy.adaptive_leak_gain as *const _ as usize) - base_ptr
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_OFFSET_VariantParameters_adaptive_mode {}",
+            (&dummy.adaptive_mode as *const _ as usize) - base_ptr
+        )));
+
+        assert!(header_content.contains(&format!(
+            "#define AXI_SOMA_SPIKING_MASK {}",
+            types::SOMA_SPIKING_MASK
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_SOMA_BURST_MASK {}",
+            types::SOMA_BURST_MASK
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_SOMA_BURST_SHIFT {}",
+            types::SOMA_BURST_SHIFT
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_SOMA_TYPE_MASK {}",
+            types::SOMA_TYPE_MASK
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_SOMA_TYPE_SHIFT {}",
+            types::SOMA_TYPE_SHIFT
+        )));
     }
 
     #[test]
@@ -627,6 +776,7 @@ mod tests {
         if !is_gpu_available() {
             return;
         }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
         let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
         let spec = compute_api::ShardAllocSpec {
             padded_n: 64,
@@ -706,6 +856,7 @@ mod tests {
         if !is_gpu_available() {
             return;
         }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
         let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
         let spec = compute_api::ShardAllocSpec {
             padded_n: 64,
@@ -824,6 +975,7 @@ mod tests {
         if !is_gpu_available() {
             return;
         }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
         let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
         let spec = compute_api::ShardAllocSpec {
             padded_n: 64,
@@ -955,6 +1107,7 @@ mod tests {
         if !is_gpu_available() {
             return;
         }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
         let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
 
         // 1. Test calling on non-uploaded backend returns BackendNotInitialized
@@ -1122,6 +1275,7 @@ mod tests {
         if !is_gpu_available() {
             return;
         }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
         let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
 
         // 1. Create a shard with 4 axons, virtual offset 100
@@ -1486,6 +1640,7 @@ mod tests {
         if !is_gpu_available() {
             return;
         }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
         let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
 
         let spec = compute_api::ShardAllocSpec {
@@ -1645,5 +1800,390 @@ mod tests {
         }
 
         backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    #[allow(clippy::bool_assert_comparison)]
+    fn test_cuda_native_apply_glif_membrane_probe() {
+        if !is_gpu_available() {
+            return;
+        }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 1,
+            total_ghosts: 0,
+            virtual_offset: 100,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
+        let axons_size =
+            compute_api::validation::expected_axons_blob_size(spec.total_axons).unwrap();
+
+        // 1. Set up state blob
+        let mut test_state = vec![0u8; state_size];
+        let offsets = layout::compute_state_offsets(spec.padded_n as usize);
+
+        let mut voltages = vec![0i32; spec.padded_n as usize];
+        let mut flags = vec![0u8; spec.padded_n as usize];
+        let mut thresh_offsets = vec![0i32; spec.padded_n as usize];
+        let mut timers = vec![0u8; spec.padded_n as usize];
+
+        // Variant parameters:
+        // Variant 0: normal parameters, leak_shift = 4
+        // Variant 1: adaptive leak parameters, leak_shift = 8
+        let variant_0 = layout::VariantParameters {
+            threshold: -50_000,
+            rest_potential: -70_000,
+            leak_shift: 4,
+            homeostasis_penalty: 1000,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 100,
+            refractory_period: 5,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 5,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 10_000,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+
+        let mut variant_1 = variant_0;
+        variant_1.leak_shift = 8;
+        variant_1.adaptive_leak_min_shift = 2;
+        variant_1.adaptive_leak_gain = 512;
+        variant_1.adaptive_mode = 1;
+
+        let mut variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+        variant_table[1] = variant_1;
+
+        // Soma 0: normal no-spike voltage update (Variant 0)
+        // Starting voltage: -60_000, type = 0
+        voltages[0] = -60_000;
+        flags[0] = types::SomaFlags::new(false, 0, 0).0;
+        thresh_offsets[0] = 0;
+        timers[0] = 0;
+
+        // Soma 1: GLIF spike (Variant 0)
+        // Starting voltage: -49_000, type = 0
+        voltages[1] = -49_000;
+        flags[1] = types::SomaFlags::new(false, 0, 0).0;
+        thresh_offsets[1] = 0;
+        timers[1] = 0;
+
+        // Soma 2: refractory timer (Variant 0)
+        // Starting voltage: -80_000, type = 0
+        voltages[2] = -80_000;
+        flags[2] = types::SomaFlags::new(false, 0, 0).0;
+        thresh_offsets[2] = 1000;
+        timers[2] = 3;
+
+        // Soma 3: burst_count already 7 (Variant 0)
+        // Starting voltage: -49_000, type = 0, burst = 7
+        voltages[3] = -49_000;
+        flags[3] = types::SomaFlags::new(false, 7, 0).0;
+        thresh_offsets[3] = 0;
+        timers[3] = 0;
+
+        // Soma 4: adaptive leak (Variant 1)
+        // Starting voltage: -60_000, type = 1 (Variant 1)
+        voltages[4] = -60_000;
+        flags[4] = types::SomaFlags::new(false, 0, 1).0;
+        thresh_offsets[4] = 2000;
+        timers[4] = 0;
+
+        // Write to state blob
+        test_state[offsets.off_voltage..offsets.off_voltage + voltages.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&voltages));
+        test_state[offsets.off_flags..offsets.off_flags + flags.len()].copy_from_slice(&flags);
+        test_state[offsets.off_thresh..offsets.off_thresh + thresh_offsets.len() * 4]
+            .copy_from_slice(bytemuck::cast_slice(&thresh_offsets));
+        test_state[offsets.off_timers..offsets.off_timers + timers.len()].copy_from_slice(&timers);
+
+        let header = layout::AxonsFileHeader::new(spec.total_axons);
+        let mut test_axons_blob = vec![0u8; axons_size];
+        test_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        // Input currents
+        let mut i_in = vec![0i32; spec.padded_n as usize];
+        i_in[0] = 2000;
+        i_in[1] = 1000;
+        i_in[2] = 5000; // ignored
+        i_in[3] = 1000;
+        i_in[4] = 2000;
+
+        // Verify that short i_in returns InvalidBatch
+        let res_short = backend.apply_glif_membrane_probe_for_test(handle, &i_in[..5]);
+        assert!(matches!(res_short, Err(ComputeApiError::InvalidBatch)));
+
+        // Run membrane probe update
+        backend
+            .apply_glif_membrane_probe_for_test(handle, &i_in)
+            .unwrap();
+
+        // Download snapshot
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        let snap_voltages: &[i32] = bytemuck::cast_slice(
+            &snap_state[offsets.off_voltage..offsets.off_voltage + spec.padded_n as usize * 4],
+        );
+        let snap_flags: &[u8] =
+            &snap_state[offsets.off_flags..offsets.off_flags + spec.padded_n as usize];
+        let snap_thresh: &[i32] = bytemuck::cast_slice(
+            &snap_state[offsets.off_thresh..offsets.off_thresh + spec.padded_n as usize * 4],
+        );
+        let snap_timers: &[u8] =
+            &snap_state[offsets.off_timers..offsets.off_timers + spec.padded_n as usize];
+
+        let mut expected_voltages = voltages.clone();
+        let mut expected_flags = flags.clone();
+        let mut expected_thresh = thresh_offsets.clone();
+        let mut expected_timers = timers.clone();
+
+        for i in 0..5 {
+            let variant_idx = types::SomaFlags(flags[i]).type_id() as usize;
+            let var = variant_table[variant_idx];
+
+            let timer = timers[i];
+            let thresh_offset = thresh_offsets[i];
+            let voltage = voltages[i];
+            let i_in_val = i_in[i];
+
+            let decayed_offset =
+                physics::homeostasis_decay(thresh_offset, var.homeostasis_decay as i32);
+
+            if timer > 0 {
+                expected_timers[i] = timer - 1;
+                expected_thresh[i] = decayed_offset;
+                expected_voltages[i] = voltage;
+                expected_flags[i] = types::SomaFlags::new(
+                    false,
+                    types::SomaFlags(flags[i]).burst_count(),
+                    variant_idx as u8,
+                )
+                .0;
+            } else {
+                let v_new = physics::update_glif_voltage(
+                    voltage,
+                    i_in_val,
+                    var.rest_potential,
+                    thresh_offset,
+                    var.leak_shift as i32,
+                    var.adaptive_leak_gain as i32,
+                    var.adaptive_leak_min_shift as i32,
+                    var.adaptive_mode as i32,
+                );
+
+                let is_glif = physics::is_glif_spike(v_new, var.threshold, thresh_offset);
+
+                if is_glif {
+                    expected_voltages[i] =
+                        var.rest_potential.wrapping_sub(var.ahp_amplitude as i32);
+                    expected_timers[i] = var.refractory_period;
+                    expected_thresh[i] = thresh_offset.wrapping_add(var.homeostasis_penalty);
+                    let new_burst = (types::SomaFlags(flags[i]).burst_count() + 1).min(7);
+                    expected_flags[i] = types::SomaFlags::new(true, new_burst, variant_idx as u8).0;
+                } else {
+                    expected_voltages[i] = v_new;
+                    expected_timers[i] = 0;
+                    expected_thresh[i] = decayed_offset;
+                    expected_flags[i] = types::SomaFlags::new(
+                        false,
+                        types::SomaFlags(flags[i]).burst_count(),
+                        variant_idx as u8,
+                    )
+                    .0;
+                }
+            }
+        }
+
+        // Hardcoded assertions derived from CPU expected values
+        assert_eq!(expected_voltages[0], -58625);
+        assert_eq!(expected_voltages[1], -80000);
+        assert_eq!(expected_voltages[2], -80000);
+        assert_eq!(expected_voltages[3], -80000);
+        assert_eq!(expected_voltages[4], -60500);
+
+        for i in 0..5 {
+            assert_eq!(
+                snap_voltages[i], expected_voltages[i],
+                "Soma {} voltage mismatch",
+                i
+            );
+            assert_eq!(
+                snap_flags[i], expected_flags[i],
+                "Soma {} flags mismatch",
+                i
+            );
+            assert_eq!(
+                snap_thresh[i], expected_thresh[i],
+                "Soma {} thresh mismatch",
+                i
+            );
+            assert_eq!(
+                snap_timers[i], expected_timers[i],
+                "Soma {} timer mismatch",
+                i
+            );
+        }
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_native_multi_shard_variant_table_isolation() {
+        if !is_gpu_available() {
+            return;
+        }
+        let _lock = GPU_TEST_LOCK.lock().unwrap();
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+        let spec_a = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 1,
+            total_ghosts: 0,
+            virtual_offset: 100,
+        };
+        let handle_a = backend.alloc_shard(spec_a).unwrap();
+
+        let spec_b = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 1,
+            total_ghosts: 0,
+            virtual_offset: 200,
+        };
+        let handle_b = backend.alloc_shard(spec_b).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(64);
+        let axons_size = compute_api::validation::expected_axons_blob_size(1).unwrap();
+
+        // 1. Shard A upload: variant A (leak_shift = 4)
+        let mut test_state_a = vec![0u8; state_size];
+        let offsets = layout::compute_state_offsets(64);
+        let mut voltages_a = vec![0i32; 64];
+        voltages_a[0] = -60_000;
+        test_state_a[offsets.off_voltage..offsets.off_voltage + 256]
+            .copy_from_slice(bytemuck::cast_slice(&voltages_a));
+
+        let variant_a = layout::VariantParameters {
+            threshold: -50_000,
+            rest_potential: -70_000,
+            leak_shift: 4, // leak_shift = 4
+            homeostasis_penalty: 1000,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 100,
+            refractory_period: 5,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 5,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 10_000,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+        let variant_table_a = [variant_a; layout::VARIANT_LUT_LEN];
+
+        let header = layout::AxonsFileHeader::new(1);
+        let mut test_axons = vec![0u8; axons_size];
+        test_axons[..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+        backend
+            .upload_shard(
+                handle_a,
+                compute_api::ShardUpload {
+                    state_blob: &test_state_a,
+                    axons_blob: &test_axons,
+                    variant_table: &variant_table_a,
+                },
+            )
+            .unwrap();
+
+        // 2. Shard B upload: variant B (leak_shift = 8)
+        let test_state_b = vec![0u8; state_size];
+        let mut variant_b = variant_a;
+        variant_b.leak_shift = 8; // leak_shift = 8
+        let variant_table_b = [variant_b; layout::VARIANT_LUT_LEN];
+
+        backend
+            .upload_shard(
+                handle_b,
+                compute_api::ShardUpload {
+                    state_blob: &test_state_b,
+                    axons_blob: &test_axons,
+                    variant_table: &variant_table_b,
+                },
+            )
+            .unwrap();
+
+        // 3. Call apply_glif_membrane_probe_for_test on Shard A
+        let mut i_in = vec![0i32; 64];
+        i_in[0] = 2000;
+
+        backend
+            .apply_glif_membrane_probe_for_test(handle_a, &i_in)
+            .unwrap();
+
+        // 4. Download Shard A snapshot and check it matches variant A (leak_shift = 4)
+        let mut snap_state_a = vec![0u8; state_size];
+        let mut snap_axons_a = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle_a,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state_a,
+                    axons_blob: &mut snap_axons_a,
+                },
+            )
+            .unwrap();
+
+        let snap_voltages_a: &[i32] =
+            bytemuck::cast_slice(&snap_state_a[offsets.off_voltage..offsets.off_voltage + 256]);
+
+        // Under variant A: expected = -58625
+        assert_eq!(snap_voltages_a[0], -58625);
+
+        backend.free_shard(handle_a).unwrap();
+        backend.free_shard(handle_b).unwrap();
     }
 }
