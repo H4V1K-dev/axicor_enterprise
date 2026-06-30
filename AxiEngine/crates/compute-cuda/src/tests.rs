@@ -3223,9 +3223,8 @@ fn test_cuda_native_gsop_plasticity_probe() {
                     }
 
                     // Compute hit: dist < propagation_length
-                    // Inside heads array, we look at head 0 of this axon
-                    let dist = (heads[axon_id as usize].h0 as i32) - (segment_index as i32);
-                    let is_active = (dist >= 0) && (dist < var.signal_propagation_length as i32);
+                    let dist = heads[axon_id as usize].h0.wrapping_sub(segment_index);
+                    let is_active = dist < var.signal_propagation_length as u32;
 
                     let mut curve_i32 = [0i32; 8];
                     for i in 0..8 {
@@ -3248,6 +3247,418 @@ fn test_cuda_native_gsop_plasticity_probe() {
                         w_new, expected_w,
                         "Weight mismatch at s={}, d={}, dopamine={}. Expected {}, got {}",
                         s, d, dopamine, expected_w, w_new
+                    );
+                } else {
+                    assert_eq!(
+                        w_new, w_old,
+                        "Corrupt target weight changed at s={}, d={}",
+                        s, d
+                    );
+                }
+            }
+        }
+
+        backend.free_shard(handle).unwrap();
+    }
+}
+
+#[test]
+#[cfg(feature = "native")]
+#[allow(clippy::identity_op, clippy::erasing_op, clippy::needless_range_loop)]
+fn test_cuda_native_full_single_tick_with_gsop_pipeline() {
+    if !is_gpu_available() {
+        return;
+    }
+    let _lock = GPU_TEST_LOCK.lock().unwrap();
+    let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+    let spec = compute_api::ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 2,
+        total_ghosts: 0,
+        virtual_offset: 100,
+    };
+
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = compute_api::validation::expected_axons_blob_size(2).unwrap();
+    let offsets = layout::compute_state_offsets(64);
+
+    // 1. Setup Base State
+    let mut voltages = vec![-70_000i32; 64];
+    let mut flags = vec![0u8; 64];
+    let thresh_offsets = vec![0i32; 64];
+    let timers = vec![0u8; 64];
+    let mut soma_to_axon = vec![0xFFFFFFFFu32; 64];
+
+    // Variant parameters
+    let variant_0 = layout::VariantParameters {
+        threshold: -50_000,
+        rest_potential: -70_000,
+        leak_shift: 4,
+        homeostasis_penalty: 1000,
+        spontaneous_firing_period_ticks: 0,
+        initial_synapse_weight: 0,
+        gsop_potentiation: 200,
+        gsop_depression: 150,
+        homeostasis_decay: 100,
+        refractory_period: 5,
+        synapse_refractory_period: 0,
+        signal_propagation_length: 5,
+        is_inhibitory: 0,
+        inertia_curve: [100, 90, 80, 70, 60, 50, 40, 30],
+        ahp_amplitude: 10_000,
+        _pad1: [0; 6],
+        adaptive_leak_min_shift: 0,
+        adaptive_leak_gain: 0,
+        adaptive_mode: 0,
+        _leak_pad: [0; 3],
+        d1_affinity: 128,
+        d2_affinity: 64,
+        heartbeat_m: 0,
+    };
+
+    // Variant 1: Heartbeat-only
+    let mut variant_1 = variant_0;
+    variant_1.heartbeat_m = physics::constants::MAX_HEARTBEAT_M;
+
+    let mut variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+    variant_table[1] = variant_1;
+
+    // Soma 0: GLIF from virtual input (local axon 0, global 100)
+    voltages[0] = -60_000;
+    soma_to_axon[0] = 0;
+
+    // Soma 1: GLIF from incoming spike (local axon 1)
+    voltages[1] = -60_000;
+    soma_to_axon[1] = 1;
+
+    // Soma 2: Heartbeat-only
+    voltages[2] = -70_000;
+    flags[2] = types::SomaFlags::new(false, 0, 1).0; // Type 1
+
+    // Soma 3: Non-spiking, but active target check
+    voltages[3] = -70_000;
+
+    // Setup synapses:
+    let mut dendrite_targets = vec![0u32; 64 * 128];
+    let mut dendrite_weights = vec![0i32; 64 * 128];
+
+    // --- Inputs/Current slots (Soma 0 & Soma 1 spiking triggers) ---
+    // Soma 0 receives current from virtual input (local axon 0 segment 0)
+    dendrite_targets[0 * 64 + 0] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[0 * 64 + 0] = 15_000 << 16; // 15,000 mass -> triggers GLIF spike
+                                                 // Soma 1 receives current from incoming physical spike (local axon 1 segment 0)
+    dendrite_targets[0 * 64 + 1] = types::PackedTarget::pack(1, 0).0;
+    dendrite_weights[0 * 64 + 1] = 15_000 << 16; // 15,000 mass -> triggers GLIF spike
+
+    // --- Non-spiking soma check (Soma 3) ---
+    dendrite_targets[0 * 64 + 3] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[0 * 64 + 3] = 1000; // not enough to spike, but active target
+
+    // --- GSOP slots for Soma 0 (Spiking) ---
+    // Slot 2: positive weight hit -> LTP potentiation
+    dendrite_targets[2 * 64 + 0] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[2 * 64 + 0] = 1000;
+    // Slot 3: positive weight miss -> LTD depression
+    dendrite_targets[3 * 64 + 0] = types::PackedTarget::pack(1, 10).0;
+    dendrite_weights[3 * 64 + 0] = 1000;
+    // Slot 4: negative weight hit -> Dale's law preserved (potentiation)
+    dendrite_targets[4 * 64 + 0] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[4 * 64 + 0] = -1000;
+    // Slot 5: negative weight miss floor check -> clamp to -1
+    dendrite_targets[5 * 64 + 0] = types::PackedTarget::pack(1, 10).0;
+    dendrite_weights[5 * 64 + 0] = -2;
+    // Slot 6: corrupt target check (axon_q > MAX_AXON_ID + 1)
+    dendrite_targets[6 * 64 + 0] = 0x00FFFFFF;
+    dendrite_weights[6 * 64 + 0] = 1000;
+    // Slot 7: inactive target NONE check
+    dendrite_targets[7 * 64 + 0] = types::PackedTarget::NONE.0;
+    dendrite_weights[7 * 64 + 0] = 1000;
+    // Slot 8: inactive target TOMBSTONE check
+    dendrite_targets[8 * 64 + 0] = types::PackedTarget::TOMBSTONE.0;
+    dendrite_weights[8 * 64 + 0] = 1000;
+    // Slot 9: out of range target check (axon >= 2)
+    dendrite_targets[9 * 64 + 0] = types::PackedTarget::pack(99, 0).0;
+    dendrite_weights[9 * 64 + 0] = 1000;
+
+    let mut test_state = vec![0u8; state_size];
+    test_state[offsets.off_voltage..offsets.off_voltage + 256]
+        .copy_from_slice(bytemuck::cast_slice(&voltages));
+    test_state[offsets.off_flags..offsets.off_flags + 64].copy_from_slice(&flags);
+    test_state[offsets.off_thresh..offsets.off_thresh + 256]
+        .copy_from_slice(bytemuck::cast_slice(&thresh_offsets));
+    test_state[offsets.off_timers..offsets.off_timers + 64].copy_from_slice(&timers);
+    test_state[offsets.off_s2a..offsets.off_s2a + 256]
+        .copy_from_slice(bytemuck::cast_slice(&soma_to_axon));
+    test_state[offsets.off_targets..offsets.off_targets + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+    test_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+    // Axons setup:
+    let header = layout::AxonsFileHeader::new(2);
+    let mut test_axons = vec![0u8; axons_size];
+    test_axons[..16].copy_from_slice(bytemuck::bytes_of(&header));
+    let heads_init = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+    test_axons[16..16 + 2 * 32].copy_from_slice(bytemuck::cast_slice(&heads_init));
+
+    // Inputs setup:
+    let current_tick = 1;
+    let v_seg = 2;
+    let cmd_virtual_offset = 100;
+    let num_virtual_axons = 32;
+    let input_bitmask = vec![0x00000001u32]; // virtual global axon 100 spikes (local 0)
+    let incoming_spikes = vec![1u32]; // incoming physical axon 1 spikes
+    let mapped_soma_ids = vec![0u32, 1u32, 2u32];
+    let max_spikes_per_tick = 2; // only 2 outputs capacity, 3rd (soma 2) is dropped!
+    let dopamine = 50;
+
+    // ==========================================
+    // PHASE 1: Negative Comparison (No GSOP)
+    // ==========================================
+    {
+        let handle = backend.alloc_shard(spec).unwrap();
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        let mut output_spikes = vec![0u32; max_spikes_per_tick as usize];
+        let mut output_spike_counts = vec![0u32; 1];
+
+        // Run no-GSOP single tick pipeline
+        backend
+            .run_single_tick_no_gsop_probe_for_test(
+                handle,
+                current_tick,
+                v_seg,
+                cmd_virtual_offset,
+                num_virtual_axons,
+                Some(&input_bitmask),
+                Some(&incoming_spikes),
+                &mapped_soma_ids,
+                max_spikes_per_tick,
+                &mut output_spikes,
+                &mut output_spike_counts,
+            )
+            .unwrap();
+
+        // Download snapshot
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        // Verify that weights did not change at all
+        let snap_weights: &[i32] = bytemuck::cast_slice(
+            &snap_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4],
+        );
+        assert_eq!(
+            snap_weights, &dendrite_weights,
+            "Weights changed during no-GSOP pipeline!"
+        );
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    // ==========================================
+    // PHASE 2: Positive Control (With GSOP)
+    // ==========================================
+    {
+        let handle = backend.alloc_shard(spec).unwrap();
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        let mut output_spikes = vec![0u32; max_spikes_per_tick as usize];
+        let mut output_spike_counts = vec![0u32; 1];
+
+        // Run with-GSOP single tick pipeline
+        let result = backend
+            .run_single_tick_with_gsop_probe_for_test(
+                handle,
+                current_tick,
+                v_seg,
+                cmd_virtual_offset,
+                num_virtual_axons,
+                Some(&input_bitmask),
+                Some(&incoming_spikes),
+                &mapped_soma_ids,
+                max_spikes_per_tick,
+                &mut output_spikes,
+                &mut output_spike_counts,
+                dopamine,
+            )
+            .unwrap();
+
+        // 1. Verify BatchResult
+        assert_eq!(result.generated_spikes_count, 3);
+        assert_eq!(result.output_spikes_written, 2);
+        assert_eq!(result.dropped_spikes_count, 1);
+        assert_eq!(result.ticks_executed, 1);
+
+        assert_eq!(output_spike_counts[0], 2);
+        assert_eq!(output_spikes[0], 0); // Soma 0
+        assert_eq!(output_spikes[1], 1); // Soma 1
+
+        // Download snapshot
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        // 2. Verify voltage/timer/flags for GLIF and heartbeat
+        let snap_voltages: &[i32] =
+            bytemuck::cast_slice(&snap_state[offsets.off_voltage..offsets.off_voltage + 256]);
+        let snap_flags: &[u8] = &snap_state[offsets.off_flags..offsets.off_flags + 64];
+
+        let expected_reset =
+            (variant_0.rest_potential as u32).wrapping_sub(variant_0.ahp_amplitude as u32) as i32;
+        assert_eq!(snap_voltages[0], expected_reset);
+        assert_eq!(snap_voltages[1], expected_reset);
+        assert_eq!(snap_voltages[2], variant_1.rest_potential); // Heartbeat only decays/stays at rest
+
+        let f0 = types::SomaFlags(snap_flags[0]);
+        let f1 = types::SomaFlags(snap_flags[1]);
+        let f2 = types::SomaFlags(snap_flags[2]);
+        let f3 = types::SomaFlags(snap_flags[3]);
+
+        assert!(f0.spiking());
+        assert_eq!(f0.burst_count(), 1);
+        assert!(f1.spiking());
+        assert_eq!(f1.burst_count(), 1);
+        assert!(f2.spiking());
+        assert_eq!(f2.burst_count(), 1);
+        assert!(!f3.spiking());
+        assert_eq!(f3.burst_count(), 0);
+
+        // 3. Verify axon heads after final spike
+        let mut snap_heads = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                snap_axons[16..16 + 2 * 32].as_ptr(),
+                snap_heads.as_mut_ptr() as *mut u8,
+                2 * 32,
+            );
+        }
+        let expected_head = physics::initial_axon_head(v_seg);
+        assert_eq!(snap_heads[0].h0, expected_head); // Axon 0 received head push from Soma 0
+        assert_eq!(snap_heads[1].h0, expected_head); // Axon 1 received head push from Soma 1
+
+        // 4. Verify weights after GSOP
+        let snap_weights: &[i32] = bytemuck::cast_slice(
+            &snap_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4],
+        );
+
+        for s in 0..64 {
+            let sf = types::SomaFlags(snap_flags[s]);
+            let spiking = sf.spiking();
+            let burst_count = sf.burst_count();
+            let variant_idx = sf.type_id() as usize;
+            let var = variant_table[variant_idx];
+
+            let mut curve_i32 = [0i32; 8];
+            for i in 0..8 {
+                curve_i32[i] = var.inertia_curve[i] as i32;
+            }
+
+            for d in 0..128 {
+                let idx = d * 64 + s;
+                let w_old = dendrite_weights[idx];
+                let w_new = snap_weights[idx];
+
+                if !spiking {
+                    assert_eq!(
+                        w_new, w_old,
+                        "Non-spiking soma weight changed at s={}, d={}",
+                        s, d
+                    );
+                    continue;
+                }
+
+                let raw_target = dendrite_targets[idx];
+                let target = types::PackedTarget(raw_target);
+                if target.is_inactive() {
+                    assert_eq!(
+                        w_new, w_old,
+                        "Inactive target weight changed at s={}, d={}",
+                        s, d
+                    );
+                    continue;
+                }
+
+                if let Some((axon_id, segment_index)) = target.unpack() {
+                    if axon_id >= spec.total_axons {
+                        assert_eq!(
+                            w_new, w_old,
+                            "Out-of-range target weight changed at s={}, d={}",
+                            s, d
+                        );
+                        continue;
+                    }
+
+                    // Compute hit: axon heads were updated BEFORE GSOP plasticity!
+                    // So we look at all 8 updated heads in snap_heads!
+                    let mut is_active = false;
+                    let heads_array = [
+                        snap_heads[axon_id as usize].h0,
+                        snap_heads[axon_id as usize].h1,
+                        snap_heads[axon_id as usize].h2,
+                        snap_heads[axon_id as usize].h3,
+                        snap_heads[axon_id as usize].h4,
+                        snap_heads[axon_id as usize].h5,
+                        snap_heads[axon_id as usize].h6,
+                        snap_heads[axon_id as usize].h7,
+                    ];
+                    for h_val in heads_array {
+                        let dist = h_val.wrapping_sub(segment_index);
+                        if dist < var.signal_propagation_length as u32 {
+                            is_active = true;
+                            break;
+                        }
+                    }
+
+                    let expected_w = physics::apply_gsop_plasticity(
+                        w_old,
+                        is_active,
+                        var.gsop_potentiation as i32,
+                        var.gsop_depression as i32,
+                        dopamine,
+                        var.d1_affinity as i32,
+                        var.d2_affinity as i32,
+                        burst_count as u32,
+                        &curve_i32,
+                    );
+
+                    assert_eq!(
+                        w_new, expected_w,
+                        "Weight mismatch at s={}, d={}. Expected {}, got {}",
+                        s, d, expected_w, w_new
+                    );
+                } else {
+                    assert_eq!(
+                        w_new, w_old,
+                        "Corrupt target weight changed at s={}, d={}",
+                        s, d
                     );
                 }
             }

@@ -537,6 +537,47 @@ impl CudaBackend {
         )
     }
 
+    /// Native-only test utility that executes the complete single-tick pipeline including GSOP plasticity:
+    /// 1. Axon spike propagation and virtual/incoming spikes injection.
+    /// 2. Input currents calculations.
+    /// 3. GLIF voltage updates, DDS heartbeat, axon pushes, and output spikes emission.
+    /// 4. GSOP plasticity updates based on post-spike states.
+    #[cfg(feature = "native")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_single_tick_with_gsop_probe_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        current_tick: u64,
+        v_seg: u32,
+        cmd_virtual_offset: u32,
+        num_virtual_axons: u32,
+        input_bitmask: Option<&[u32]>,
+        incoming_spikes: Option<&[u32]>,
+        mapped_soma_ids: &[u32],
+        max_spikes_per_tick: u32,
+        output_spikes: &mut [u32],
+        output_spike_counts: &mut [u32],
+        dopamine: i32,
+    ) -> Result<compute_api::BatchResult, ComputeApiError> {
+        let result = self.run_single_tick_no_gsop_probe_for_test(
+            handle,
+            current_tick,
+            v_seg,
+            cmd_virtual_offset,
+            num_virtual_axons,
+            input_bitmask,
+            incoming_spikes,
+            mapped_soma_ids,
+            max_spikes_per_tick,
+            output_spikes,
+            output_spike_counts,
+        )?;
+
+        self.apply_gsop_plasticity_probe_for_test(handle, dopamine)?;
+
+        Ok(result)
+    }
+
     /// Native-only test utility that executes the GSOP plasticity optimization protocol
     /// directly on the GPU state for all synapses targeting currently active soma cells.
     #[cfg(feature = "native")]
