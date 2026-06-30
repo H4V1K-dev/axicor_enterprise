@@ -3,7 +3,6 @@
 #[cfg(any(feature = "cpu", feature = "mock"))]
 use compute::LifecycleState;
 use compute::{BackendPreference, ComputeError, ShardEngine};
-#[cfg(any(feature = "cpu", feature = "mock"))]
 use compute_api::BackendKind;
 #[cfg(feature = "mock")]
 use compute_api::{DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload};

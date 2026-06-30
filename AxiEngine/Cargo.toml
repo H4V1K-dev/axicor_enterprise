@@ -5,6 +5,7 @@ members = [
     "crates/layout",
     "crates/compute-api",
     "crates/compute-cpu",
+    "crates/compute-cuda",
     "crates/test-harness",
     "crates/compute",
 ]

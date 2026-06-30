@@ -30,11 +30,20 @@ fn try_create_cpu() -> Result<Box<dyn ComputeBackend>, ComputeError> {
 }
 
 #[cfg(feature = "cuda")]
-fn try_create_cuda(_device_id: u32) -> Result<Box<dyn ComputeBackend>, ComputeError> {
-    Err(ComputeError::BackendUnavailable {
-        backend: BackendKind::Cuda,
-        reason: "CUDA backend is not available in Stage 1".to_string(),
-    })
+fn try_create_cuda(device_id: u32) -> Result<Box<dyn ComputeBackend>, ComputeError> {
+    use compute_cuda::{CudaBackend, CudaBackendConfig};
+    let config = CudaBackendConfig { device_id };
+    match CudaBackend::new(config) {
+        Ok(backend) => Ok(Box::new(backend)),
+        Err(compute_api::ComputeApiError::UnsupportedBackend)
+        | Err(compute_api::ComputeApiError::BackendNotInitialized) => {
+            Err(ComputeError::BackendUnavailable {
+                backend: BackendKind::Cuda,
+                reason: "CUDA native provider is not available".to_string(),
+            })
+        }
+        Err(e) => Err(ComputeError::ApiError(e)),
+    }
 }
 
 #[cfg(not(feature = "cuda"))]

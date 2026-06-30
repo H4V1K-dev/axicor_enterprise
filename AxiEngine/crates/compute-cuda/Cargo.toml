@@ -1,0 +1,26 @@
+[package]
+name = "compute-cuda"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "compute_cuda"
+
+[dependencies]
+compute-api = { path = "../compute-api" }
+types = { path = "../types" }
+layout = { path = "../layout" }
+physics = { path = "../physics" }
+
+[build-dependencies]
+types = { path = "../types" }
+layout = { path = "../layout" }
+physics = { path = "../physics" }
+cc = "=1.2.56"
+
+[dev-dependencies]
+static_assertions = "=1.1.0"
+
+[features]
+default = []
+native = []
