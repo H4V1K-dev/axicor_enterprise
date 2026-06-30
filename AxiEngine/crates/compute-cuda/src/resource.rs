@@ -27,9 +27,19 @@ pub struct CudaScratch {
     pub d_output_spikes: *mut u32,
     pub output_spikes_capacity: usize,
 
+    pub d_output_spike_counts: *mut u32,
+    pub output_spike_counts_capacity: usize,
+
+    // Total counters
     pub d_output_count: *mut u32,
     pub d_generated_spikes_count: *mut u32,
+    pub d_output_spikes_written: *mut u32,
     pub d_dropped_spikes_count: *mut u32,
+
+    // Tick-level scalar counters
+    pub d_tick_generated: *mut u32,
+    pub d_tick_written: *mut u32,
+    pub d_tick_dropped: *mut u32,
 }
 
 impl Default for CudaScratch {
@@ -45,9 +55,15 @@ impl Default for CudaScratch {
             mapped_soma_ids_capacity: 0,
             d_output_spikes: std::ptr::null_mut(),
             output_spikes_capacity: 0,
+            d_output_spike_counts: std::ptr::null_mut(),
+            output_spike_counts_capacity: 0,
             d_output_count: std::ptr::null_mut(),
             d_generated_spikes_count: std::ptr::null_mut(),
+            d_output_spikes_written: std::ptr::null_mut(),
             d_dropped_spikes_count: std::ptr::null_mut(),
+            d_tick_generated: std::ptr::null_mut(),
+            d_tick_written: std::ptr::null_mut(),
+            d_tick_dropped: std::ptr::null_mut(),
         }
     }
 }
@@ -72,14 +88,29 @@ impl Drop for CudaScratch {
                 if !self.d_output_spikes.is_null() {
                     let _ = native::axi_cuda_free(self.d_output_spikes as *mut u8);
                 }
+                if !self.d_output_spike_counts.is_null() {
+                    let _ = native::axi_cuda_free(self.d_output_spike_counts as *mut u8);
+                }
                 if !self.d_output_count.is_null() {
                     let _ = native::axi_cuda_free(self.d_output_count as *mut u8);
                 }
                 if !self.d_generated_spikes_count.is_null() {
                     let _ = native::axi_cuda_free(self.d_generated_spikes_count as *mut u8);
                 }
+                if !self.d_output_spikes_written.is_null() {
+                    let _ = native::axi_cuda_free(self.d_output_spikes_written as *mut u8);
+                }
                 if !self.d_dropped_spikes_count.is_null() {
                     let _ = native::axi_cuda_free(self.d_dropped_spikes_count as *mut u8);
+                }
+                if !self.d_tick_generated.is_null() {
+                    let _ = native::axi_cuda_free(self.d_tick_generated as *mut u8);
+                }
+                if !self.d_tick_written.is_null() {
+                    let _ = native::axi_cuda_free(self.d_tick_written as *mut u8);
+                }
+                if !self.d_tick_dropped.is_null() {
+                    let _ = native::axi_cuda_free(self.d_tick_dropped as *mut u8);
                 }
             }
         }
@@ -89,6 +120,7 @@ impl Drop for CudaScratch {
 impl CudaScratch {
     /// Lazy allocation / expansion of the GPU buffers.
     #[cfg(feature = "native")]
+    #[allow(clippy::too_many_arguments)]
     pub fn ensure_capacity(
         &mut self,
         i_in_len: usize,
@@ -96,6 +128,7 @@ impl CudaScratch {
         incoming_spikes_len: usize,
         mapped_soma_ids_len: usize,
         output_spikes_len: usize,
+        output_spike_counts_len: usize,
     ) -> Result<(), ComputeApiError> {
         if i_in_len > self.i_in_capacity {
             if !self.d_i_in.is_null() {
@@ -195,6 +228,26 @@ impl CudaScratch {
             }
         }
 
+        if output_spike_counts_len > self.output_spike_counts_capacity {
+            if !self.d_output_spike_counts.is_null() {
+                unsafe {
+                    native::axi_cuda_free(self.d_output_spike_counts as *mut u8);
+                }
+                self.d_output_spike_counts = std::ptr::null_mut();
+                self.output_spike_counts_capacity = 0;
+            }
+            if output_spike_counts_len > 0 {
+                let mut ptr = std::ptr::null_mut();
+                let size = output_spike_counts_len * std::mem::size_of::<u32>();
+                let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+                if res != 0 {
+                    return Err(native::map_cuda_error(res));
+                }
+                self.d_output_spike_counts = ptr as *mut u32;
+                self.output_spike_counts_capacity = output_spike_counts_len;
+            }
+        }
+
         if self.d_output_count.is_null() {
             let mut ptr = std::ptr::null_mut();
             let size = std::mem::size_of::<u32>();
@@ -215,6 +268,16 @@ impl CudaScratch {
             self.d_generated_spikes_count = ptr as *mut u32;
         }
 
+        if self.d_output_spikes_written.is_null() {
+            let mut ptr = std::ptr::null_mut();
+            let size = std::mem::size_of::<u32>();
+            let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            self.d_output_spikes_written = ptr as *mut u32;
+        }
+
         if self.d_dropped_spikes_count.is_null() {
             let mut ptr = std::ptr::null_mut();
             let size = std::mem::size_of::<u32>();
@@ -223,6 +286,36 @@ impl CudaScratch {
                 return Err(native::map_cuda_error(res));
             }
             self.d_dropped_spikes_count = ptr as *mut u32;
+        }
+
+        if self.d_tick_generated.is_null() {
+            let mut ptr = std::ptr::null_mut();
+            let size = std::mem::size_of::<u32>();
+            let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            self.d_tick_generated = ptr as *mut u32;
+        }
+
+        if self.d_tick_written.is_null() {
+            let mut ptr = std::ptr::null_mut();
+            let size = std::mem::size_of::<u32>();
+            let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            self.d_tick_written = ptr as *mut u32;
+        }
+
+        if self.d_tick_dropped.is_null() {
+            let mut ptr = std::ptr::null_mut();
+            let size = std::mem::size_of::<u32>();
+            let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            self.d_tick_dropped = ptr as *mut u32;
         }
 
         Ok(())

@@ -759,7 +759,7 @@ impl CudaBackend {
     }
 
     #[cfg(feature = "native")]
-    #[allow(clippy::too_many_arguments)] // Requires discrete arguments matching single tick execution interface
+    #[allow(clippy::too_many_arguments, dead_code)] // Requires discrete arguments matching single tick execution interface
     fn run_single_tick_with_gsop_production(
         &mut self,
         handle: compute_api::VramHandle,
@@ -808,6 +808,7 @@ impl CudaBackend {
             incoming_spikes_len,
             mapped_soma_ids_len,
             output_spikes_len,
+            1,
         )?;
 
         if let Some(mask) = input_bitmask {
@@ -1063,94 +1064,237 @@ impl ComputeBackend for CudaBackend {
         }
         compute_api::validation::validate_day_batch_cmd(&cmd)?;
 
-        let mut generated_spikes_count: u32 = 0;
-        let mut output_spikes_written: u32 = 0;
-        let mut dropped_spikes_count: u32 = 0;
+        let resource = self.registry.get_resource_mut(handle)?;
+        let i_in_len = resource.spec.padded_n as usize;
 
-        // Reset output_spike_counts to zero for all ticks in this batch
-        for count in cmd
-            .output_spike_counts
-            .iter_mut()
-            .take(cmd.sync_batch_ticks as usize)
+        let offsets = layout::compute_state_offsets(i_in_len);
+        if offsets.off_targets > u32::MAX as usize
+            || offsets.off_weights > u32::MAX as usize
+            || offsets.off_flags > u32::MAX as usize
+            || offsets.off_voltage > u32::MAX as usize
+            || offsets.off_thresh > u32::MAX as usize
+            || offsets.off_timers > u32::MAX as usize
+            || offsets.off_s2a > u32::MAX as usize
         {
-            *count = 0;
+            return Err(ComputeApiError::CapacityExceeded);
         }
 
-        let max_spikes_per_tick = cmd.max_spikes_per_tick as usize;
-        let input_words_per_tick = cmd.input_words_per_tick as usize;
+        let input_bitmask_len = cmd.input_bitmask.map(|m| m.len()).unwrap_or(0);
+        let incoming_spikes_len = cmd.incoming_spikes.map(|s| s.len()).unwrap_or(0);
+        let incoming_spike_counts_len = cmd.incoming_spike_counts.len();
+        let mapped_soma_ids_len = cmd.mapped_soma_ids.len();
+        let output_spikes_len = (cmd.max_spikes_per_tick as usize)
+            .checked_mul(cmd.sync_batch_ticks as usize)
+            .ok_or(ComputeApiError::CapacityExceeded)?;
+        let output_spike_counts_len = cmd.sync_batch_ticks as usize;
 
-        // Output spikes buffer as mutable slice
-        let output_spikes = cmd.output_spikes;
+        if input_bitmask_len > u32::MAX as usize
+            || incoming_spikes_len > u32::MAX as usize
+            || incoming_spike_counts_len > u32::MAX as usize
+            || mapped_soma_ids_len > u32::MAX as usize
+            || output_spikes_len > u32::MAX as usize
+            || output_spike_counts_len > u32::MAX as usize
+        {
+            return Err(ComputeApiError::CapacityExceeded);
+        }
 
-        for tick_idx in 0..cmd.sync_batch_ticks as usize {
-            let current_tick = cmd.tick_base + tick_idx as u64;
+        resource.scratch.ensure_capacity(
+            i_in_len,
+            input_bitmask_len,
+            incoming_spikes_len,
+            mapped_soma_ids_len,
+            output_spikes_len,
+            output_spike_counts_len,
+        )?;
 
-            // Take tick slice for input_bitmask
-            let tick_bitmask = if let Some(bitmask) = cmd.input_bitmask {
-                let start_w = tick_idx * input_words_per_tick;
-                let end_w = start_w + input_words_per_tick;
-                if end_w <= bitmask.len() {
-                    Some(&bitmask[start_w..end_w])
-                } else {
-                    None
+        if let Some(mask) = cmd.input_bitmask {
+            if !mask.is_empty() {
+                let size = std::mem::size_of_val(mask);
+                let res = unsafe {
+                    native::axi_cuda_copy_h2d(
+                        resource.scratch.d_input_bitmask as *mut u8,
+                        mask.as_ptr() as *const u8,
+                        size,
+                    )
+                };
+                if res != 0 {
+                    return Err(native::map_cuda_error(res));
                 }
-            } else {
-                None
-            };
+            }
+        }
 
-            // Take incoming spikes slice
-            let tick_incoming = if let Some(spikes) = cmd.incoming_spikes {
-                let counts = cmd.incoming_spike_counts;
-                if tick_idx < counts.len() {
-                    let count = (counts[tick_idx] as usize).min(max_spikes_per_tick);
-                    let start_s = tick_idx * max_spikes_per_tick;
-                    if start_s + count <= spikes.len() {
-                        Some(&spikes[start_s..start_s + count])
-                    } else {
-                        None
-                    }
-                } else {
-                    None
+        if let Some(spikes) = cmd.incoming_spikes {
+            if !spikes.is_empty() {
+                let size = std::mem::size_of_val(spikes);
+                let res = unsafe {
+                    native::axi_cuda_copy_h2d(
+                        resource.scratch.d_incoming_spikes as *mut u8,
+                        spikes.as_ptr() as *const u8,
+                        size,
+                    )
+                };
+                if res != 0 {
+                    return Err(native::map_cuda_error(res));
                 }
-            } else {
-                None
+            }
+        }
+
+        if !cmd.mapped_soma_ids.is_empty() {
+            let size = std::mem::size_of_val(cmd.mapped_soma_ids);
+            let res = unsafe {
+                native::axi_cuda_copy_h2d(
+                    resource.scratch.d_mapped_soma_ids as *mut u8,
+                    cmd.mapped_soma_ids.as_ptr() as *const u8,
+                    size,
+                )
             };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+        }
 
-            // Setup output slices for this tick directly from cmd buffers without allocations
-            let dest_start = tick_idx * max_spikes_per_tick;
-            let tick_output_spikes =
-                &mut output_spikes[dest_start..dest_start + max_spikes_per_tick];
-            let tick_output_counts = &mut cmd.output_spike_counts[tick_idx..tick_idx + 1];
+        let upload_res = unsafe {
+            native::axi_cuda_upload_variant_table(
+                resource.variant_table.as_ptr() as *const u8,
+                resource.variant_table.len() * std::mem::size_of::<layout::VariantParameters>(),
+            )
+        };
+        if upload_res != 0 {
+            return Err(native::map_cuda_error(upload_res));
+        }
 
-            // Run single tick pipeline via production scratch path
-            let tick_res = self.run_single_tick_with_gsop_production(
-                handle,
-                current_tick,
+        let d_input_bitmask = if cmd.input_bitmask.is_some() && cmd.input_words_per_tick > 0 {
+            resource.scratch.d_input_bitmask
+        } else {
+            std::ptr::null()
+        };
+
+        let d_incoming_spikes = if cmd.incoming_spikes.is_some() && cmd.max_spikes_per_tick > 0 {
+            resource.scratch.d_incoming_spikes
+        } else {
+            std::ptr::null()
+        };
+
+        let d_mapped_soma_ids = if !cmd.mapped_soma_ids.is_empty() {
+            resource.scratch.d_mapped_soma_ids
+        } else {
+            std::ptr::null()
+        };
+
+        let d_output_spikes = if output_spikes_len > 0 {
+            resource.scratch.d_output_spikes
+        } else {
+            std::ptr::null_mut()
+        };
+
+        let ffi_res = unsafe {
+            native::axi_cuda_run_day_batch_production(
+                resource.state_ptr,
+                resource.axons_ptr,
+                resource.spec.padded_n,
+                resource.spec.total_axons,
+                offsets.off_voltage as u32,
+                offsets.off_flags as u32,
+                offsets.off_thresh as u32,
+                offsets.off_timers as u32,
+                offsets.off_s2a as u32,
+                offsets.off_targets as u32,
+                offsets.off_weights as u32,
+                cmd.sync_batch_ticks,
+                cmd.tick_base,
                 cmd.v_seg,
+                resource.spec.virtual_offset,
                 cmd.virtual_offset,
                 cmd.num_virtual_axons,
-                tick_bitmask,
-                tick_incoming,
-                cmd.mapped_soma_ids,
+                cmd.input_words_per_tick,
                 cmd.max_spikes_per_tick,
-                tick_output_spikes,
-                tick_output_counts,
+                cmd.mapped_soma_ids.len() as u32,
                 cmd.dopamine as i32,
-            )?;
+                resource.scratch.d_i_in,
+                d_input_bitmask,
+                d_incoming_spikes,
+                d_mapped_soma_ids,
+                d_output_spikes,
+                resource.scratch.d_output_spike_counts,
+                resource.scratch.d_generated_spikes_count,
+                resource.scratch.d_output_spikes_written,
+                resource.scratch.d_dropped_spikes_count,
+                cmd.incoming_spike_counts.as_ptr(),
+                resource.scratch.d_tick_generated,
+                resource.scratch.d_tick_written,
+                resource.scratch.d_tick_dropped,
+            )
+        };
+        if ffi_res != 0 {
+            return Err(native::map_cuda_error(ffi_res));
+        }
 
-            generated_spikes_count =
-                generated_spikes_count.saturating_add(tick_res.generated_spikes_count);
-            output_spikes_written =
-                output_spikes_written.saturating_add(tick_res.output_spikes_written);
-            dropped_spikes_count =
-                dropped_spikes_count.saturating_add(tick_res.dropped_spikes_count);
+        let mut h_gen = 0u32;
+        let mut h_writ = 0u32;
+        let mut h_drop = 0u32;
+
+        let res = unsafe {
+            native::axi_cuda_copy_d2h(
+                &mut h_gen as *mut u32 as *mut u8,
+                resource.scratch.d_generated_spikes_count as *const u8,
+                std::mem::size_of::<u32>(),
+            )
+        };
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+
+        let res = unsafe {
+            native::axi_cuda_copy_d2h(
+                &mut h_writ as *mut u32 as *mut u8,
+                resource.scratch.d_output_spikes_written as *const u8,
+                std::mem::size_of::<u32>(),
+            )
+        };
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+
+        let res = unsafe {
+            native::axi_cuda_copy_d2h(
+                &mut h_drop as *mut u32 as *mut u8,
+                resource.scratch.d_dropped_spikes_count as *const u8,
+                std::mem::size_of::<u32>(),
+            )
+        };
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+
+        let res = unsafe {
+            native::axi_cuda_copy_d2h(
+                cmd.output_spike_counts.as_mut_ptr() as *mut u8,
+                resource.scratch.d_output_spike_counts as *const u8,
+                output_spike_counts_len * std::mem::size_of::<u32>(),
+            )
+        };
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+
+        if output_spikes_len > 0 {
+            let res = unsafe {
+                native::axi_cuda_copy_d2h(
+                    cmd.output_spikes.as_mut_ptr() as *mut u8,
+                    resource.scratch.d_output_spikes as *const u8,
+                    output_spikes_len * std::mem::size_of::<u32>(),
+                )
+            };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
         }
 
         Ok(compute_api::BatchResult {
             ticks_executed: cmd.sync_batch_ticks,
-            generated_spikes_count,
-            output_spikes_written,
-            dropped_spikes_count,
+            generated_spikes_count: h_gen,
+            output_spikes_written: h_writ,
+            dropped_spikes_count: h_drop,
             execution_time_us: 0,
         })
     }

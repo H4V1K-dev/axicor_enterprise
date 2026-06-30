@@ -1316,4 +1316,235 @@ int axi_cuda_apply_gsop_plasticity_production(
     return 0;
 }
 
+__global__ void accumulate_tick_counters_kernel(
+    unsigned int* d_tick_generated,
+    unsigned int* d_tick_written,
+    unsigned int* d_tick_dropped,
+    unsigned int* d_total_generated,
+    unsigned int* d_total_written,
+    unsigned int* d_total_dropped,
+    unsigned int* d_output_spike_counts,
+    unsigned int tick_idx
+) {
+    unsigned int gen = *d_tick_generated;
+    unsigned int writ = *d_tick_written;
+    unsigned int drop = *d_tick_dropped;
+
+    d_output_spike_counts[tick_idx] = writ;
+
+    unsigned long long sum_gen = (unsigned long long)*d_total_generated + gen;
+    *d_total_generated = (sum_gen > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (unsigned int)sum_gen;
+
+    unsigned long long sum_writ = (unsigned long long)*d_total_written + writ;
+    *d_total_written = (sum_writ > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (unsigned int)sum_writ;
+
+    unsigned long long sum_drop = (unsigned long long)*d_total_dropped + drop;
+    *d_total_dropped = (sum_drop > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (unsigned int)sum_drop;
+}
+
+int axi_cuda_run_day_batch_production(
+    void* state_ptr,
+    void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_voltage,
+    unsigned int off_flags,
+    unsigned int off_thresh,
+    unsigned int off_timers,
+    unsigned int off_s2a,
+    unsigned int off_targets,
+    unsigned int off_weights,
+    unsigned int sync_batch_ticks,
+    unsigned long long tick_base,
+    unsigned int v_seg,
+    unsigned int shard_virtual_offset,
+    unsigned int cmd_virtual_offset,
+    unsigned int num_virtual_axons,
+    unsigned int input_words_per_tick,
+    unsigned int max_spikes_per_tick,
+    unsigned int num_outputs,
+    int dopamine,
+    int* d_i_in,
+    const unsigned int* d_input_bitmask,
+    const unsigned int* d_incoming_spikes,
+    const unsigned int* d_mapped_soma_ids,
+    unsigned int* d_output_spikes,
+    unsigned int* d_output_spike_counts,
+    unsigned int* d_total_generated,
+    unsigned int* d_total_written,
+    unsigned int* d_total_dropped,
+    const unsigned int* incoming_spike_counts_host,
+    unsigned int* d_tick_generated,
+    unsigned int* d_tick_written,
+    unsigned int* d_tick_dropped
+) {
+    if (!state_ptr || !axons_ptr || !d_i_in || !d_output_spike_counts || 
+        !d_total_generated || !d_total_written || !d_total_dropped ||
+        !d_tick_generated || !d_tick_written || !d_tick_dropped) {
+        return -1;
+    }
+    if (num_outputs > 0 && !d_mapped_soma_ids) {
+        return -1;
+    }
+    if (max_spikes_per_tick > 0 && !d_output_spikes) {
+        return -1;
+    }
+    if (sync_batch_ticks > 0 && !incoming_spike_counts_host) {
+        return -1;
+    }
+
+    size_t total_spikes_bytes = 0;
+    if (max_spikes_per_tick > 0 && sync_batch_ticks > 0) {
+        if ((size_t)sync_batch_ticks > SIZE_MAX / (size_t)max_spikes_per_tick) {
+            return -1;
+        }
+        size_t elements = (size_t)sync_batch_ticks * (size_t)max_spikes_per_tick;
+        if (elements > SIZE_MAX / sizeof(unsigned int)) {
+            return -1;
+        }
+        total_spikes_bytes = elements * sizeof(unsigned int);
+    }
+
+    if ((size_t)sync_batch_ticks > SIZE_MAX / sizeof(unsigned int)) {
+        return -1;
+    }
+    size_t total_counts_bytes = (size_t)sync_batch_ticks * sizeof(unsigned int);
+
+    cudaError_t err = cudaMemset(d_total_generated, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) return -5;
+    err = cudaMemset(d_total_written, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) return -5;
+    err = cudaMemset(d_total_dropped, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) return -5;
+    err = cudaMemset(d_output_spike_counts, 0, total_counts_bytes);
+    if (err != cudaSuccess) return -5;
+
+    if (max_spikes_per_tick > 0) {
+        err = cudaMemset(d_output_spikes, 0, total_spikes_bytes);
+        if (err != cudaSuccess) return -5;
+    }
+
+    unsigned int threads_per_block = 256;
+    unsigned int blocks = (padded_n + threads_per_block - 1) / threads_per_block;
+
+    for (unsigned int tick_idx = 0; tick_idx < sync_batch_ticks; ++tick_idx) {
+        unsigned long long current_tick = tick_base + tick_idx;
+
+        const unsigned int* tick_bitmask = nullptr;
+        if (d_input_bitmask && input_words_per_tick > 0) {
+            tick_bitmask = d_input_bitmask + (size_t)tick_idx * input_words_per_tick;
+        }
+
+        const unsigned int* tick_incoming = nullptr;
+        unsigned int tick_incoming_count = incoming_spike_counts_host[tick_idx];
+        if (d_incoming_spikes && max_spikes_per_tick > 0) {
+            tick_incoming = d_incoming_spikes + (size_t)tick_idx * max_spikes_per_tick;
+        }
+
+        unsigned int* tick_output_spikes = nullptr;
+        if (d_output_spikes && max_spikes_per_tick > 0) {
+            tick_output_spikes = d_output_spikes + (size_t)tick_idx * max_spikes_per_tick;
+        }
+
+        err = cudaMemset(d_i_in, 0, padded_n * sizeof(int));
+        if (err != cudaSuccess) return -5;
+
+        err = cudaMemset(d_tick_generated, 0, sizeof(unsigned int));
+        if (err != cudaSuccess) return -5;
+        err = cudaMemset(d_tick_written, 0, sizeof(unsigned int));
+        if (err != cudaSuccess) return -5;
+        err = cudaMemset(d_tick_dropped, 0, sizeof(unsigned int));
+        if (err != cudaSuccess) return -5;
+
+        if (total_axons > 0) {
+            unsigned int* heads = (unsigned int*)((char*)axons_ptr + AXI_SIZE_AxonsFileHeader);
+            unsigned int blocks_axons = (total_axons + threads_per_block - 1) / threads_per_block;
+            inject_and_propagate_axons_tick_kernel<<<blocks_axons, threads_per_block>>>(
+                heads,
+                total_axons,
+                v_seg,
+                shard_virtual_offset,
+                cmd_virtual_offset,
+                num_virtual_axons,
+                tick_bitmask,
+                input_words_per_tick,
+                tick_incoming,
+                tick_incoming_count
+            );
+            err = cudaGetLastError();
+            if (err != cudaSuccess) return -3;
+        }
+
+        compute_input_current_probe_kernel<<<blocks, threads_per_block>>>(
+            state_ptr,
+            axons_ptr,
+            padded_n,
+            total_axons,
+            off_targets,
+            off_weights,
+            off_flags,
+            d_i_in
+        );
+        err = cudaGetLastError();
+        if (err != cudaSuccess) return -3;
+
+        apply_glif_final_spike_probe_kernel<<<1, 1>>>(
+            state_ptr,
+            axons_ptr,
+            padded_n,
+            total_axons,
+            off_voltage,
+            off_flags,
+            off_thresh,
+            off_timers,
+            off_s2a,
+            d_i_in,
+            current_tick,
+            v_seg,
+            d_mapped_soma_ids,
+            num_outputs,
+            max_spikes_per_tick,
+            tick_output_spikes,
+            d_tick_written,
+            d_tick_generated,
+            d_tick_dropped
+        );
+        err = cudaGetLastError();
+        if (err != cudaSuccess) return -3;
+
+        apply_gsop_plasticity_probe_kernel<<<1, 1>>>(
+            state_ptr,
+            axons_ptr,
+            padded_n,
+            total_axons,
+            off_targets,
+            off_weights,
+            off_flags,
+            dopamine
+        );
+        err = cudaGetLastError();
+        if (err != cudaSuccess) return -3;
+
+        accumulate_tick_counters_kernel<<<1, 1>>>(
+            d_tick_generated,
+            d_tick_written,
+            d_tick_dropped,
+            d_total_generated,
+            d_total_written,
+            d_total_dropped,
+            d_output_spike_counts,
+            tick_idx
+        );
+        err = cudaGetLastError();
+        if (err != cudaSuccess) return -3;
+    }
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        return -4;
+    }
+
+    return 0;
+}
+
 } // extern "C"

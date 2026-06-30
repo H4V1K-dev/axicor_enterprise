@@ -90,6 +90,7 @@ extern "C" {
         dopamine: i32,
     ) -> i32;
 
+    #[allow(dead_code)]
     pub fn axi_cuda_compute_input_current_production(
         state_ptr: *const u8,
         axons_ptr: *const u8,
@@ -101,6 +102,7 @@ extern "C" {
         d_i_in: *mut i32,
     ) -> i32;
 
+    #[allow(dead_code)]
     pub fn axi_cuda_apply_glif_final_spike_production(
         state_ptr: *mut u8,
         axons_ptr: *mut u8,
@@ -123,6 +125,7 @@ extern "C" {
         d_dropped_spikes_count: *mut u32,
     ) -> i32;
 
+    #[allow(dead_code)]
     pub fn axi_cuda_apply_gsop_plasticity_production(
         state_ptr: *mut u8,
         axons_ptr: *const u8,
@@ -132,6 +135,43 @@ extern "C" {
         off_weights: u32,
         off_flags: u32,
         dopamine: i32,
+    ) -> i32;
+
+    pub fn axi_cuda_run_day_batch_production(
+        state_ptr: *mut u8,
+        axons_ptr: *mut u8,
+        padded_n: u32,
+        total_axons: u32,
+        off_voltage: u32,
+        off_flags: u32,
+        off_thresh: u32,
+        off_timers: u32,
+        off_s2a: u32,
+        off_targets: u32,
+        off_weights: u32,
+        sync_batch_ticks: u32,
+        tick_base: u64,
+        v_seg: u32,
+        shard_virtual_offset: u32,
+        cmd_virtual_offset: u32,
+        num_virtual_axons: u32,
+        input_words_per_tick: u32,
+        max_spikes_per_tick: u32,
+        num_outputs: u32,
+        dopamine: i32,
+        d_i_in: *mut i32,
+        d_input_bitmask: *const u32,
+        d_incoming_spikes: *const u32,
+        d_mapped_soma_ids: *const u32,
+        d_output_spikes: *mut u32,
+        d_output_spike_counts: *mut u32,
+        d_total_generated: *mut u32,
+        d_total_written: *mut u32,
+        d_total_dropped: *mut u32,
+        incoming_spike_counts_host: *const u32,
+        d_tick_generated: *mut u32,
+        d_tick_written: *mut u32,
+        d_tick_dropped: *mut u32,
     ) -> i32;
 }
 

@@ -4608,3 +4608,281 @@ fn test_cuda_native_run_day_batch_scratch_reuse() {
 
     backend.free_shard(handle).unwrap();
 }
+
+#[test]
+#[cfg(feature = "native")]
+fn test_cuda_native_run_day_batch_multi_tick_production() {
+    if !is_gpu_available() {
+        return;
+    }
+    let _lock = GPU_TEST_LOCK.lock().unwrap();
+    let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+    let spec = compute_api::ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 2,
+        total_ghosts: 0,
+        virtual_offset: 100,
+    };
+
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = compute_api::validation::expected_axons_blob_size(2).unwrap();
+    let offsets = layout::compute_state_offsets(64);
+
+    let voltages = vec![-70_000i32; 64];
+    let flags = vec![0u8; 64];
+    let soma_to_axon = vec![0xFFFFFFFFu32; 64];
+    let dendrite_targets = vec![0u32; 64 * 128];
+    let dendrite_weights = vec![0i32; 64 * 128];
+
+    let mut test_state = vec![0u8; state_size];
+    test_state[offsets.off_voltage..offsets.off_voltage + 256]
+        .copy_from_slice(bytemuck::cast_slice(&voltages));
+    test_state[offsets.off_flags..offsets.off_flags + 64].copy_from_slice(&flags);
+    test_state[offsets.off_s2a..offsets.off_s2a + 256]
+        .copy_from_slice(bytemuck::cast_slice(&soma_to_axon));
+    test_state[offsets.off_targets..offsets.off_targets + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+    test_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+    let header = layout::AxonsFileHeader::new(2);
+    let mut test_axons = vec![0u8; axons_size];
+    test_axons[..16].copy_from_slice(bytemuck::bytes_of(&header));
+    let heads_init = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+    test_axons[16..16 + 2 * 32].copy_from_slice(bytemuck::cast_slice(&heads_init));
+
+    let variant_0 = layout::VariantParameters {
+        threshold: -50_000,
+        rest_potential: -70_000,
+        leak_shift: 4,
+        homeostasis_penalty: 1000,
+        spontaneous_firing_period_ticks: 0,
+        initial_synapse_weight: 0,
+        gsop_potentiation: 200,
+        gsop_depression: 150,
+        homeostasis_decay: 100,
+        refractory_period: 5,
+        synapse_refractory_period: 0,
+        signal_propagation_length: 5,
+        is_inhibitory: 0,
+        inertia_curve: [100, 90, 80, 70, 60, 50, 40, 30],
+        ahp_amplitude: 10_000,
+        _pad1: [0; 6],
+        adaptive_leak_min_shift: 0,
+        adaptive_leak_gain: 0,
+        adaptive_mode: 0,
+        _leak_pad: [0; 3],
+        d1_affinity: 128,
+        d2_affinity: 64,
+        heartbeat_m: 0,
+    };
+    let variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+
+    let handle = backend.alloc_shard(spec).unwrap();
+    let upload = compute_api::ShardUpload {
+        state_blob: &test_state,
+        axons_blob: &test_axons,
+        variant_table: &variant_table,
+    };
+    backend.upload_shard(handle, upload).unwrap();
+
+    use compute_api::ComputeBackend;
+
+    // Run multi-tick batch with dopamine and spikes
+    let input_bitmask = vec![0u32; 3];
+    let incoming_spikes = vec![0u32; 6];
+    let mapped_soma_ids = vec![0u32, 1u32];
+    let mut output_spikes = vec![0u32; 6];
+    let mut output_spike_counts = vec![999u32; 3];
+
+    let cmd = compute_api::DayBatchCmd {
+        tick_base: 1,
+        sync_batch_ticks: 3,
+        v_seg: 2,
+        virtual_offset: 100,
+        num_virtual_axons: 32,
+        input_words_per_tick: 1,
+        max_spikes_per_tick: 2,
+        num_outputs: mapped_soma_ids.len() as u32,
+        dopamine: 100,
+        input_bitmask: Some(&input_bitmask),
+        incoming_spikes: Some(&incoming_spikes),
+        incoming_spike_counts: &[1, 1, 1],
+        mapped_soma_ids: &mapped_soma_ids,
+        output_spikes: &mut output_spikes,
+        output_spike_counts: &mut output_spike_counts,
+    };
+
+    let result = backend.run_day_batch(handle, cmd).unwrap();
+    assert_eq!(result.ticks_executed, 3);
+    // Ensure all elements in output_spike_counts are overwritten to 0
+    assert_eq!(output_spike_counts[0], 0);
+    assert_eq!(output_spike_counts[1], 0);
+    assert_eq!(output_spike_counts[2], 0);
+
+    backend.free_shard(handle).unwrap();
+}
+
+#[test]
+#[cfg(feature = "native")]
+fn test_cuda_native_run_day_batch_stale_bitmask() {
+    if !is_gpu_available() {
+        return;
+    }
+    let _lock = GPU_TEST_LOCK.lock().unwrap();
+    let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+    let spec = compute_api::ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 2,
+        total_ghosts: 0,
+        virtual_offset: 100,
+    };
+
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = compute_api::validation::expected_axons_blob_size(2).unwrap();
+    let offsets = layout::compute_state_offsets(64);
+
+    let voltages = vec![-70_000i32; 64];
+    let flags = vec![0u8; 64];
+    let soma_to_axon = vec![0; 64]; // mapping soma 0 to axon 0
+    let dendrite_targets = vec![0u32; 64 * 128];
+    let dendrite_weights = vec![0i32; 64 * 128];
+
+    let mut test_state = vec![0u8; state_size];
+    test_state[offsets.off_voltage..offsets.off_voltage + 256]
+        .copy_from_slice(bytemuck::cast_slice(&voltages));
+    test_state[offsets.off_flags..offsets.off_flags + 64].copy_from_slice(&flags);
+    test_state[offsets.off_s2a..offsets.off_s2a + 256]
+        .copy_from_slice(bytemuck::cast_slice(&soma_to_axon));
+    test_state[offsets.off_targets..offsets.off_targets + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+    test_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+    let header = layout::AxonsFileHeader::new(2);
+    let mut test_axons = vec![0u8; axons_size];
+    test_axons[..16].copy_from_slice(bytemuck::bytes_of(&header));
+    let heads_init = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+    test_axons[16..16 + 2 * 32].copy_from_slice(bytemuck::cast_slice(&heads_init));
+
+    let variant_0 = layout::VariantParameters {
+        threshold: -50_000,
+        rest_potential: -70_000,
+        leak_shift: 4,
+        homeostasis_penalty: 1000,
+        spontaneous_firing_period_ticks: 0,
+        initial_synapse_weight: 0,
+        gsop_potentiation: 200,
+        gsop_depression: 150,
+        homeostasis_decay: 100,
+        refractory_period: 5,
+        synapse_refractory_period: 0,
+        signal_propagation_length: 5,
+        is_inhibitory: 0,
+        inertia_curve: [100, 90, 80, 70, 60, 50, 40, 30],
+        ahp_amplitude: 10_000,
+        _pad1: [0; 6],
+        adaptive_leak_min_shift: 0,
+        adaptive_leak_gain: 0,
+        adaptive_mode: 0,
+        _leak_pad: [0; 3],
+        d1_affinity: 128,
+        d2_affinity: 64,
+        heartbeat_m: 0,
+    };
+    let variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+
+    let handle = backend.alloc_shard(spec).unwrap();
+    let upload = compute_api::ShardUpload {
+        state_blob: &test_state,
+        axons_blob: &test_axons,
+        variant_table: &variant_table,
+    };
+    backend.upload_shard(handle, upload).unwrap();
+
+    use compute_api::ComputeBackend;
+
+    // 1. First batch with active input_bitmask (should set d_input_bitmask to non-null on device)
+    let input_bitmask_1 = vec![1u32]; // virtual axon 0 active
+    let mapped_soma_ids = vec![0u32];
+    let mut output_spikes = vec![0u32; 2];
+    let mut output_spike_counts = vec![999u32; 1];
+
+    let cmd_1 = compute_api::DayBatchCmd {
+        tick_base: 1,
+        sync_batch_ticks: 1,
+        v_seg: 2,
+        virtual_offset: 100,
+        num_virtual_axons: 32,
+        input_words_per_tick: 1,
+        max_spikes_per_tick: 2,
+        num_outputs: mapped_soma_ids.len() as u32,
+        dopamine: 0,
+        input_bitmask: Some(&input_bitmask_1),
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        mapped_soma_ids: &mapped_soma_ids,
+        output_spikes: &mut output_spikes,
+        output_spike_counts: &mut output_spike_counts,
+    };
+
+    let result_1 = backend.run_day_batch(handle, cmd_1).unwrap();
+    assert_eq!(result_1.ticks_executed, 1);
+
+    // 2. Re-upload clean state on the same handle without freeing the shard
+    let upload_2 = compute_api::ShardUpload {
+        state_blob: &test_state,
+        axons_blob: &test_axons,
+        variant_table: &variant_table,
+    };
+    backend.upload_shard(handle, upload_2).unwrap();
+
+    // 3. Second batch with input_bitmask = None, but input_words_per_tick = 1.
+    // If the device used stale scratch d_input_bitmask, virtual axon 0 would fire.
+    // Because we pass None, it must set d_input_bitmask = null, and NO virtual injection should occur.
+    let mut output_spikes_2 = vec![0u32; 2];
+    let mut output_spike_counts_2 = vec![999u32; 1];
+
+    let cmd_2 = compute_api::DayBatchCmd {
+        tick_base: 1,
+        sync_batch_ticks: 1,
+        v_seg: 2,
+        virtual_offset: 100,
+        num_virtual_axons: 32,
+        input_words_per_tick: 1,
+        max_spikes_per_tick: 2,
+        num_outputs: mapped_soma_ids.len() as u32,
+        dopamine: 0,
+        input_bitmask: None,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        mapped_soma_ids: &mapped_soma_ids,
+        output_spikes: &mut output_spikes_2,
+        output_spike_counts: &mut output_spike_counts_2,
+    };
+
+    let result_2 = backend.run_day_batch(handle, cmd_2).unwrap();
+    assert_eq!(result_2.ticks_executed, 1);
+    // There must be 0 generated spikes because input_bitmask is None.
+    assert_eq!(result_2.generated_spikes_count, 0);
+
+    // 4. Download debug snapshot to verify axons state.
+    // If a stale input bitmask [1] was used, virtual axon 0 would have triggered a head shift / state change.
+    // The old bug manifested not necessarily through output spikes, but as an incorrect virtual injection into axon heads.
+    let mut snap_state = vec![0u8; state_size];
+    let mut snap_axons = vec![0u8; axons_size];
+    let snapshot = compute_api::ShardSnapshotMut {
+        state_blob: &mut snap_state,
+        axons_blob: &mut snap_axons,
+    };
+    backend.debug_snapshot(handle, snapshot).unwrap();
+
+    assert_eq!(
+        snap_axons, test_axons,
+        "Axon heads or metadata were modified by stale input bitmask!"
+    );
+
+    backend.free_shard(handle).unwrap();
+}
