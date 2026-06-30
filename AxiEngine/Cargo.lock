@@ -148,6 +148,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-harness"
+version = "0.1.0"
+dependencies = [
+ "compute-api",
+ "compute-cpu",
+ "layout",
+ "types",
+]
+
+[[package]]
 name = "types"
 version = "0.1.0"
 dependencies = [

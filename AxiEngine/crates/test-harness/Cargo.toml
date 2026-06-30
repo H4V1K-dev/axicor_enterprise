@@ -1,0 +1,22 @@
+[package]
+name = "test-harness"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "test_harness"
+
+[dependencies]
+types = { path = "../types" }
+layout = { path = "../layout" }
+compute-api = { path = "../compute-api" }
+compute-cpu = { path = "../compute-cpu", optional = true }
+
+[features]
+default = ["cpu", "mock", "abi"]
+cpu = ["dep:compute-cpu"]
+mock = []
+abi = []
+cuda = []
+hip = []
+facade = []

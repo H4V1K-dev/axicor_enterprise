@@ -155,7 +155,7 @@ graph TD
 | `compute-cpu` | [compute_cpu_spec.md](spec_L3/compute_cpu_spec.md) | **Approved v2.2 / Implemented** | Многопоточная CPU-реализация `ComputeBackend` на базе Rayon, выровненные ресурсы хоста и проверочная реализация. |
 | `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
 | `compute-hip` | [compute_hip_spec.md](spec_L3/compute_hip_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная AMD ROCm/HIP реализация `ComputeBackend` на базе Wave64 вейвфронтов и неблокирующих стримов. |
-| `test-harness` | [test_harness_spec.md](spec_L3/test_harness_spec.md) | **Approved v2.2 / Ready for Implementation** | Вспомогательный тестовый крейт для дифференциальных проверок `ComputeBackend`, фикстур и контроля ABI-зеркал. |
+| `test-harness` | [test_harness_spec.md](spec_L3/test_harness_spec.md) | **Approved v2.2 / Implemented** | Вспомогательный тестовый крейт для дифференциальных проверок `ComputeBackend`, фикстур и контроля ABI-зеркал. |
 
 ### Слой 4 (Layer 4: Geometry, Growth & Connectome Generation)
 
