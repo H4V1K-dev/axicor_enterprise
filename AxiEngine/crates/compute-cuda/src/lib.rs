@@ -472,6 +472,70 @@ impl CudaBackend {
             execution_time_us: 0,
         })
     }
+
+    /// Native-only test utility that executes the complete single-tick pipeline without GSOP plasticity:
+    /// 1. Axon spike propagation and virtual/incoming spikes injection.
+    /// 2. Input currents calculations.
+    /// 3. GLIF voltage updates, DDS heartbeat, axon pushes, and output spikes emission.
+    #[cfg(feature = "native")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_single_tick_no_gsop_probe_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        current_tick: u64,
+        v_seg: u32,
+        cmd_virtual_offset: u32,
+        num_virtual_axons: u32,
+        input_bitmask: Option<&[u32]>,
+        incoming_spikes: Option<&[u32]>,
+        mapped_soma_ids: &[u32],
+        max_spikes_per_tick: u32,
+        output_spikes: &mut [u32],
+        output_spike_counts: &mut [u32],
+    ) -> Result<compute_api::BatchResult, ComputeApiError> {
+        if !(1..=255).contains(&v_seg) {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+        if output_spike_counts.is_empty() {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+        if output_spikes.len() < max_spikes_per_tick as usize {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+        if let Some(mask) = input_bitmask {
+            if mask.len() > u32::MAX as usize {
+                return Err(ComputeApiError::CapacityExceeded);
+            }
+            let required_words = num_virtual_axons.div_ceil(32) as usize;
+            if mask.len() < required_words {
+                return Err(ComputeApiError::InvalidBatch);
+            }
+        }
+        if let Some(spikes) = incoming_spikes {
+            if spikes.len() > max_spikes_per_tick as usize {
+                return Err(ComputeApiError::InvalidBatch);
+            }
+        }
+
+        self.inject_and_propagate_axons_tick_for_test(
+            handle,
+            v_seg,
+            cmd_virtual_offset,
+            num_virtual_axons,
+            input_bitmask,
+            incoming_spikes,
+        )?;
+
+        self.run_current_glif_final_tick_probe_for_test(
+            handle,
+            current_tick,
+            v_seg,
+            mapped_soma_ids,
+            max_spikes_per_tick,
+            output_spikes,
+            output_spike_counts,
+        )
+    }
 }
 
 impl ComputeBackend for CudaBackend {

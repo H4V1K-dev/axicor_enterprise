@@ -2707,3 +2707,287 @@ fn test_cuda_native_variant_aware_current_probe() {
 
     backend.free_shard(handle).unwrap();
 }
+
+#[test]
+#[cfg(feature = "native")]
+#[allow(clippy::identity_op, clippy::erasing_op)]
+fn test_cuda_native_full_single_tick_no_gsop_pipeline() {
+    if !is_gpu_available() {
+        return;
+    }
+    let _lock = GPU_TEST_LOCK.lock().unwrap();
+    let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+    let spec = compute_api::ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 2,
+        total_ghosts: 0,
+        virtual_offset: 100,
+    };
+
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = compute_api::validation::expected_axons_blob_size(2).unwrap();
+
+    // Setup base SoA state planes
+    let mut voltages = vec![-70_000i32; 64];
+    let mut flags = vec![0u8; 64];
+    let thresh_offsets = vec![0i32; 64];
+    let timers = vec![0u8; 64];
+    let mut soma_to_axon = vec![0xFFFFFFFFu32; 64];
+
+    // Variant parameters
+    let variant_0 = layout::VariantParameters {
+        threshold: -50_000,
+        rest_potential: -70_000,
+        leak_shift: 4,
+        homeostasis_penalty: 1000,
+        spontaneous_firing_period_ticks: 0,
+        initial_synapse_weight: 0,
+        gsop_potentiation: 0,
+        gsop_depression: 0,
+        homeostasis_decay: 100,
+        refractory_period: 5,
+        synapse_refractory_period: 0,
+        signal_propagation_length: 5,
+        is_inhibitory: 0,
+        inertia_curve: [0; 8],
+        ahp_amplitude: 10_000,
+        _pad1: [0; 6],
+        adaptive_leak_min_shift: 0,
+        adaptive_leak_gain: 0,
+        adaptive_mode: 0,
+        _leak_pad: [0; 3],
+        d1_affinity: 0,
+        d2_affinity: 0,
+        heartbeat_m: 0,
+    };
+
+    // Variant 1: Heartbeat-only
+    let mut variant_1 = variant_0;
+    variant_1.heartbeat_m = physics::constants::MAX_HEARTBEAT_M;
+
+    let mut variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+    variant_table[1] = variant_1;
+
+    // Soma 0: GLIF from virtual input (local axon 0, global 100)
+    // Initialize below threshold to prove causality: -60,000 (threshold is -50,000)
+    voltages[0] = -60_000;
+    soma_to_axon[0] = 0; // mapped to Axon 0
+
+    // Soma 1: GLIF from incoming spike (local axon 1)
+    // Initialize below threshold to prove causality: -60,000 (threshold is -50,000)
+    voltages[1] = -60_000;
+    soma_to_axon[1] = 1; // mapped to Axon 1
+
+    // Soma 2: Heartbeat-only spike
+    voltages[2] = -70_000;
+    flags[2] = types::SomaFlags::new(false, 0, 1).0; // Type 1 (Heartbeat)
+
+    // Setup synapses:
+    let mut dendrite_targets = vec![0u32; 64 * 128];
+    let mut dendrite_weights = vec![0i32; 64 * 128];
+
+    // Synapse for Soma 0: connected to virtual axon 100, segment 0 (mapped to local axon 0)
+    let target_0 = types::PackedTarget::pack(0, 0).0;
+    dendrite_targets[0 * 64 + 0] = target_0;
+    dendrite_weights[0 * 64 + 0] = 15_000 << 16; // weight = 15,000, charge = 15,000
+
+    // Synapse for Soma 1: connected to physical axon 1, segment 0
+    let target_1 = types::PackedTarget::pack(1, 0).0;
+    dendrite_targets[0 * 64 + 1] = target_1;
+    dendrite_weights[0 * 64 + 1] = 15_000 << 16; // weight = 15,000, charge = 15,000
+
+    let offsets = layout::compute_state_offsets(64);
+    let mut test_state = vec![0u8; state_size];
+    test_state[offsets.off_voltage..offsets.off_voltage + 256]
+        .copy_from_slice(bytemuck::cast_slice(&voltages));
+    test_state[offsets.off_flags..offsets.off_flags + 64].copy_from_slice(&flags);
+    test_state[offsets.off_thresh..offsets.off_thresh + 256]
+        .copy_from_slice(bytemuck::cast_slice(&thresh_offsets));
+    test_state[offsets.off_timers..offsets.off_timers + 64].copy_from_slice(&timers);
+    test_state[offsets.off_s2a..offsets.off_s2a + 256]
+        .copy_from_slice(bytemuck::cast_slice(&soma_to_axon));
+    test_state[offsets.off_targets..offsets.off_targets + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+    test_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+    // Axons blob initialization (header + empty BurstHeads8)
+    let header = layout::AxonsFileHeader::new(2);
+    let mut test_axons = vec![0u8; axons_size];
+    test_axons[..16].copy_from_slice(bytemuck::bytes_of(&header));
+    let heads = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+    test_axons[16..16 + 2 * 32].copy_from_slice(bytemuck::cast_slice(&heads));
+
+    // ==========================================
+    // PHASE 1: Negative Control (No inputs)
+    // ==========================================
+    {
+        let handle = backend.alloc_shard(spec).unwrap();
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        let mapped_soma_ids = vec![0u32, 1u32, 2u32];
+        let max_spikes_per_tick = 3;
+        let mut output_spikes = vec![0u32; max_spikes_per_tick as usize];
+        let mut output_spike_counts = vec![0u32; 1];
+
+        // Run tick with no virtual or physical incoming spikes
+        let result = backend
+            .run_single_tick_no_gsop_probe_for_test(
+                handle,
+                1,    // tick
+                2,    // v_seg
+                100,  // cmd_virtual_offset
+                32,   // num_virtual_axons
+                None, // Option<&[u32]> bitmask
+                None, // Option<&[u32]> incoming
+                &mapped_soma_ids,
+                max_spikes_per_tick,
+                &mut output_spikes,
+                &mut output_spike_counts,
+            )
+            .unwrap();
+
+        // Expecting ONLY Soma 2 (Heartbeat) to spike. Soma 0 & 1 must remain silent.
+        assert_eq!(result.generated_spikes_count, 1);
+        assert_eq!(result.output_spikes_written, 1);
+        assert_eq!(result.dropped_spikes_count, 0);
+        assert_eq!(output_spike_counts[0], 1);
+        assert_eq!(output_spikes[0], 2); // Soma 2
+
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        // Verify Soma 0 & 1 voltages are decayed and DID NOT reset
+        let snap_voltages: &[i32] =
+            bytemuck::cast_slice(&snap_state[offsets.off_voltage..offsets.off_voltage + 256]);
+        let expected_s0_v_decay = physics::update_glif_voltage(
+            voltages[0],
+            0,
+            variant_0.rest_potential,
+            0,
+            variant_0.leak_shift as i32,
+            0,
+            0,
+            0,
+        );
+        assert_eq!(snap_voltages[0], expected_s0_v_decay);
+        assert_eq!(snap_voltages[1], expected_s0_v_decay);
+
+        // Verify no head push occurred for Axon 0 and Axon 1
+        let mut snap_heads = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                snap_axons[16..16 + 2 * 32].as_ptr(),
+                snap_heads.as_mut_ptr() as *mut u8,
+                2 * 32,
+            );
+        }
+        assert_eq!(snap_heads[0].h0, types::AXON_SENTINEL);
+        assert_eq!(snap_heads[1].h0, types::AXON_SENTINEL);
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    // ==========================================
+    // PHASE 2: Positive Control (With inputs triggering GLIF spikes)
+    // ==========================================
+    {
+        let handle = backend.alloc_shard(spec).unwrap();
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        let input_bitmask = vec![0x00000001u32]; // virtual global axon 100 spikes (local 0)
+        let incoming_spikes = vec![1u32]; // incoming physical axon 1 spikes
+        let mapped_soma_ids = vec![0u32, 1u32, 2u32];
+        let max_spikes_per_tick = 2; // only 2 outputs capacity, 3rd will be dropped!
+        let mut output_spikes = vec![0u32; max_spikes_per_tick as usize];
+        let mut output_spike_counts = vec![0u32; 1];
+
+        let result = backend
+            .run_single_tick_no_gsop_probe_for_test(
+                handle,
+                1,   // tick
+                2,   // v_seg
+                100, // cmd_virtual_offset
+                32,  // num_virtual_axons
+                Some(&input_bitmask),
+                Some(&incoming_spikes),
+                &mapped_soma_ids,
+                max_spikes_per_tick,
+                &mut output_spikes,
+                &mut output_spike_counts,
+            )
+            .unwrap();
+
+        // Expecting 3 generated spikes (Soma 0, 1, 2)
+        assert_eq!(result.generated_spikes_count, 3);
+        // Expecting 2 written spikes due to max_spikes_per_tick limit
+        assert_eq!(result.output_spikes_written, 2);
+        assert_eq!(result.dropped_spikes_count, 1);
+        assert_eq!(result.ticks_executed, 1);
+
+        assert_eq!(output_spike_counts[0], 2);
+        assert_eq!(output_spikes[0], 0); // Soma 0
+        assert_eq!(output_spikes[1], 1); // Soma 1
+
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        // Verify weights snapshot is byte-exact (no GSOP changes)
+        let snap_weights: &[i32] = bytemuck::cast_slice(
+            &snap_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4],
+        );
+        assert_eq!(snap_weights, &dendrite_weights);
+
+        // Verify Soma 0 & 1 voltages are reset after spike
+        let snap_voltages: &[i32] =
+            bytemuck::cast_slice(&snap_state[offsets.off_voltage..offsets.off_voltage + 256]);
+        let expected_reset =
+            (variant_0.rest_potential as u32).wrapping_sub(variant_0.ahp_amplitude as u32) as i32;
+        assert_eq!(snap_voltages[0], expected_reset);
+        assert_eq!(snap_voltages[1], expected_reset);
+
+        // Verify axon propagation heads have new head pushes
+        let mut snap_heads = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                snap_axons[16..16 + 2 * 32].as_ptr(),
+                snap_heads.as_mut_ptr() as *mut u8,
+                2 * 32,
+            );
+        }
+        let expected_head = physics::initial_axon_head(2);
+        assert_eq!(snap_heads[0].h0, expected_head); // Axon 0 received head push from Soma 0
+        assert_eq!(snap_heads[1].h0, expected_head); // Axon 1 received head push from Soma 1
+
+        backend.free_shard(handle).unwrap();
+    }
+}
