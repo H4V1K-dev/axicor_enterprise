@@ -150,6 +150,14 @@ fn test_cuda_generated_abi_header_contains_expected_constants() {
         "#define AXI_MASS_TO_CHARGE_SHIFT {}",
         physics::constants::MASS_TO_CHARGE_SHIFT
     )));
+    assert!(header_content.contains(&format!(
+        "#define AXI_INERTIA_RANK_SHIFT {}",
+        physics::constants::INERTIA_RANK_SHIFT
+    )));
+    assert!(header_content.contains(&format!(
+        "#define AXI_MAX_INERTIA_RANK {}",
+        physics::constants::MAX_INERTIA_RANK
+    )));
 
     let dummy = layout::VariantParameters {
         threshold: 0,
@@ -224,6 +232,26 @@ fn test_cuda_generated_abi_header_contains_expected_constants() {
     assert!(header_content.contains(&format!(
         "#define AXI_OFFSET_VariantParameters_heartbeat_m {}",
         (&dummy.heartbeat_m as *const _ as usize) - base_ptr
+    )));
+    assert!(header_content.contains(&format!(
+        "#define AXI_OFFSET_VariantParameters_gsop_potentiation {}",
+        (&dummy.gsop_potentiation as *const _ as usize) - base_ptr
+    )));
+    assert!(header_content.contains(&format!(
+        "#define AXI_OFFSET_VariantParameters_gsop_depression {}",
+        (&dummy.gsop_depression as *const _ as usize) - base_ptr
+    )));
+    assert!(header_content.contains(&format!(
+        "#define AXI_OFFSET_VariantParameters_d1_affinity {}",
+        (&dummy.d1_affinity as *const _ as usize) - base_ptr
+    )));
+    assert!(header_content.contains(&format!(
+        "#define AXI_OFFSET_VariantParameters_d2_affinity {}",
+        (&dummy.d2_affinity as *const _ as usize) - base_ptr
+    )));
+    assert!(header_content.contains(&format!(
+        "#define AXI_OFFSET_VariantParameters_inertia_curve {}",
+        (&dummy.inertia_curve as *const _ as usize) - base_ptr
     )));
 
     assert!(header_content.contains(&format!(
@@ -2987,6 +3015,243 @@ fn test_cuda_native_full_single_tick_no_gsop_pipeline() {
         let expected_head = physics::initial_axon_head(2);
         assert_eq!(snap_heads[0].h0, expected_head); // Axon 0 received head push from Soma 0
         assert_eq!(snap_heads[1].h0, expected_head); // Axon 1 received head push from Soma 1
+
+        backend.free_shard(handle).unwrap();
+    }
+}
+
+#[test]
+#[cfg(feature = "native")]
+#[allow(clippy::identity_op, clippy::erasing_op, clippy::needless_range_loop)]
+fn test_cuda_native_gsop_plasticity_probe() {
+    if !is_gpu_available() {
+        return;
+    }
+    let _lock = GPU_TEST_LOCK.lock().unwrap();
+    let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+    let spec = compute_api::ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 3,
+        total_ghosts: 0,
+        virtual_offset: 100,
+    };
+
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = compute_api::validation::expected_axons_blob_size(3).unwrap();
+    let offsets = layout::compute_state_offsets(64);
+
+    // Setup Variant Parameters
+    let variant_0 = layout::VariantParameters {
+        threshold: -50_000,
+        rest_potential: -70_000,
+        leak_shift: 4,
+        homeostasis_penalty: 1000,
+        spontaneous_firing_period_ticks: 0,
+        initial_synapse_weight: 0,
+        gsop_potentiation: 200,
+        gsop_depression: 150,
+        homeostasis_decay: 100,
+        refractory_period: 5,
+        synapse_refractory_period: 0,
+        signal_propagation_length: 5,
+        is_inhibitory: 0,
+        inertia_curve: [100, 90, 80, 70, 60, 50, 40, 30],
+        ahp_amplitude: 10_000,
+        _pad1: [0; 6],
+        adaptive_leak_min_shift: 0,
+        adaptive_leak_gain: 0,
+        adaptive_mode: 0,
+        _leak_pad: [0; 3],
+        d1_affinity: 128, // D1 receptor affinity (LTP boost)
+        d2_affinity: 64,  // D2 receptor affinity (LTD suppression)
+        heartbeat_m: 0,
+    };
+    let variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+
+    // Somas flags and targets setup
+    let mut flags = vec![0u8; 64];
+    let mut dendrite_targets = vec![0u32; 64 * 128];
+    let mut dendrite_weights = vec![0i32; 64 * 128];
+
+    // Soma 0: Spiking, Burst=1, Var=0
+    flags[0] = types::SomaFlags::new(true, 1, 0).0;
+    // Synapse 0: hit
+    dendrite_targets[0 * 64 + 0] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[0 * 64 + 0] = 1000;
+    // Synapse 1: miss
+    dendrite_targets[1 * 64 + 0] = types::PackedTarget::pack(1, 10).0;
+    dendrite_weights[1 * 64 + 0] = 1000;
+
+    // Soma 1: Non-spiking, Burst=1, Var=0
+    flags[1] = types::SomaFlags::new(false, 1, 0).0;
+    dendrite_targets[0 * 64 + 1] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[0 * 64 + 1] = 1000;
+
+    // Soma 2: Spiking, Burst=3, Var=0 (Burst multiplier check)
+    flags[2] = types::SomaFlags::new(true, 3, 0).0;
+    dendrite_targets[0 * 64 + 2] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[0 * 64 + 2] = 1000;
+
+    // Soma 3: Spiking, Burst=1, Var=0 (Negative weights / Dale's law)
+    flags[3] = types::SomaFlags::new(true, 1, 0).0;
+    // Synapse 0: hit, negative weight
+    dendrite_targets[0 * 64 + 3] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[0 * 64 + 3] = -1000;
+    // Synapse 1: miss, negative weight close to limit
+    dendrite_targets[1 * 64 + 3] = types::PackedTarget::pack(1, 10).0;
+    dendrite_weights[1 * 64 + 3] = -2;
+
+    // Soma 4: Spiking, Burst=1, Var=0 (Out of range / inactive / corrupt check)
+    flags[4] = types::SomaFlags::new(true, 1, 0).0;
+    // Synapse 0: out of range axon
+    dendrite_targets[0 * 64 + 4] = types::PackedTarget::pack(99, 0).0;
+    dendrite_weights[0 * 64 + 4] = 1000;
+    // Synapse 1: NONE
+    dendrite_targets[1 * 64 + 4] = types::PackedTarget::NONE.0;
+    dendrite_weights[1 * 64 + 4] = 1000;
+    // Synapse 2: TOMBSTONE
+    dendrite_targets[2 * 64 + 4] = types::PackedTarget::TOMBSTONE.0;
+    dendrite_weights[2 * 64 + 4] = 1000;
+    // Synapse 3: Corrupt/reserved target encoding (axon_q > MAX_AXON_ID + 1)
+    dendrite_targets[3 * 64 + 4] = 0x00FFFFFF;
+    dendrite_weights[3 * 64 + 4] = 1000;
+
+    // Soma 5: Spiking, Burst=1, Var=0 (i32::MIN check)
+    flags[5] = types::SomaFlags::new(true, 1, 0).0;
+    dendrite_targets[0 * 64 + 5] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[0 * 64 + 5] = i32::MIN;
+
+    // Soma 6: Spiking, Burst=1, Var=0 (floor check positive)
+    flags[6] = types::SomaFlags::new(true, 1, 0).0;
+    dendrite_targets[0 * 64 + 6] = types::PackedTarget::pack(1, 10).0; // miss
+    dendrite_weights[0 * 64 + 6] = 2;
+
+    // Setup Axon heads:
+    let header = layout::AxonsFileHeader::new(3);
+    let mut test_axons = vec![0u8; axons_size];
+    test_axons[..16].copy_from_slice(bytemuck::bytes_of(&header));
+    let mut heads = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 3];
+    heads[0].h0 = 0;
+    heads[1].h0 = 0;
+    heads[2].h0 = 0;
+    test_axons[16..16 + 3 * 32].copy_from_slice(bytemuck::cast_slice(&heads));
+
+    // Dopamine cases to test
+    let dopamine_levels = vec![0, 50, -50];
+
+    for &dopamine in &dopamine_levels {
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let mut test_state = vec![0u8; state_size];
+        test_state[offsets.off_flags..offsets.off_flags + 64].copy_from_slice(&flags);
+        test_state[offsets.off_targets..offsets.off_targets + 64 * 128 * 4]
+            .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+        test_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4]
+            .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        // Run GSOP probe
+        backend
+            .apply_gsop_plasticity_probe_for_test(handle, dopamine)
+            .unwrap();
+
+        // Download snapshot
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        let snap_weights: &[i32] = bytemuck::cast_slice(
+            &snap_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4],
+        );
+
+        // Verify all 64 * 128 weights against physics::apply_gsop_plasticity
+        for s in 0..64 {
+            let soma_flags = types::SomaFlags(flags[s]);
+            let spiking = soma_flags.spiking();
+            let burst_count = soma_flags.burst_count();
+            let variant_idx = soma_flags.type_id() as usize;
+            let var = variant_table[variant_idx];
+
+            for d in 0..128 {
+                let idx = d * 64 + s;
+                let w_old = dendrite_weights[idx];
+                let w_new = snap_weights[idx];
+
+                if !spiking {
+                    assert_eq!(
+                        w_new, w_old,
+                        "Non-spiking soma weight changed at s={}, d={}",
+                        s, d
+                    );
+                    continue;
+                }
+
+                let raw_target = dendrite_targets[idx];
+                let target = types::PackedTarget(raw_target);
+                if target.is_inactive() {
+                    assert_eq!(
+                        w_new, w_old,
+                        "Inactive target weight changed at s={}, d={}",
+                        s, d
+                    );
+                    continue;
+                }
+
+                if let Some((axon_id, segment_index)) = target.unpack() {
+                    if axon_id >= spec.total_axons {
+                        assert_eq!(
+                            w_new, w_old,
+                            "Out-of-range target weight changed at s={}, d={}",
+                            s, d
+                        );
+                        continue;
+                    }
+
+                    // Compute hit: dist < propagation_length
+                    // Inside heads array, we look at head 0 of this axon
+                    let dist = (heads[axon_id as usize].h0 as i32) - (segment_index as i32);
+                    let is_active = (dist >= 0) && (dist < var.signal_propagation_length as i32);
+
+                    let mut curve_i32 = [0i32; 8];
+                    for i in 0..8 {
+                        curve_i32[i] = var.inertia_curve[i] as i32;
+                    }
+
+                    let expected_w = physics::apply_gsop_plasticity(
+                        w_old,
+                        is_active,
+                        var.gsop_potentiation as i32,
+                        var.gsop_depression as i32,
+                        dopamine,
+                        var.d1_affinity as i32,
+                        var.d2_affinity as i32,
+                        burst_count as u32,
+                        &curve_i32,
+                    );
+
+                    assert_eq!(
+                        w_new, expected_w,
+                        "Weight mismatch at s={}, d={}, dopamine={}. Expected {}, got {}",
+                        s, d, dopamine, expected_w, w_new
+                    );
+                }
+            }
+        }
 
         backend.free_shard(handle).unwrap();
     }

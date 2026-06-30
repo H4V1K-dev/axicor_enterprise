@@ -536,6 +536,59 @@ impl CudaBackend {
             output_spike_counts,
         )
     }
+
+    /// Native-only test utility that executes the GSOP plasticity optimization protocol
+    /// directly on the GPU state for all synapses targeting currently active soma cells.
+    #[cfg(feature = "native")]
+    pub fn apply_gsop_plasticity_probe_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        dopamine: i32,
+    ) -> Result<(), ComputeApiError> {
+        let padded_n = {
+            let resource = self.registry.get_resource_mut(handle)?;
+            if !resource.uploaded {
+                return Err(ComputeApiError::BackendNotInitialized);
+            }
+            resource.spec.padded_n as usize
+        };
+
+        let resource = self.registry.get_resource_mut(handle)?;
+        let variant_bytes = resource.variant_table.as_ptr() as *const u8;
+        let variant_size = std::mem::size_of_val(&resource.variant_table);
+        let upload_res =
+            unsafe { native::axi_cuda_upload_variant_table(variant_bytes, variant_size) };
+        if upload_res != 0 {
+            return Err(native::map_cuda_error(upload_res));
+        }
+
+        let offsets = layout::compute_state_offsets(padded_n);
+        if offsets.off_targets > u32::MAX as usize
+            || offsets.off_weights > u32::MAX as usize
+            || offsets.off_flags > u32::MAX as usize
+        {
+            return Err(ComputeApiError::CapacityExceeded);
+        }
+
+        let res = unsafe {
+            native::axi_cuda_apply_gsop_plasticity_probe(
+                resource.state_ptr,
+                resource.axons_ptr,
+                resource.spec.padded_n,
+                resource.spec.total_axons,
+                offsets.off_targets as u32,
+                offsets.off_weights as u32,
+                offsets.off_flags as u32,
+                dopamine,
+            )
+        };
+
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+
+        Ok(())
+    }
 }
 
 impl ComputeBackend for CudaBackend {

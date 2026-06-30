@@ -441,7 +441,191 @@ __global__ void apply_glif_final_spike_probe_kernel(
     }
 }
 
+__device__ int apply_gsop_plasticity(
+    int weight,
+    bool is_active,
+    int gsop_potentiation,
+    int gsop_depression,
+    int dopamine,
+    int d1_affinity,
+    int d2_affinity,
+    unsigned int burst_count,
+    unsigned int variant_idx
+) {
+    int sign = 1 - ((weight >> 31) & 2);
+    unsigned int abs_w = 0;
+    if (weight == -2147483648) {
+        abs_w = 2147483648u;
+    } else {
+        abs_w = (unsigned int)(weight < 0 ? -weight : weight);
+    }
+
+    unsigned int rank = abs_w >> AXI_INERTIA_RANK_SHIFT;
+    if (rank > AXI_MAX_INERTIA_RANK) {
+        rank = AXI_MAX_INERTIA_RANK;
+    }
+
+    size_t inertia_offset = AXI_OFFSET_VariantParameters_inertia_curve + rank;
+    unsigned char inertia_curve_val = read_variant_u8(variant_idx, inertia_offset);
+    long long inertia = (long long)inertia_curve_val;
+
+    long long pot_mod = ((long long)dopamine * (long long)d1_affinity) / 128;
+    long long dep_mod = ((long long)dopamine * (long long)d2_affinity) / 128;
+
+    long long final_pot = (long long)gsop_potentiation + pot_mod;
+    if (final_pot < 0) final_pot = 0;
+
+    long long final_dep = (long long)gsop_depression - dep_mod;
+    if (final_dep < 0) final_dep = 0;
+
+    long long burst_mult = (long long)burst_count;
+    if (burst_mult < 1) burst_mult = 1;
+
+    long long delta_pot = (final_pot * inertia * burst_mult) / 128;
+    long long delta_dep = (final_dep * inertia * burst_mult) / 128;
+
+    long long active_mask = 0LL - (long long)is_active;
+    long long delta = (delta_pot & active_mask) | ((-delta_dep) & ~active_mask);
+
+    long long new_abs_raw = (long long)abs_w + delta;
+    if (new_abs_raw < (long long)AXI_MIN_WEIGHT_LIMIT) {
+        new_abs_raw = (long long)AXI_MIN_WEIGHT_LIMIT;
+    } else if (new_abs_raw > (long long)AXI_MAX_WEIGHT_LIMIT) {
+        new_abs_raw = (long long)AXI_MAX_WEIGHT_LIMIT;
+    }
+    unsigned int new_abs = (unsigned int)new_abs_raw;
+
+    return (int)new_abs * sign;
+}
+
+__global__ void apply_gsop_plasticity_probe_kernel(
+    void* state_ptr,
+    const void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_targets,
+    unsigned int off_weights,
+    unsigned int off_flags,
+    int dopamine
+) {
+    unsigned char* soma_flags = (unsigned char*)((char*)state_ptr + off_flags);
+    unsigned int* dendrite_targets = (unsigned int*)((char*)state_ptr + off_targets);
+    int* dendrite_weights = (int*)((char*)state_ptr + off_weights);
+    const unsigned int* heads = (const unsigned int*)((const char*)axons_ptr + AXI_SIZE_AxonsFileHeader);
+
+    for (unsigned int i = 0; i < padded_n; ++i) {
+        unsigned char flags = soma_flags[i];
+        if ((flags & AXI_SOMA_SPIKING_MASK) == 0) {
+            continue;
+        }
+
+        unsigned int type_id = (flags & AXI_SOMA_TYPE_MASK) >> AXI_SOMA_TYPE_SHIFT;
+        unsigned int variant_idx = type_id;
+        if (variant_idx >= AXI_VARIANT_LUT_LEN) {
+            variant_idx = AXI_VARIANT_LUT_LEN - 1;
+        }
+
+        unsigned int burst_count = (flags & AXI_SOMA_BURST_MASK) >> AXI_SOMA_BURST_SHIFT;
+
+        int gsop_potentiation = read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_gsop_potentiation);
+        int gsop_depression = read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_gsop_depression);
+        int d1_affinity = read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_d1_affinity);
+        int d2_affinity = read_variant_u8(variant_idx, AXI_OFFSET_VariantParameters_d2_affinity);
+        unsigned int propagation_length = read_variant_u32(variant_idx, AXI_OFFSET_VariantParameters_signal_propagation_length);
+
+        for (unsigned int d = 0; d < AXI_MAX_DENDRITES; ++d) {
+            size_t synapse_idx = (size_t)d * padded_n + i;
+            unsigned int raw_target = dendrite_targets[synapse_idx];
+            if (raw_target == 0 || raw_target == AXI_EMPTY_PIXEL) {
+                continue;
+            }
+
+            unsigned int axon_q = raw_target & 0x00FFFFFFu;
+            if (axon_q == 0 || axon_q > AXI_MAX_AXON_ID + 1) {
+                continue;
+            }
+            unsigned int axon_id = axon_q - 1;
+            unsigned int segment_index = (raw_target >> 24) & 0xFFu;
+
+            if (axon_id >= total_axons) {
+                continue;
+            }
+
+            unsigned int heads_array[8];
+            size_t base_idx = (size_t)axon_id * AXI_HEADS_PER_BURST;
+            for (int h = 0; h < 8; ++h) {
+                heads_array[h] = heads[base_idx + h];
+            }
+
+            bool is_active = false;
+            for (int h = 0; h < 8; ++h) {
+                unsigned int head = heads_array[h];
+                unsigned int dist = head - segment_index;
+                if (dist < propagation_length) {
+                    is_active = true;
+                    break;
+                }
+            }
+
+            int w_old = dendrite_weights[synapse_idx];
+            int w_new = apply_gsop_plasticity(
+                w_old,
+                is_active,
+                gsop_potentiation,
+                gsop_depression,
+                dopamine,
+                d1_affinity,
+                d2_affinity,
+                burst_count,
+                variant_idx
+            );
+            dendrite_weights[synapse_idx] = w_new;
+        }
+    }
+}
+
 extern "C" {
+
+int axi_cuda_apply_gsop_plasticity_probe(
+    void* state_ptr,
+    const void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_targets,
+    unsigned int off_weights,
+    unsigned int off_flags,
+    int dopamine
+) {
+    if (padded_n > 0 && state_ptr == nullptr) {
+        return -1;
+    }
+    if (total_axons > 0 && axons_ptr == nullptr) {
+        return -1;
+    }
+
+    apply_gsop_plasticity_probe_kernel<<<1, 1>>>(
+        state_ptr,
+        axons_ptr,
+        padded_n,
+        total_axons,
+        off_targets,
+        off_weights,
+        off_flags,
+        dopamine
+    );
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        return -3;
+    }
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        return -4;
+    }
+
+    return 0;
+}
 
 int axi_cuda_probe_device(unsigned int device_id) {
     int device_count = 0;

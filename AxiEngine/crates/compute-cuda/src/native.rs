@@ -78,6 +78,17 @@ extern "C" {
         generated_spikes_count_host: *mut u32,
         dropped_spikes_count_host: *mut u32,
     ) -> i32;
+
+    pub fn axi_cuda_apply_gsop_plasticity_probe(
+        state_ptr: *mut u8,
+        axons_ptr: *const u8,
+        padded_n: u32,
+        total_axons: u32,
+        off_targets: u32,
+        off_weights: u32,
+        off_flags: u32,
+        dopamine: i32,
+    ) -> i32;
 }
 
 /// Maps native C API return code to `ComputeApiError`.

@@ -86,6 +86,14 @@ fn main() {
     let off_signal_propagation_length =
         (&dummy.signal_propagation_length as *const _ as usize) - base_ptr;
     let off_heartbeat_m = (&dummy.heartbeat_m as *const _ as usize) - base_ptr;
+    let off_gsop_potentiation = (&dummy.gsop_potentiation as *const _ as usize) - base_ptr;
+    let off_gsop_depression = (&dummy.gsop_depression as *const _ as usize) - base_ptr;
+    let off_d1_affinity = (&dummy.d1_affinity as *const _ as usize) - base_ptr;
+    let off_d2_affinity = (&dummy.d2_affinity as *const _ as usize) - base_ptr;
+    let off_inertia_curve = (&dummy.inertia_curve as *const _ as usize) - base_ptr;
+
+    let inertia_rank_shift = physics::constants::INERTIA_RANK_SHIFT;
+    let max_inertia_rank = physics::constants::MAX_INERTIA_RANK;
 
     let soma_spiking_mask = types::SOMA_SPIKING_MASK;
     let soma_burst_mask = types::SOMA_BURST_MASK;
@@ -135,6 +143,8 @@ fn main() {
 #define AXI_MAX_AXON_ID {max_axon_id}
 #define AXI_MAX_SEGMENT_OFFSET {max_segment_offset}
 #define AXI_MASS_TO_CHARGE_SHIFT {mass_to_charge_shift}
+#define AXI_INERTIA_RANK_SHIFT {inertia_rank_shift}
+#define AXI_MAX_INERTIA_RANK {max_inertia_rank}
 
 /* SomaFlags Masks and Shifts */
 #define AXI_SOMA_SPIKING_MASK {soma_spiking_mask}
@@ -156,6 +166,11 @@ fn main() {
 #define AXI_OFFSET_VariantParameters_adaptive_mode {off_adaptive_mode}
 #define AXI_OFFSET_VariantParameters_signal_propagation_length {off_signal_propagation_length}
 #define AXI_OFFSET_VariantParameters_heartbeat_m {off_heartbeat_m}
+#define AXI_OFFSET_VariantParameters_gsop_potentiation {off_gsop_potentiation}
+#define AXI_OFFSET_VariantParameters_gsop_depression {off_gsop_depression}
+#define AXI_OFFSET_VariantParameters_d1_affinity {off_d1_affinity}
+#define AXI_OFFSET_VariantParameters_d2_affinity {off_d2_affinity}
+#define AXI_OFFSET_VariantParameters_inertia_curve {off_inertia_curve}
 
 #endif /* AXI_CUDA_ABI_H */
 "#
