@@ -93,6 +93,34 @@ impl CudaBackend {
         }
         Ok(out != 0)
     }
+
+    /// Propagation test utility to advance axons on the GPU.
+    #[cfg(feature = "native")]
+    pub fn propagate_uploaded_axons_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        v_seg: u32,
+    ) -> Result<(), ComputeApiError> {
+        if !(1..=255).contains(&v_seg) {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+        let resource = self.registry.get_resource_mut(handle)?;
+        if !resource.uploaded {
+            return Err(ComputeApiError::BackendNotInitialized);
+        }
+
+        let res = unsafe {
+            native::axi_cuda_propagate_uploaded_axons(
+                resource.axons_ptr,
+                resource.spec.total_axons,
+                v_seg,
+            )
+        };
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+        Ok(())
+    }
 }
 
 impl ComputeBackend for CudaBackend {
@@ -125,7 +153,7 @@ impl ComputeBackend for CudaBackend {
         _cmd: compute_api::DayBatchCmd<'_>,
     ) -> Result<compute_api::BatchResult, ComputeApiError> {
         // Stage 1D: run_day_batch implementation is deferred.
-        Err(ComputeApiError::UnsupportedBackend)
+        Err(ComputeApiError::UnsupportedFeature)
     }
 
     fn free_shard(&mut self, handle: compute_api::VramHandle) -> Result<(), ComputeApiError> {
@@ -680,6 +708,242 @@ mod tests {
         };
 
         backend.upload_shard(handle, upload).unwrap();
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    fn test_cuda_invalid_alloc_spec() {
+        let mut backend = CudaBackend {
+            _config: CudaBackendConfig::default(),
+            registry: ResourceRegistry::default(),
+            _marker: std::marker::PhantomData,
+        };
+
+        // padded_n = 0 -> InvalidShape
+        let spec_zero = compute_api::ShardAllocSpec {
+            padded_n: 0,
+            total_axons: 10,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let res_zero = backend.alloc_shard(spec_zero);
+        assert!(matches!(res_zero, Err(ComputeApiError::InvalidShape)));
+
+        // padded_n not aligned to 64 -> AlignmentViolation
+        let spec_unaligned = compute_api::ShardAllocSpec {
+            padded_n: 63,
+            total_axons: 10,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let res_unaligned = backend.alloc_shard(spec_unaligned);
+        assert!(matches!(
+            res_unaligned,
+            Err(ComputeApiError::AlignmentViolation)
+        ));
+    }
+
+    #[test]
+    fn test_run_day_batch_returns_unsupported_feature_until_stage_1d() {
+        let mut backend = CudaBackend {
+            _config: CudaBackendConfig::default(),
+            registry: ResourceRegistry::default(),
+            _marker: std::marker::PhantomData,
+        };
+
+        let handle = compute_api::VramHandle::from_raw_parts(
+            BackendKind::Cuda,
+            core::num::NonZeroU64::new(1).unwrap(),
+            1,
+        );
+        let mut output_spikes = [0u32; 1];
+        let mut output_spike_counts = [0u32; 1];
+        let cmd = compute_api::DayBatchCmd {
+            tick_base: 0,
+            sync_batch_ticks: 1,
+            v_seg: 1,
+            dopamine: 0,
+            input_words_per_tick: 0,
+            max_spikes_per_tick: 1,
+            num_outputs: 0,
+            virtual_offset: 0,
+            num_virtual_axons: 0,
+            input_bitmask: None,
+            incoming_spikes: None,
+            incoming_spike_counts: &[0],
+            mapped_soma_ids: &[],
+            output_spikes: &mut output_spikes,
+            output_spike_counts: &mut output_spike_counts,
+        };
+
+        let res = backend.run_day_batch(handle, cmd);
+        assert!(matches!(res, Err(ComputeApiError::UnsupportedFeature)));
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_native_propagate_uploaded_axons() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+        // 1. Test calling on non-uploaded backend returns BackendNotInitialized
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 3,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let res_not_init = backend.propagate_uploaded_axons_for_test(handle, 5);
+        assert!(matches!(
+            res_not_init,
+            Err(ComputeApiError::BackendNotInitialized)
+        ));
+
+        // 2. Upload axons and state
+        let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
+        let axons_size =
+            compute_api::validation::expected_axons_blob_size(spec.total_axons).unwrap();
+
+        let test_state = vec![0u8; state_size];
+
+        // Formulate test axons
+        // Header: magic "AXAX", version 1, total_axons = 3, _padding = 0
+        let header = layout::AxonsFileHeader::new(spec.total_axons);
+        let mut test_axons_blob = vec![0u8; axons_size];
+        test_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+        // Create BurstHeads8 for 3 axons
+        let mut heads = [
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+        ];
+
+        // Populate various heads
+        // Axon 0
+        heads[0].h0 = 100; // normal active
+        heads[0].h1 = types::AXON_SENTINEL; // sentinel (inactive)
+        heads[0].h2 = types::AXON_SENTINEL - 1; // active, edge case
+        heads[0].h3 = types::AXON_SENTINEL + 1; // active, value above sentinel
+
+        // Axon 1
+        heads[1].h0 = 10;
+        heads[1].h1 = 20;
+        heads[1].h2 = types::AXON_SENTINEL;
+
+        // Copy heads into the blob
+        let heads_bytes = bytemuck::cast_slice(&heads);
+        test_axons_blob[16..16 + heads_bytes.len()].copy_from_slice(heads_bytes);
+
+        let const_zero_variant = layout::VariantParameters {
+            threshold: 0,
+            rest_potential: 0,
+            leak_shift: 0,
+            homeostasis_penalty: 0,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 0,
+            refractory_period: 0,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 0,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 0,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+        let variant_table = [const_zero_variant; layout::VARIANT_LUT_LEN];
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        // 3. Test invalid v_seg (0 or > 255) returns InvalidBatch
+        let res_invalid_vseg0 = backend.propagate_uploaded_axons_for_test(handle, 0);
+        assert!(matches!(
+            res_invalid_vseg0,
+            Err(ComputeApiError::InvalidBatch)
+        ));
+        let res_invalid_vseg256 = backend.propagate_uploaded_axons_for_test(handle, 256);
+        assert!(matches!(
+            res_invalid_vseg256,
+            Err(ComputeApiError::InvalidBatch)
+        ));
+
+        // 4. Run propagation primitive on GPU
+        let v_seg = 5;
+        backend
+            .propagate_uploaded_axons_for_test(handle, v_seg)
+            .unwrap();
+
+        // 5. Read back via debug_snapshot
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons_blob = vec![0u8; axons_size];
+        let snapshot = compute_api::ShardSnapshotMut {
+            state_blob: &mut snap_state,
+            axons_blob: &mut snap_axons_blob,
+        };
+        backend.debug_snapshot(handle, snapshot).unwrap();
+
+        // 6. Compare with CPU-expected propagate_head for each head
+        let mut expected_heads = heads;
+
+        let update_head = |h: &mut u32| {
+            *h = physics::propagate_head(*h, v_seg);
+        };
+
+        // Axon 0
+        update_head(&mut expected_heads[0].h0);
+        update_head(&mut expected_heads[0].h1);
+        update_head(&mut expected_heads[0].h2);
+        update_head(&mut expected_heads[0].h3);
+        update_head(&mut expected_heads[0].h4);
+        update_head(&mut expected_heads[0].h5);
+        update_head(&mut expected_heads[0].h6);
+        update_head(&mut expected_heads[0].h7);
+
+        // Axon 1
+        update_head(&mut expected_heads[1].h0);
+        update_head(&mut expected_heads[1].h1);
+        update_head(&mut expected_heads[1].h2);
+        update_head(&mut expected_heads[1].h3);
+        update_head(&mut expected_heads[1].h4);
+        update_head(&mut expected_heads[1].h5);
+        update_head(&mut expected_heads[1].h6);
+        update_head(&mut expected_heads[1].h7);
+
+        // Axon 2
+        update_head(&mut expected_heads[2].h0);
+        update_head(&mut expected_heads[2].h1);
+        update_head(&mut expected_heads[2].h2);
+        update_head(&mut expected_heads[2].h3);
+        update_head(&mut expected_heads[2].h4);
+        update_head(&mut expected_heads[2].h5);
+        update_head(&mut expected_heads[2].h6);
+        update_head(&mut expected_heads[2].h7);
+
+        let mut expected_axons_blob = vec![0u8; axons_size];
+        expected_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+        expected_axons_blob[16..16 + heads_bytes.len()]
+            .copy_from_slice(bytemuck::cast_slice(&expected_heads));
+
+        assert_eq!(snap_axons_blob, expected_axons_blob);
 
         backend.free_shard(handle).unwrap();
     }

@@ -1,6 +1,11 @@
 #include <cuda_runtime.h>
 #include "axi_cuda_abi.h"
 
+static_assert(AXI_SIZE_AxonsFileHeader == 16, "AXI_SIZE_AxonsFileHeader must be exactly 16 bytes");
+static_assert(AXI_SIZE_BurstHeads8 % sizeof(unsigned int) == 0, "AXI_SIZE_BurstHeads8 must be a multiple of sizeof(unsigned int)");
+static_assert(AXI_SIZE_BurstHeads8 / sizeof(unsigned int) == 8, "AXI_SIZE_BurstHeads8 must represent exactly 8 heads");
+
+
 // Scalar GPU kernels
 __global__ void propagate_head_kernel(unsigned int head, unsigned int v_seg, unsigned int* out) {
     bool is_active = (head ^ AXI_AXON_SENTINEL) >= v_seg;
@@ -11,6 +16,16 @@ __global__ void propagate_head_kernel(unsigned int head, unsigned int v_seg, uns
 __global__ void active_tail_hit_kernel(unsigned int head, unsigned int seg_idx, unsigned int propagation_length, unsigned char* out) {
     unsigned int d = head - seg_idx;
     *out = (d < propagation_length) ? 1 : 0;
+}
+
+__global__ void propagate_uploaded_axons_kernel(unsigned int* heads, unsigned int total_heads, unsigned int v_seg) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < total_heads) {
+        unsigned int head = heads[idx];
+        bool is_active = (head ^ AXI_AXON_SENTINEL) >= v_seg;
+        unsigned int mask = 0u - (unsigned int)is_active;
+        heads[idx] = ((head + v_seg) & mask) | (AXI_AXON_SENTINEL & ~mask);
+    }
 }
 
 __constant__ unsigned char axi_variant_table_bytes[AXI_SIZE_VariantParameters * AXI_VARIANT_LUT_LEN];
@@ -138,6 +153,46 @@ int axi_cuda_upload_variant_table(const void* src, size_t size) {
     if (err != cudaSuccess) {
         return -5;
     }
+    return 0;
+}
+
+int axi_cuda_propagate_uploaded_axons(void* axons_ptr, unsigned int total_axons, unsigned int v_seg) {
+    if (!axons_ptr) {
+        return -1;
+    }
+
+    size_t heads_per_burst = AXI_SIZE_BurstHeads8 / sizeof(unsigned int);
+    size_t total_heads = (size_t)total_axons * heads_per_burst;
+
+    if (total_heads == 0) {
+        return 0;
+    }
+
+    size_t threads_per_block = 256;
+    if (total_axons > 0 && total_heads / total_axons != heads_per_burst) {
+        return -1;
+    }
+    if (total_heads > 0xFFFFFFFF - (threads_per_block - 1)) {
+        return -1;
+    }
+
+    unsigned int* heads = (unsigned int*)((char*)axons_ptr + AXI_SIZE_AxonsFileHeader);
+    unsigned int total_heads_u32 = (unsigned int)total_heads;
+    unsigned int threads_per_block_u32 = (unsigned int)threads_per_block;
+    unsigned int blocks = (total_heads_u32 + threads_per_block_u32 - 1) / threads_per_block_u32;
+
+    propagate_uploaded_axons_kernel<<<blocks, threads_per_block_u32>>>(heads, total_heads_u32, v_seg);
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        return -3;
+    }
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        return -4;
+    }
+
     return 0;
 }
 

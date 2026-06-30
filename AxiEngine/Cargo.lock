@@ -69,6 +69,7 @@ dependencies = [
 name = "compute-cuda"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "cc",
  "compute-api",
  "layout",

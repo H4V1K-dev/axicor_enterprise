@@ -17,6 +17,11 @@ extern "C" {
     pub fn axi_cuda_copy_h2d(dst: *mut u8, src: *const u8, size: usize) -> i32;
     pub fn axi_cuda_copy_d2h(dst: *mut u8, src: *const u8, size: usize) -> i32;
     pub fn axi_cuda_upload_variant_table(src: *const u8, size: usize) -> i32;
+    pub fn axi_cuda_propagate_uploaded_axons(
+        axons_ptr: *mut u8,
+        total_axons: u32,
+        v_seg: u32,
+    ) -> i32;
 }
 
 /// Maps native C API return code to `ComputeApiError`.

@@ -1,10 +1,10 @@
 //! Private VRAM resource registry for compute-cuda.
 
-#![allow(unused_imports, dead_code)]
-
 use compute_api::{
     validation, BackendKind, ComputeApiError, ShardAllocSpec, ShardUpload, VramHandle,
 };
+
+#[cfg(feature = "native")]
 use core::num::NonZeroU64;
 
 #[cfg(feature = "native")]
@@ -42,6 +42,7 @@ impl Drop for CudaResource {
     }
 }
 
+#[cfg_attr(not(feature = "native"), allow(dead_code))]
 pub enum ResourceSlot {
     Empty,
     Occupied {
@@ -62,12 +63,12 @@ pub struct ResourceRegistry {
 impl ResourceRegistry {
     /// Allocates device VRAM blocks and registers the shard resource.
     pub fn alloc_shard(&mut self, spec: ShardAllocSpec) -> Result<VramHandle, ComputeApiError> {
+        validation::validate_alloc_spec(&spec)?;
         let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
         let axons_size = validation::expected_axons_blob_size(spec.total_axons)?;
 
         #[cfg(feature = "native")]
         {
-            validation::validate_alloc_spec(&spec)?;
             let mut state_ptr = core::ptr::null_mut();
             let mut axons_ptr = core::ptr::null_mut();
 
