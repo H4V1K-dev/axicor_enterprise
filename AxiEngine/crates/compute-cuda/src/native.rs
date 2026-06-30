@@ -34,6 +34,17 @@ extern "C" {
         incoming_spikes: *const u32,
         incoming_spikes_count: u32,
     ) -> i32;
+    pub fn axi_cuda_compute_input_current_probe(
+        state_ptr: *const u8,
+        axons_ptr: *const u8,
+        padded_n: u32,
+        total_axons: u32,
+        off_targets: u32,
+        off_weights: u32,
+        propagation_length: u32,
+        out_i_in_host: *mut i32,
+        out_len: u32,
+    ) -> i32;
 }
 
 /// Maps native C API return code to `ComputeApiError`.

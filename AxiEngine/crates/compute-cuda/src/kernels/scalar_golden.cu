@@ -327,4 +327,127 @@ int axi_cuda_inject_and_propagate_axons_tick(
     return 0;
 }
 
+__global__ void compute_input_current_probe_kernel(
+    const void* state_ptr,
+    const void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_targets,
+    unsigned int off_weights,
+    unsigned int propagation_length,
+    int* out_i_in
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < padded_n) {
+        unsigned int sum = 0;
+        const unsigned int* targets = (const unsigned int*)((const char*)state_ptr + off_targets);
+        const int* weights = (const int*)((const char*)state_ptr + off_weights);
+        const unsigned int* axons_heads = (const unsigned int*)((const char*)axons_ptr + AXI_SIZE_AxonsFileHeader);
+
+        for (unsigned int d = 0; d < AXI_MAX_DENDRITES; ++d) {
+            size_t target_idx = (size_t)d * padded_n + idx;
+            unsigned int raw = targets[target_idx];
+            if (raw == 0 || raw == AXI_EMPTY_PIXEL) {
+                continue;
+            }
+
+            unsigned int axon_q = raw & 0x00FFFFFF;
+            if (axon_q < 1 || axon_q > AXI_MAX_AXON_ID + 1) {
+                continue;
+            }
+            unsigned int axon_id = axon_q - 1;
+            if (axon_id >= total_axons) {
+                continue;
+            }
+
+            unsigned int seg_idx = (raw >> 24) & 0xFF;
+
+            // Check active tail hits
+            bool hit = false;
+            const unsigned int* heads = axons_heads + (size_t)axon_id * AXI_HEADS_PER_BURST;
+            for (unsigned int h = 0; h < AXI_HEADS_PER_BURST; ++h) {
+                unsigned int head = heads[h];
+                unsigned int d_val = head - seg_idx;
+                if (d_val < propagation_length) {
+                    hit = true;
+                    break;
+                }
+            }
+
+            if (hit) {
+                int weight = weights[target_idx];
+                int charge = weight >> AXI_MASS_TO_CHARGE_SHIFT;
+                sum = sum + (unsigned int)charge;
+            }
+        }
+
+        out_i_in[idx] = (int)sum;
+    }
+}
+
+int axi_cuda_compute_input_current_probe(
+    const void* state_ptr,
+    const void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_targets,
+    unsigned int off_weights,
+    unsigned int propagation_length,
+    int* out_i_in_host,
+    unsigned int out_len
+) {
+    if (!state_ptr || !axons_ptr || !out_i_in_host) {
+        return -1;
+    }
+    if (out_len < padded_n) {
+        return -1;
+    }
+
+    int* d_out = nullptr;
+    cudaError_t err = cudaMalloc(&d_out, padded_n * sizeof(int));
+    if (err != cudaSuccess) {
+        return -2;
+    }
+
+    err = cudaMemset(d_out, 0, padded_n * sizeof(int));
+    if (err != cudaSuccess) {
+        cudaFree(d_out);
+        return -5;
+    }
+
+    unsigned int threads_per_block = 256;
+    unsigned int blocks = (padded_n + threads_per_block - 1) / threads_per_block;
+
+    compute_input_current_probe_kernel<<<blocks, threads_per_block>>>(
+        state_ptr,
+        axons_ptr,
+        padded_n,
+        total_axons,
+        off_targets,
+        off_weights,
+        propagation_length,
+        d_out
+    );
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        cudaFree(d_out);
+        return -3;
+    }
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        cudaFree(d_out);
+        return -4;
+    }
+
+    err = cudaMemcpy(out_i_in_host, d_out, padded_n * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaFree(d_out);
+
+    if (err != cudaSuccess) {
+        return -5;
+    }
+
+    return 0;
+}
 }

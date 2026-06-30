@@ -141,13 +141,24 @@ impl CudaBackend {
             return Err(ComputeApiError::BackendNotInitialized);
         }
 
-        let mut input_words_len = 0u32;
-        let mut d_bitmask = std::ptr::null_mut();
         if let Some(mask) = input_bitmask {
+            if mask.len() > u32::MAX as usize {
+                return Err(ComputeApiError::CapacityExceeded);
+            }
             let required_words = num_virtual_axons.div_ceil(32) as usize;
             if mask.len() < required_words {
                 return Err(ComputeApiError::InvalidBatch);
             }
+        }
+        if let Some(spikes) = incoming_spikes {
+            if spikes.len() > u32::MAX as usize {
+                return Err(ComputeApiError::CapacityExceeded);
+            }
+        }
+
+        let mut input_words_len = 0u32;
+        let mut d_bitmask = std::ptr::null_mut();
+        if let Some(mask) = input_bitmask {
             if !mask.is_empty() {
                 input_words_len = mask.len() as u32;
                 let size = std::mem::size_of_val(mask);
@@ -170,9 +181,6 @@ impl CudaBackend {
         let mut d_spikes = std::ptr::null_mut();
         let mut spikes_count = 0u32;
         if let Some(spikes) = incoming_spikes {
-            if spikes.len() > u32::MAX as usize {
-                return Err(ComputeApiError::CapacityExceeded);
-            }
             if !spikes.is_empty() {
                 spikes_count = spikes.len() as u32;
                 let size = std::mem::size_of_val(spikes);
@@ -219,6 +227,53 @@ impl CudaBackend {
         if res != 0 {
             return Err(native::map_cuda_error(res));
         }
+        Ok(())
+    }
+
+    /// Native-only test utility for active-tail input-current probe.
+    #[cfg(feature = "native")]
+    pub fn compute_input_current_probe_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        propagation_length: u32,
+        out_i_in: &mut [i32],
+    ) -> Result<(), ComputeApiError> {
+        let resource = self.registry.get_resource_mut(handle)?;
+        if !resource.uploaded {
+            return Err(ComputeApiError::BackendNotInitialized);
+        }
+
+        if out_i_in.len() > u32::MAX as usize {
+            return Err(ComputeApiError::CapacityExceeded);
+        }
+
+        if out_i_in.len() < resource.spec.padded_n as usize {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+
+        let offsets = layout::compute_state_offsets(resource.spec.padded_n as usize);
+        if offsets.off_targets > u32::MAX as usize || offsets.off_weights > u32::MAX as usize {
+            return Err(ComputeApiError::CapacityExceeded);
+        }
+
+        let res = unsafe {
+            native::axi_cuda_compute_input_current_probe(
+                resource.state_ptr,
+                resource.axons_ptr,
+                resource.spec.padded_n,
+                resource.spec.total_axons,
+                offsets.off_targets as u32,
+                offsets.off_weights as u32,
+                propagation_length,
+                out_i_in.as_mut_ptr(),
+                out_i_in.len() as u32,
+            )
+        };
+
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+
         Ok(())
     }
 }
@@ -445,6 +500,19 @@ mod tests {
         assert!(header_content.contains(&format!(
             "#define AXI_MAX_HEARTBEAT_M {}",
             physics::constants::MAX_HEARTBEAT_M
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_MAX_DENDRITES {}",
+            layout::MAX_DENDRITES
+        )));
+        assert!(header_content.contains(&format!("#define AXI_MAX_AXON_ID {}", types::MAX_AXON_ID)));
+        assert!(header_content.contains(&format!(
+            "#define AXI_MAX_SEGMENT_OFFSET {}",
+            types::MAX_SEGMENT_OFFSET
+        )));
+        assert!(header_content.contains(&format!(
+            "#define AXI_MASS_TO_CHARGE_SHIFT {}",
+            physics::constants::MASS_TO_CHARGE_SHIFT
         )));
     }
 
@@ -1407,6 +1475,174 @@ mod tests {
 
         assert_eq!(snap_axons_ov, expected_axons_blob_ov);
         backend.free_shard(handle_overflow).unwrap();
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    #[allow(clippy::needless_range_loop, clippy::identity_op, clippy::erasing_op)]
+    fn test_cuda_native_compute_input_current_probe() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 3,
+            total_ghosts: 0,
+            virtual_offset: 100,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
+        let axons_size =
+            compute_api::validation::expected_axons_blob_size(spec.total_axons).unwrap();
+
+        // 1. Set up state blob
+        let mut test_state = vec![0u8; state_size];
+        let offsets = layout::compute_state_offsets(spec.padded_n as usize);
+
+        let mut targets =
+            vec![types::PackedTarget::NONE; layout::MAX_DENDRITES * spec.padded_n as usize];
+        let mut weights = vec![0i32; layout::MAX_DENDRITES * spec.padded_n as usize];
+
+        // Soma 0
+        // Dendrite 0: target axon 1, segment 10. weight = 1600 << 16
+        targets[0 * spec.padded_n as usize + 0] = types::PackedTarget::pack(1, 10);
+        weights[0 * spec.padded_n as usize + 0] = 1600 << 16;
+        // Dendrite 1: target = NONE, weight = 500 << 16
+        targets[1 * spec.padded_n as usize + 0] = types::PackedTarget::NONE;
+        weights[1 * spec.padded_n as usize + 0] = 500 << 16;
+        // Dendrite 2: target axon_q = 0x00FF_FFFF (corrupt/reserved), weight = 999 << 16 (ignored)
+        targets[2 * spec.padded_n as usize + 0] = types::PackedTarget(0x0AFF_FFFF);
+        weights[2 * spec.padded_n as usize + 0] = 999 << 16;
+        // Dendrite 3: target axon 0, segment 0. weight = -800 << 16
+        targets[3 * spec.padded_n as usize + 0] = types::PackedTarget::pack(0, 0);
+        weights[3 * spec.padded_n as usize + 0] = -800 << 16;
+
+        // Soma 1
+        // Dendrite 0: target = TOMBSTONE (inactive)
+        targets[0 * spec.padded_n as usize + 1] = types::PackedTarget::TOMBSTONE;
+        weights[0 * spec.padded_n as usize + 1] = 500 << 16;
+        // Dendrite 1: target axon 2, segment 50 (miss). weight = 3200 << 16
+        targets[1 * spec.padded_n as usize + 1] = types::PackedTarget::pack(2, 50);
+        weights[1 * spec.padded_n as usize + 1] = 3200 << 16;
+
+        // Soma 2
+        // Dendrite 0: target axon 1, segment 0 (miss). weight = i32::MAX
+        targets[0 * spec.padded_n as usize + 2] = types::PackedTarget::pack(1, 0);
+        weights[0 * spec.padded_n as usize + 2] = i32::MAX;
+        // Dendrite 1: target axon 1, segment 0 (miss). weight = i32::MAX
+        targets[1 * spec.padded_n as usize + 2] = types::PackedTarget::pack(1, 0);
+        weights[1 * spec.padded_n as usize + 2] = i32::MAX;
+        // Dendrite 2: target axon 1, segment 10 (hit). weight = i32::MIN
+        targets[2 * spec.padded_n as usize + 2] = types::PackedTarget::pack(1, 10);
+        weights[2 * spec.padded_n as usize + 2] = i32::MIN;
+        // Dendrite 3: target axon 1, segment 10 (hit). weight = i32::MIN
+        targets[3 * spec.padded_n as usize + 2] = types::PackedTarget::pack(1, 10);
+        weights[3 * spec.padded_n as usize + 2] = i32::MIN;
+
+        // Copy targets and weights to state blob
+        let targets_bytes = bytemuck::cast_slice(&targets);
+        test_state[offsets.off_targets..offsets.off_targets + targets_bytes.len()]
+            .copy_from_slice(targets_bytes);
+
+        let weights_bytes = bytemuck::cast_slice(&weights);
+        test_state[offsets.off_weights..offsets.off_weights + weights_bytes.len()]
+            .copy_from_slice(weights_bytes);
+
+        // 2. Set up axon heads
+        let header = layout::AxonsFileHeader::new(spec.total_axons);
+        let mut test_axons_blob = vec![0u8; axons_size];
+        test_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+        let mut heads = [
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+        ];
+        // Axon 0
+        heads[0].h0 = 0; // segment 0 (active)
+                         // Axon 1
+        heads[1].h0 = 10; // segment 10 (active)
+                          // Axon 2
+        heads[2].h0 = 20; // segment 20 (active)
+
+        let heads_bytes = bytemuck::cast_slice(&heads);
+        test_axons_blob[16..16 + heads_bytes.len()].copy_from_slice(heads_bytes);
+
+        let const_zero_variant = layout::VariantParameters {
+            threshold: 0,
+            rest_potential: 0,
+            leak_shift: 0,
+            homeostasis_penalty: 0,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 0,
+            refractory_period: 0,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 5, // prop len = 5
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 0,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+        let variant_table = [const_zero_variant; layout::VARIANT_LUT_LEN];
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &test_state,
+            axons_blob: &test_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        // 3. Test compute input current probe
+        // Output buffer size is larger than padded_n to test that the tail is not overwritten
+        let mut out_i_in = vec![0i32; spec.padded_n as usize + 10];
+        for i in spec.padded_n as usize..spec.padded_n as usize + 10 {
+            out_i_in[i] = 999;
+        }
+
+        let propagation_length = 5;
+        backend
+            .compute_input_current_probe_for_test(handle, propagation_length, &mut out_i_in)
+            .unwrap();
+
+        // Soma 0: Dendrite 0 (hit, weight = 1600 >> 16 -> charge 1600)
+        //         Dendrite 3 (hit, weight = -800 >> 16 -> charge -800)
+        //         Expected = 800
+        assert_eq!(out_i_in[0], 800);
+
+        // Soma 1: Dendrite 1 (miss, segment 50 vs head 20 -> d = 20 - 50 = 0xFFFFFFE2 >= 5 -> miss)
+        //         Expected = 0
+        assert_eq!(out_i_in[1], 0);
+
+        // Soma 2: Dendrite 2 (hit, weight = i32::MIN -> charge = -32768)
+        //         Dendrite 3 (hit, weight = i32::MIN -> charge = -32768)
+        //         Expected = -65536 (computed via i32::wrapping_add on GPU)
+        let expected_soma2 = (i32::MIN >> 16).wrapping_add(i32::MIN >> 16);
+        assert_eq!(out_i_in[2], expected_soma2);
+
+        // Remaining somas (3..64): expected = 0
+        for i in 3..spec.padded_n as usize {
+            assert_eq!(out_i_in[i], 0, "Soma {} mismatch", i);
+        }
+
+        // Check that the tail (from padded_n onwards) remains untouched
+        for i in spec.padded_n as usize..spec.padded_n as usize + 10 {
+            assert_eq!(out_i_in[i], 999, "Tail element {} was overwritten", i);
+        }
 
         backend.free_shard(handle).unwrap();
     }
