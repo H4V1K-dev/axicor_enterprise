@@ -23,6 +23,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "compute"
+version = "0.1.0"
+dependencies = [
+ "compute-api",
+ "compute-cpu",
+ "layout",
+ "static_assertions",
+]
+
+[[package]]
 name = "compute-api"
 version = "0.1.0"
 dependencies = [
@@ -151,6 +161,7 @@ dependencies = [
 name = "test-harness"
 version = "0.1.0"
 dependencies = [
+ "compute",
  "compute-api",
  "compute-cpu",
  "layout",

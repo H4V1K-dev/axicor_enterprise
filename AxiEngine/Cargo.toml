@@ -6,5 +6,6 @@ members = [
     "crates/compute-api",
     "crates/compute-cpu",
     "crates/test-harness",
+    "crates/compute",
 ]
 resolver = "2"

@@ -269,6 +269,126 @@ fn test_facade_lifecycle_under_facade_feature() {
             _ => panic!("Expected skipped outcome"),
         }
     }
+    #[cfg(feature = "facade")]
+    {
+        use compute::{BackendPreference, LifecycleState, ShardEngine};
+        use compute_api::ShardSnapshotMut;
+
+        let fixture = ConformanceFixture::new("facade_lifecycle", 64, 10, 5, 100);
+
+        let engine = ShardEngine::new(BackendPreference::Cpu).unwrap();
+        assert_eq!(engine.state(), LifecycleState::Created);
+        assert_eq!(engine.backend_kind(), BackendKind::Cpu);
+
+        // Transition from Created -> Running via bootstrap
+        let mut engine =
+            ShardEngine::bootstrap(BackendPreference::Cpu, fixture.spec, fixture.upload()).unwrap();
+        assert_eq!(engine.state(), LifecycleState::Running);
+        assert_eq!(engine.backend_kind(), BackendKind::Cpu);
+
+        // Before run_day_batch, call debug_snapshot and check state/axon snapshots match
+        let mut state_dest = vec![0u8; fixture.state_blob.len()];
+        let mut axons_dest = vec![0u8; fixture.axons_blob.len()];
+        {
+            let snapshot = ShardSnapshotMut {
+                state_blob: &mut state_dest,
+                axons_blob: &mut axons_dest,
+            };
+            engine.debug_snapshot(snapshot).unwrap();
+        }
+        assert_eq!(state_dest, fixture.state_blob);
+        assert_eq!(axons_dest, fixture.axons_blob);
+
+        // Run a short run_day_batch (1 tick)
+        let ticks = 1;
+        let v_seg = 1;
+        let dopamine = 0;
+        let input_words = 0;
+        let max_spikes = 10;
+        let num_outputs = 2;
+        let num_virtual_axons = 10;
+        let tick_base = 0;
+
+        let mut cmd_bufs = fixture.create_cmd_buffers(ticks, max_spikes, input_words, num_outputs);
+        let cmd = fixture.build_cmd(
+            tick_base,
+            ticks,
+            v_seg,
+            dopamine,
+            input_words,
+            max_spikes,
+            num_outputs,
+            num_virtual_axons,
+            &mut cmd_bufs,
+        );
+
+        let result = engine.run_day_batch(cmd).unwrap();
+        assert_eq!(result.ticks_executed, ticks);
+
+        // free_shard
+        engine.free_shard().unwrap();
+        assert_eq!(engine.state(), LifecycleState::Created);
+        assert!(engine.handle().is_none());
+
+        // teardown
+        engine.teardown().unwrap();
+        assert_eq!(engine.state(), LifecycleState::TornDown);
+    }
+}
+
+#[test]
+fn test_facade_lifecycle_errors() {
+    #[cfg(not(feature = "facade"))]
+    {
+        // Skip
+    }
+    #[cfg(feature = "facade")]
+    {
+        use compute::{BackendPreference, ComputeError, LifecycleState, ShardEngine};
+        use compute_api::ShardSnapshotMut;
+
+        let mut engine = ShardEngine::new(BackendPreference::Cpu).unwrap();
+        assert_eq!(engine.state(), LifecycleState::Created);
+
+        // debug_snapshot before bootstrap/upload
+        let mut state_dest = vec![0u8; 10];
+        let mut axons_dest = vec![0u8; 10];
+        let snapshot = ShardSnapshotMut {
+            state_blob: &mut state_dest,
+            axons_blob: &mut axons_dest,
+        };
+        let res = engine.debug_snapshot(snapshot);
+        assert!(matches!(
+            res,
+            Err(ComputeError::InvalidLifecycleState { .. })
+        ));
+
+        // run_day_batch before bootstrap/upload
+        let mut output_spikes = vec![0u32; 10];
+        let mut output_spike_counts = vec![0u32; 1];
+        let cmd = compute_api::DayBatchCmd {
+            tick_base: 0,
+            sync_batch_ticks: 1,
+            v_seg: 1,
+            dopamine: 0,
+            input_words_per_tick: 0,
+            max_spikes_per_tick: 5,
+            num_outputs: 0,
+            virtual_offset: 0,
+            num_virtual_axons: 0,
+            input_bitmask: None,
+            incoming_spikes: None,
+            incoming_spike_counts: &[0],
+            mapped_soma_ids: &[],
+            output_spikes: &mut output_spikes,
+            output_spike_counts: &mut output_spike_counts,
+        };
+        let res = engine.run_day_batch(cmd);
+        assert!(matches!(
+            res,
+            Err(ComputeError::InvalidLifecycleState { .. })
+        ));
+    }
 }
 
 #[test]

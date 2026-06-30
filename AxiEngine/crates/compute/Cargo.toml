@@ -1,0 +1,22 @@
+[package]
+name = "compute"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "compute"
+
+[dependencies]
+compute-api = { path = "../compute-api" }
+compute-cpu = { path = "../compute-cpu", optional = true }
+layout = { path = "../layout", optional = true }
+
+[dev-dependencies]
+static_assertions = "=1.1.0"
+
+[features]
+default = ["cpu"]
+cpu = ["dep:compute-cpu"]
+cuda = []
+hip = []
+mock = ["dep:layout"]

@@ -11,6 +11,7 @@ types = { path = "../types" }
 layout = { path = "../layout" }
 compute-api = { path = "../compute-api" }
 compute-cpu = { path = "../compute-cpu", optional = true }
+compute = { path = "../compute", optional = true, default-features = false }
 
 [features]
 default = ["cpu", "mock", "abi"]
@@ -19,4 +20,4 @@ mock = []
 abi = []
 cuda = []
 hip = []
-facade = []
+facade = ["dep:compute", "compute/cpu"]
