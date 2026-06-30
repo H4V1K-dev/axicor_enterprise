@@ -328,7 +328,7 @@ __global__ void apply_glif_final_spike_probe_kernel(
         // 1. Decay threshold offset
         int thresh_offset = threshold_offset[i];
         int homeostasis_decay_val = (int)read_variant_u16(variant_idx, AXI_OFFSET_VariantParameters_homeostasis_decay);
-        int decayed_offset = thresh_offset - homeostasis_decay_val;
+        int decayed_offset = (int)((unsigned int)thresh_offset - (unsigned int)homeostasis_decay_val);
         decayed_offset = decayed_offset & ~(decayed_offset >> 31);
 
         // 2. GLIF update
@@ -366,9 +366,9 @@ __global__ void apply_glif_final_spike_probe_kernel(
             long long v_diff = (long long)voltage - (long long)rest_potential;
             int delta_v_leak = (int)(v_diff >> shift);
 
-            int v_new = voltage + i_in - delta_v_leak;
+            int v_new = (int)((unsigned int)voltage + (unsigned int)i_in - (unsigned int)delta_v_leak);
 
-            int v_th_eff = threshold + decayed_offset;
+            int v_th_eff = (int)((unsigned int)threshold + (unsigned int)decayed_offset);
             is_glif = (v_new >= v_th_eff);
 
             if (is_glif) {
@@ -813,6 +813,9 @@ int axi_cuda_apply_glif_final_spike_probe(
         return -1;
     }
     if (i_in_len < padded_n) {
+        return -1;
+    }
+    if (num_outputs > 0 && !mapped_soma_ids_host) {
         return -1;
     }
 
