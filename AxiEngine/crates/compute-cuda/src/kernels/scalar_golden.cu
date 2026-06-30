@@ -28,6 +28,73 @@ __global__ void propagate_uploaded_axons_kernel(unsigned int* heads, unsigned in
     }
 }
 
+#define AXI_HEADS_PER_BURST (AXI_SIZE_BurstHeads8 / sizeof(unsigned int))
+
+__global__ void inject_and_propagate_axons_tick_kernel(
+    unsigned int* heads,
+    unsigned int total_axons,
+    unsigned int v_seg,
+    unsigned int shard_virtual_offset,
+    unsigned int cmd_virtual_offset,
+    unsigned int num_virtual_axons,
+    const unsigned int* input_bitmask,
+    const unsigned int* incoming_spikes,
+    unsigned int incoming_spikes_count
+) {
+    unsigned int a = blockIdx.x * blockDim.x + threadIdx.x;
+    if (a < total_axons) {
+        // 1. Virtual input check
+        unsigned int virtual_injections = 0;
+        unsigned int global_axon_id = shard_virtual_offset + a;
+        if (input_bitmask && global_axon_id >= cmd_virtual_offset && global_axon_id < cmd_virtual_offset + num_virtual_axons) {
+            unsigned int k = global_axon_id - cmd_virtual_offset;
+            unsigned int word_idx = k / 32;
+            unsigned int bit_idx = k % 32;
+            if ((input_bitmask[word_idx] & (1u << bit_idx)) != 0) {
+                virtual_injections = 1;
+            }
+        }
+
+        // 2. Incoming spikes check
+        unsigned int incoming_injections = 0;
+        if (incoming_spikes) {
+            for (unsigned int s = 0; s < incoming_spikes_count; ++s) {
+                if (incoming_spikes[s] == a) {
+                    incoming_injections++;
+                }
+            }
+        }
+
+        // 3. Shift calculations
+        unsigned int N = virtual_injections + incoming_injections;
+        
+        unsigned int local_heads[AXI_HEADS_PER_BURST];
+        unsigned int base_idx = a * AXI_HEADS_PER_BURST;
+        for (unsigned int h = 0; h < AXI_HEADS_PER_BURST; ++h) {
+            local_heads[h] = heads[base_idx + h];
+        }
+
+        unsigned int init_val = 0u - v_seg;
+        unsigned int shifted_heads[AXI_HEADS_PER_BURST];
+        for (unsigned int h = 0; h < AXI_HEADS_PER_BURST; ++h) {
+            if (h < N) {
+                shifted_heads[h] = init_val;
+            } else {
+                shifted_heads[h] = local_heads[h - N];
+            }
+        }
+
+        // 4. Propagation and writeback
+        for (unsigned int h = 0; h < AXI_HEADS_PER_BURST; ++h) {
+            unsigned int head = shifted_heads[h];
+            bool is_active = (head ^ AXI_AXON_SENTINEL) >= v_seg;
+            unsigned int mask = 0u - (unsigned int)is_active;
+            heads[base_idx + h] = ((head + v_seg) & mask) | (AXI_AXON_SENTINEL & ~mask);
+        }
+    }
+}
+
+
 __constant__ unsigned char axi_variant_table_bytes[AXI_SIZE_VariantParameters * AXI_VARIANT_LUT_LEN];
 
 extern "C" {
@@ -182,6 +249,59 @@ int axi_cuda_propagate_uploaded_axons(void* axons_ptr, unsigned int total_axons,
     unsigned int blocks = (total_heads_u32 + threads_per_block_u32 - 1) / threads_per_block_u32;
 
     propagate_uploaded_axons_kernel<<<blocks, threads_per_block_u32>>>(heads, total_heads_u32, v_seg);
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        return -3;
+    }
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        return -4;
+    }
+
+    return 0;
+}
+
+int axi_cuda_inject_and_propagate_axons_tick(
+    void* axons_ptr,
+    unsigned int total_axons,
+    unsigned int v_seg,
+    unsigned int shard_virtual_offset,
+    unsigned int cmd_virtual_offset,
+    unsigned int num_virtual_axons,
+    const unsigned int* input_bitmask,
+    const unsigned int* incoming_spikes,
+    unsigned int incoming_spikes_count
+) {
+    if (!axons_ptr) {
+        return -1;
+    }
+
+    if (total_axons == 0) {
+        return 0;
+    }
+
+    size_t threads_per_block = 256;
+    if (total_axons > 0xFFFFFFFF - (threads_per_block - 1)) {
+        return -1;
+    }
+
+    unsigned int* heads = (unsigned int*)((char*)axons_ptr + AXI_SIZE_AxonsFileHeader);
+    unsigned int threads_per_block_u32 = (unsigned int)threads_per_block;
+    unsigned int blocks = (total_axons + threads_per_block_u32 - 1) / threads_per_block_u32;
+
+    inject_and_propagate_axons_tick_kernel<<<blocks, threads_per_block_u32>>>(
+        heads,
+        total_axons,
+        v_seg,
+        shard_virtual_offset,
+        cmd_virtual_offset,
+        num_virtual_axons,
+        input_bitmask,
+        incoming_spikes,
+        incoming_spikes_count
+    );
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {

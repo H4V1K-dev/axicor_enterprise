@@ -121,6 +121,96 @@ impl CudaBackend {
         }
         Ok(())
     }
+
+    /// Single-tick injection and propagation test utility.
+    #[cfg(feature = "native")]
+    pub fn inject_and_propagate_axons_tick_for_test(
+        &mut self,
+        handle: compute_api::VramHandle,
+        v_seg: u32,
+        cmd_virtual_offset: u32,
+        num_virtual_axons: u32,
+        input_bitmask: Option<&[u32]>,
+        incoming_spikes: Option<&[u32]>,
+    ) -> Result<(), ComputeApiError> {
+        if !(1..=255).contains(&v_seg) {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+        let resource = self.registry.get_resource_mut(handle)?;
+        if !resource.uploaded {
+            return Err(ComputeApiError::BackendNotInitialized);
+        }
+
+        let mut d_bitmask = std::ptr::null_mut();
+        if let Some(mask) = input_bitmask {
+            if !mask.is_empty() {
+                let size = std::mem::size_of_val(mask);
+                let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut d_bitmask) };
+                if res != 0 {
+                    return Err(native::map_cuda_error(res));
+                }
+                let res = unsafe {
+                    native::axi_cuda_copy_h2d(d_bitmask, mask.as_ptr() as *const u8, size)
+                };
+                if res != 0 {
+                    unsafe {
+                        let _ = native::axi_cuda_free(d_bitmask);
+                    }
+                    return Err(native::map_cuda_error(res));
+                }
+            }
+        }
+
+        let mut d_spikes = std::ptr::null_mut();
+        let mut spikes_count = 0u32;
+        if let Some(spikes) = incoming_spikes {
+            if !spikes.is_empty() {
+                spikes_count = spikes.len() as u32;
+                let size = std::mem::size_of_val(spikes);
+                let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut d_spikes) };
+                if res != 0 {
+                    unsafe {
+                        let _ = native::axi_cuda_free(d_bitmask);
+                    }
+                    return Err(native::map_cuda_error(res));
+                }
+                let res = unsafe {
+                    native::axi_cuda_copy_h2d(d_spikes, spikes.as_ptr() as *const u8, size)
+                };
+                if res != 0 {
+                    unsafe {
+                        let _ = native::axi_cuda_free(d_bitmask);
+                        let _ = native::axi_cuda_free(d_spikes);
+                    }
+                    return Err(native::map_cuda_error(res));
+                }
+            }
+        }
+
+        let res = unsafe {
+            native::axi_cuda_inject_and_propagate_axons_tick(
+                resource.axons_ptr,
+                resource.spec.total_axons,
+                v_seg,
+                resource.spec.virtual_offset,
+                cmd_virtual_offset,
+                num_virtual_axons,
+                d_bitmask as *const u32,
+                d_spikes as *const u32,
+                spikes_count,
+            )
+        };
+
+        unsafe {
+            let _ = native::axi_cuda_free(d_bitmask);
+            let _ = native::axi_cuda_free(d_spikes);
+        }
+
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+        Ok(())
+    }
 }
 
 impl ComputeBackend for CudaBackend {
@@ -944,6 +1034,231 @@ mod tests {
             .copy_from_slice(bytemuck::cast_slice(&expected_heads));
 
         assert_eq!(snap_axons_blob, expected_axons_blob);
+
+        backend.free_shard(handle).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_native_inject_and_propagate_axons_tick() {
+        if !is_gpu_available() {
+            return;
+        }
+        let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+        // 1. Create a shard with 4 axons, virtual offset 100
+        let spec = compute_api::ShardAllocSpec {
+            padded_n: 64,
+            total_axons: 4,
+            total_ghosts: 0,
+            virtual_offset: 100,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+
+        // Check non-uploaded returns BackendNotInitialized
+        let res_not_init =
+            backend.inject_and_propagate_axons_tick_for_test(handle, 5, 95, 10, None, None);
+        assert!(matches!(
+            res_not_init,
+            Err(ComputeApiError::BackendNotInitialized)
+        ));
+
+        let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
+        let axons_size =
+            compute_api::validation::expected_axons_blob_size(spec.total_axons).unwrap();
+
+        // Fill initial axons with sentinels
+        let header = layout::AxonsFileHeader::new(spec.total_axons);
+        let mut initial_axons_blob = vec![0u8; axons_size];
+        initial_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+        let mut heads = [
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+            layout::BurstHeads8::empty(types::AXON_SENTINEL),
+        ];
+
+        // Seed some initial heads to verify propagation and shifting
+        heads[0].h0 = 1000;
+        heads[0].h1 = types::AXON_SENTINEL;
+        heads[1].h0 = 2000;
+        heads[2].h0 = 3000;
+        heads[3].h0 = 4000;
+
+        let heads_bytes = bytemuck::cast_slice(&heads);
+        initial_axons_blob[16..16 + heads_bytes.len()].copy_from_slice(heads_bytes);
+
+        let const_zero_variant = layout::VariantParameters {
+            threshold: 0,
+            rest_potential: 0,
+            leak_shift: 0,
+            homeostasis_penalty: 0,
+            spontaneous_firing_period_ticks: 0,
+            initial_synapse_weight: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            homeostasis_decay: 0,
+            refractory_period: 0,
+            synapse_refractory_period: 0,
+            signal_propagation_length: 0,
+            is_inhibitory: 0,
+            inertia_curve: [0; 8],
+            ahp_amplitude: 0,
+            _pad1: [0; 6],
+            adaptive_leak_min_shift: 0,
+            adaptive_leak_gain: 0,
+            adaptive_mode: 0,
+            _leak_pad: [0; 3],
+            d1_affinity: 0,
+            d2_affinity: 0,
+            heartbeat_m: 0,
+        };
+        let variant_table = [const_zero_variant; layout::VARIANT_LUT_LEN];
+
+        let upload = compute_api::ShardUpload {
+            state_blob: &vec![0u8; state_size],
+            axons_blob: &initial_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload).unwrap();
+
+        // Check invalid v_seg range checks
+        let res_vseg0 =
+            backend.inject_and_propagate_axons_tick_for_test(handle, 0, 95, 10, None, None);
+        assert!(matches!(res_vseg0, Err(ComputeApiError::InvalidBatch)));
+
+        let res_vseg256 =
+            backend.inject_and_propagate_axons_tick_for_test(handle, 256, 95, 10, None, None);
+        assert!(matches!(res_vseg256, Err(ComputeApiError::InvalidBatch)));
+
+        // Inputs for the tick:
+        // Virtual Offset: 95
+        // Num Virtual Axons: 10
+        // Virtual Axon range: 95..105 (global IDs)
+        // bitmask: 1 word, active bits: 0, 5, 6, 7, 9
+        // - bit 0 (global ID 95): active, but ignored
+        // - bit 5 (global ID 100): active -> axon 0 gets 1 virtual injection
+        // - bit 6 (global ID 101): active -> axon 1 gets 1 virtual injection
+        // - bit 7 (global ID 102): active -> axon 2 gets 1 virtual injection
+        // - bit 9 (global ID 104): active, but ignored
+        let input_bitmask = vec![737];
+
+        // Incoming spikes:
+        // Spikes list: [1, 2, 2, 9] (local axon IDs)
+        // - axon 1 (local ID 1) gets 1 incoming injection
+        // - axon 2 (local ID 2) gets 2 incoming injections (duplicate!)
+        // - local ID 9 gets ignored
+        let incoming_spikes = vec![1, 2, 2, 9];
+
+        // Let's run the tick on GPU
+        let v_seg = 5;
+        backend
+            .inject_and_propagate_axons_tick_for_test(
+                handle,
+                v_seg,
+                95,
+                10,
+                Some(&input_bitmask),
+                Some(&incoming_spikes),
+            )
+            .unwrap();
+
+        // Read back
+        let mut snap_state = vec![0u8; state_size];
+        let mut snap_axons = vec![0u8; axons_size];
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        // Calculate expected on CPU
+        let init_val = physics::initial_axon_head(v_seg);
+        let mut expected_heads = heads;
+
+        let apply_injections_and_propagate = |heads_arr: &mut layout::BurstHeads8, n: usize| {
+            let mut h_slice = [
+                heads_arr.h0,
+                heads_arr.h1,
+                heads_arr.h2,
+                heads_arr.h3,
+                heads_arr.h4,
+                heads_arr.h5,
+                heads_arr.h6,
+                heads_arr.h7,
+            ];
+            for _ in 0..n {
+                h_slice[7] = h_slice[6];
+                h_slice[6] = h_slice[5];
+                h_slice[5] = h_slice[4];
+                h_slice[4] = h_slice[3];
+                h_slice[3] = h_slice[2];
+                h_slice[2] = h_slice[1];
+                h_slice[1] = h_slice[0];
+                h_slice[0] = init_val;
+            }
+            for h in h_slice.iter_mut() {
+                *h = physics::propagate_head(*h, v_seg);
+            }
+            heads_arr.h0 = h_slice[0];
+            heads_arr.h1 = h_slice[1];
+            heads_arr.h2 = h_slice[2];
+            heads_arr.h3 = h_slice[3];
+            heads_arr.h4 = h_slice[4];
+            heads_arr.h5 = h_slice[5];
+            heads_arr.h6 = h_slice[6];
+            heads_arr.h7 = h_slice[7];
+        };
+
+        apply_injections_and_propagate(&mut expected_heads[0], 1); // Axon 0
+        apply_injections_and_propagate(&mut expected_heads[1], 2); // Axon 1
+        apply_injections_and_propagate(&mut expected_heads[2], 3); // Axon 2
+        apply_injections_and_propagate(&mut expected_heads[3], 0); // Axon 3 (no injections)
+
+        let mut expected_axons_blob = vec![0u8; axons_size];
+        expected_axons_blob[..16].copy_from_slice(bytemuck::bytes_of(&header));
+        expected_axons_blob[16..16 + heads_bytes.len()]
+            .copy_from_slice(bytemuck::cast_slice(&expected_heads));
+
+        assert_eq!(snap_axons, expected_axons_blob);
+
+        // Test no-input case matches simple propagation
+        let upload2 = compute_api::ShardUpload {
+            state_blob: &vec![0u8; state_size],
+            axons_blob: &initial_axons_blob,
+            variant_table: &variant_table,
+        };
+        backend.upload_shard(handle, upload2).unwrap();
+
+        backend
+            .inject_and_propagate_axons_tick_for_test(handle, v_seg, 95, 10, None, None)
+            .unwrap();
+
+        backend
+            .debug_snapshot(
+                handle,
+                compute_api::ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        let mut expected_heads2 = heads;
+        for eh in expected_heads2.iter_mut() {
+            apply_injections_and_propagate(eh, 0);
+        }
+        let mut expected_axons_blob2 = vec![0u8; axons_size];
+        expected_axons_blob2[..16].copy_from_slice(bytemuck::bytes_of(&header));
+        expected_axons_blob2[16..16 + heads_bytes.len()]
+            .copy_from_slice(bytemuck::cast_slice(&expected_heads2));
+
+        assert_eq!(snap_axons, expected_axons_blob2);
 
         backend.free_shard(handle).unwrap();
     }

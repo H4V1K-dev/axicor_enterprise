@@ -22,6 +22,17 @@ extern "C" {
         total_axons: u32,
         v_seg: u32,
     ) -> i32;
+    pub fn axi_cuda_inject_and_propagate_axons_tick(
+        axons_ptr: *mut u8,
+        total_axons: u32,
+        v_seg: u32,
+        shard_virtual_offset: u32,
+        cmd_virtual_offset: u32,
+        num_virtual_axons: u32,
+        input_bitmask: *const u32,
+        incoming_spikes: *const u32,
+        incoming_spikes_count: u32,
+    ) -> i32;
 }
 
 /// Maps native C API return code to `ComputeApiError`.
