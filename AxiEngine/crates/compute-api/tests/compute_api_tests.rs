@@ -452,6 +452,59 @@ fn test_reject_insufficient_batch_slices() {
 }
 
 #[test]
+fn test_validate_short_input_stride() {
+    let counts = [0u32; 1];
+    let mut out_counts = [0u32; 1];
+    let mut out_spikes = [0u32; 10];
+    let soma_ids = [0u32; 1];
+    let input_bitmask = [0u32; 1];
+
+    // For 33 axons, we need 2 words. We provide only 1 word, which should trigger InvalidBatch.
+    let cmd = DayBatchCmd {
+        tick_base: 0,
+        sync_batch_ticks: 1,
+        v_seg: 1,
+        dopamine: 0,
+        input_words_per_tick: 1,
+        max_spikes_per_tick: 10,
+        num_outputs: 1,
+        virtual_offset: 0,
+        num_virtual_axons: 33, // 33 axons -> needs 2 words per tick
+        input_bitmask: Some(&input_bitmask),
+        incoming_spikes: None,
+        incoming_spike_counts: &counts,
+        mapped_soma_ids: &soma_ids,
+        output_spikes: &mut out_spikes,
+        output_spike_counts: &mut out_counts,
+    };
+    assert_eq!(
+        validate_day_batch_cmd(&cmd),
+        Err(ComputeApiError::InvalidBatch)
+    );
+
+    // Exact count works (2 words for 33 axons)
+    let input_bitmask_2 = [0u32; 2];
+    let cmd_ok = DayBatchCmd {
+        tick_base: 0,
+        sync_batch_ticks: 1,
+        v_seg: 1,
+        dopamine: 0,
+        input_words_per_tick: 2,
+        max_spikes_per_tick: 10,
+        num_outputs: 1,
+        virtual_offset: 0,
+        num_virtual_axons: 33,
+        input_bitmask: Some(&input_bitmask_2),
+        incoming_spikes: None,
+        incoming_spike_counts: &counts,
+        mapped_soma_ids: &soma_ids,
+        output_spikes: &mut out_spikes,
+        output_spike_counts: &mut out_counts,
+    };
+    assert!(validate_day_batch_cmd(&cmd_ok).is_ok());
+}
+
+#[test]
 fn test_default_debug_snapshot_returns_unsupported() {
     let mut mock = MockBackend::new();
     let handle = VramHandle::from_raw_parts(BackendKind::Mock, NonZeroU64::new(1).unwrap(), 1);

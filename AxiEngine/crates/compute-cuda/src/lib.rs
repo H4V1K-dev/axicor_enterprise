@@ -656,12 +656,119 @@ impl ComputeBackend for CudaBackend {
         self.registry.upload_shard(handle, upload)
     }
 
+    #[cfg(feature = "native")]
+    fn run_day_batch(
+        &mut self,
+        handle: compute_api::VramHandle,
+        cmd: compute_api::DayBatchCmd<'_>,
+    ) -> Result<compute_api::BatchResult, ComputeApiError> {
+        let uploaded = {
+            let resource = self.registry.get_resource_mut(handle)?;
+            resource.uploaded
+        };
+        if !uploaded {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+        compute_api::validation::validate_day_batch_cmd(&cmd)?;
+
+        let mut generated_spikes_count: u32 = 0;
+        let mut output_spikes_written: u32 = 0;
+        let mut dropped_spikes_count: u32 = 0;
+
+        // Reset output_spike_counts to zero for all ticks in this batch
+        for count in cmd
+            .output_spike_counts
+            .iter_mut()
+            .take(cmd.sync_batch_ticks as usize)
+        {
+            *count = 0;
+        }
+
+        let max_spikes_per_tick = cmd.max_spikes_per_tick as usize;
+        let input_words_per_tick = cmd.input_words_per_tick as usize;
+
+        // Output spikes buffer as mutable slice
+        let output_spikes = cmd.output_spikes;
+
+        for tick_idx in 0..cmd.sync_batch_ticks as usize {
+            let current_tick = cmd.tick_base + tick_idx as u64;
+
+            // Take tick slice for input_bitmask
+            let tick_bitmask = if let Some(bitmask) = cmd.input_bitmask {
+                let start_w = tick_idx * input_words_per_tick;
+                let end_w = start_w + input_words_per_tick;
+                if end_w <= bitmask.len() {
+                    Some(&bitmask[start_w..end_w])
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Take incoming spikes slice
+            let tick_incoming = if let Some(spikes) = cmd.incoming_spikes {
+                let counts = cmd.incoming_spike_counts;
+                if tick_idx < counts.len() {
+                    let count = (counts[tick_idx] as usize).min(max_spikes_per_tick);
+                    let start_s = tick_idx * max_spikes_per_tick;
+                    if start_s + count <= spikes.len() {
+                        Some(&spikes[start_s..start_s + count])
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Setup output slices for this tick directly from cmd buffers without allocations
+            let dest_start = tick_idx * max_spikes_per_tick;
+            let tick_output_spikes =
+                &mut output_spikes[dest_start..dest_start + max_spikes_per_tick];
+            let tick_output_counts = &mut cmd.output_spike_counts[tick_idx..tick_idx + 1];
+
+            // Run single tick pipeline
+            let tick_res = self.run_single_tick_with_gsop_probe_for_test(
+                handle,
+                current_tick,
+                cmd.v_seg,
+                cmd.virtual_offset,
+                cmd.num_virtual_axons,
+                tick_bitmask,
+                tick_incoming,
+                cmd.mapped_soma_ids,
+                cmd.max_spikes_per_tick,
+                tick_output_spikes,
+                tick_output_counts,
+                cmd.dopamine as i32,
+            )?;
+
+            generated_spikes_count =
+                generated_spikes_count.saturating_add(tick_res.generated_spikes_count);
+            output_spikes_written =
+                output_spikes_written.saturating_add(tick_res.output_spikes_written);
+            dropped_spikes_count =
+                dropped_spikes_count.saturating_add(tick_res.dropped_spikes_count);
+        }
+
+        Ok(compute_api::BatchResult {
+            ticks_executed: cmd.sync_batch_ticks,
+            generated_spikes_count,
+            output_spikes_written,
+            dropped_spikes_count,
+            execution_time_us: 0,
+        })
+    }
+
+    #[cfg(not(feature = "native"))]
     fn run_day_batch(
         &mut self,
         _handle: compute_api::VramHandle,
         _cmd: compute_api::DayBatchCmd<'_>,
     ) -> Result<compute_api::BatchResult, ComputeApiError> {
-        // Stage 1D: run_day_batch implementation is deferred.
         Err(ComputeApiError::UnsupportedFeature)
     }
 

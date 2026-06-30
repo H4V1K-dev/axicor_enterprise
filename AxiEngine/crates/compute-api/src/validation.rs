@@ -92,6 +92,11 @@ pub fn validate_day_batch_cmd(cmd: &DayBatchCmd<'_>) -> Result<(), ComputeApiErr
     }
 
     if let Some(mask) = cmd.input_bitmask {
+        let required_words = (cmd.num_virtual_axons as usize).div_ceil(32);
+        if (cmd.input_words_per_tick as usize) < required_words {
+            return Err(ComputeApiError::InvalidBatch);
+        }
+
         let min_mask_len = (cmd.input_words_per_tick as usize)
             .checked_mul(batch_ticks)
             .ok_or(ComputeApiError::CapacityExceeded)?;

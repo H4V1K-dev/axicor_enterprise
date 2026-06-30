@@ -21,6 +21,7 @@ cc = "=1.2.56"
 [dev-dependencies]
 static_assertions = "=1.1.0"
 bytemuck = "=1.25.0"
+compute-cpu = { path = "../compute-cpu" }
 
 [features]
 default = []
