@@ -5,6 +5,9 @@ use std::rc::Rc;
 
 use compute_api::{BackendCapabilities, BackendKind, ComputeApiError, ComputeBackend};
 
+#[cfg(feature = "native")]
+mod native;
+
 /// Configuration parameters for the CudaBackend.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CudaBackendConfig {
@@ -34,8 +37,14 @@ impl CudaBackend {
         }
         #[cfg(feature = "native")]
         {
-            // Native provider implementation is deferred to Stage 1B.
-            Err(ComputeApiError::BackendNotInitialized)
+            let res = unsafe { native::axi_cuda_probe_device(config.device_id) };
+            if res != 0 {
+                return Err(ComputeApiError::UnsupportedBackend);
+            }
+            Ok(Self {
+                _config: config,
+                _marker: PhantomData,
+            })
         }
     }
 
@@ -49,6 +58,34 @@ impl CudaBackend {
             alignment_bytes: 64,
             pinned_host_required: true,
         }
+    }
+
+    /// Advances an axonal propagation head on the GPU.
+    #[cfg(feature = "native")]
+    pub fn cuda_propagate_head_for_test(head: u32, v_seg: u32) -> Result<u32, ComputeApiError> {
+        let mut out = 0u32;
+        let res = unsafe { native::axi_cuda_propagate_head(head, v_seg, &mut out) };
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+        Ok(out)
+    }
+
+    /// Evaluates active tail contact on the GPU.
+    #[cfg(feature = "native")]
+    pub fn cuda_active_tail_hit_for_test(
+        head: u32,
+        seg_idx: u32,
+        propagation_length: u32,
+    ) -> Result<bool, ComputeApiError> {
+        let mut out = 0u8;
+        let res = unsafe {
+            native::axi_cuda_active_tail_hit(head, seg_idx, propagation_length, &mut out)
+        };
+        if res != 0 {
+            return Err(native::map_cuda_error(res));
+        }
+        Ok(out != 0)
     }
 }
 
@@ -245,5 +282,84 @@ mod tests {
     fn test_cuda_new_without_native_returns_unsupported_backend() {
         let res = CudaBackend::new(CudaBackendConfig::default());
         assert!(matches!(res, Err(ComputeApiError::UnsupportedBackend)));
+    }
+
+    #[cfg(feature = "native")]
+    fn is_gpu_available() -> bool {
+        unsafe { native::axi_cuda_probe_device(0) == 0 }
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_native_propagate_head() {
+        if !is_gpu_available() {
+            println!("CUDA GPU not available, skipping test.");
+            return;
+        }
+
+        let cases = vec![
+            // a) normal active
+            (100, 5),
+            // b) head = AXON_SENTINEL
+            (types::AXON_SENTINEL, 5),
+            // c) head = AXON_SENTINEL - 1, v_seg = 1
+            (types::AXON_SENTINEL - 1, 1),
+            // d) head = AXON_SENTINEL - 1, v_seg = 2
+            (types::AXON_SENTINEL - 1, 2),
+            // e) v_seg = 0
+            (10, 0),
+            // general active propagation and clamp limits
+            (types::AXON_SENTINEL - 100, 50),
+            (types::AXON_SENTINEL - 100, 150),
+        ];
+
+        for (head, v_seg) in cases {
+            let gpu_res = CudaBackend::cuda_propagate_head_for_test(head, v_seg).unwrap();
+            let cpu_res = physics::propagate_head(head, v_seg);
+            assert_eq!(
+                gpu_res, cpu_res,
+                "propagate_head mismatch for head={}, v_seg={}",
+                head, v_seg
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_cuda_native_active_tail_hit() {
+        if !is_gpu_available() {
+            println!("CUDA GPU not available, skipping test.");
+            return;
+        }
+
+        let cases = vec![
+            // a) d < propagation_length -> true
+            (100, 95, 10),
+            // b) d == propagation_length -> false
+            (100, 90, 10),
+            // c) d > propagation_length -> false
+            (100, 80, 10),
+            // d) head = AXON_SENTINEL -> false
+            (types::AXON_SENTINEL, 10, 5),
+            // e) wraparound case: head < seg_idx -> false
+            (10, 20, 5),
+            // wraparound case that crosses zero -> true
+            (10, 5, 10),
+        ];
+
+        for (head, seg_idx, prop_len) in cases {
+            let gpu_res =
+                CudaBackend::cuda_active_tail_hit_for_test(head, seg_idx, prop_len).unwrap();
+
+            let mut heads = [types::AXON_SENTINEL; 8];
+            heads[0] = head;
+            let cpu_res = physics::active_tail_hit(&heads, seg_idx, prop_len);
+
+            assert_eq!(
+                gpu_res, cpu_res,
+                "active_tail_hit mismatch for head={}, seg_idx={}, prop_len={}",
+                head, seg_idx, prop_len
+            );
+        }
     }
 }

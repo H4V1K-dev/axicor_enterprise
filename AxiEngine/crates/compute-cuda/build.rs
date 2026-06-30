@@ -84,6 +84,19 @@ fn main() {
 
     fs::write(&header_path, content).unwrap();
 
+    #[cfg(feature = "native")]
+    {
+        cc::Build::new()
+            .cuda(true)
+            .include(&dest_path)
+            .file("src/kernels/scalar_golden.cu")
+            .compile("axi_cuda_kernels");
+
+        println!("cargo:rustc-link-lib=dylib=cudart");
+        println!("cargo:rerun-if-changed=src/kernels/scalar_golden.cu");
+        println!("cargo:rerun-if-changed=src/kernels/");
+    }
+
     // Re-run triggers
     println!("cargo:rerun-if-changed=build.rs");
 }
