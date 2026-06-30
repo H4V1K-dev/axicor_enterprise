@@ -756,39 +756,46 @@
 *Source items: 7 / Registered items: 7*
 
 - **REV-COMPUTE-001**: Проверка Совместимости Сборки при Миграции Имен Фичей
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L213)
+  - *Status*: Resolved (compute v2.2) | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L213)
   - *Question / Problem*: - *Контекст*: Зафиксирована целевая политика v2.0 на замену legacy-имен `amd` и `mock-gpu` на `hip` и `mock`.
     - *Вопрос*: Требуется ли временное сохранение псевдонимов (aliases) фичей в `Cargo.toml` на период миграции?
+  - *Resolution*: Утверждено не сохранять legacy-псевдонимы фичей. Целевые имена фичей: `cpu`, `cuda`, `hip`, `mock`.
 
 - **REV-COMPUTE-002**: Аффинность Потоков ОС и Маркер `Send` для `ShardEngine`
-  - *Status*: Open | *Priority*: P1 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L217)
+  - *Status*: Resolved (compute v2.2) | *Priority*: P1 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L217)
   - *Question / Problem*: - *Контекст*: Модуль `runtime` выделяет отдельный OS-thread на каждый шард. Контексты некоторых GPU бэкендов привязаны к создавшему их потоку (Thread-Affine).
     - *Вопрос*: Должен ли `ShardEngine` быть `Send` для передачи из потока `boot` в поток шарда, или `ShardEngine` должен создаваться строго внутри целевого OS-потока шарда по загрузочному плану?
+  - *Resolution*: `ShardEngine` создается строго внутри OS-потока шарда. Сам `ShardEngine` не реализует маркеры `Send` и `Sync`.
 
 - **REV-COMPUTE-003**: Точный Приоритет Автовыбора для Кроссплатформенных Сборщиков
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L221)
+  - *Status*: Resolved (compute v2.2) | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L221)
   - *Question / Problem*: - *Контекст*: На некоторых системах могут быть одновременно установлены драйверы разных вендоров.
     - *Вопрос*: Является ли порядок CUDA -> HIP -> CPU универсальным для всех ОС, или требуется гибкая настройка приоритетов?
+  - *Resolution*: Порядок автовыбора жестко зафиксирован: CUDA -> HIP -> CPU. Ручной выбор доступен через `BackendPreference`.
 
 - **REV-COMPUTE-004**: Синхронная vs Асинхронная Модель API Выполнения Батча
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute` | *Duplicate Of*: REV-COMPUTE-API-003 | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L225)
   - *Question / Problem*: - *Контекст*: Метод `run_day_batch` в текущей версии является блокирующим.
     - *Вопрос*: Требуется ли введение асинхронной модели `submit_batch` / `poll_batch` на уровне фасада `ShardEngine`?
+  - *Resolution*: Дубликат REV-COMPUTE-API-003. Выполнение батча остается синхронным.
 
 - **REV-COMPUTE-005**: Монопольный Владелец Pinned Host Буферов Ввода-Вывода
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `compute` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L229)
   - *Question / Problem*: - *Контекст*: Закрепощенные страницы памяти хоста (Pinned Memory) необходимы для скоростного DMA.
     - *Вопрос*: Кто владеет Pinned-буферами — фасад `compute` или IPC/runtime swapchain?
+  - *Resolution*: Дубликат REV-COMPUTE-API-002. Владение закреплено внутри конкретных бэкендов.
 
 - **REV-COMPUTE-006**: Зона Владения Операциями Синхронизации Ghost-Аксонов и Сортировки
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L233)
+  - *Status*: Resolved (compute v2.2) | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L233)
   - *Question / Problem*: - *Контекст*: Межзоновые патчи и примитивы сортировки спайков затрагивают сетевой стек и вычисления.
     - *Вопрос*: Относятся ли методы синхронизации Ghost-слотов к фасаду `compute` или выносятся в `runtime`/`network`?
+  - *Resolution*: Данные операции вынесены на уровень сетевой синхронизации и рантайма шарда, фасад `compute` делегирует только единые `DayBatchCmd`.
 
 - **REV-COMPUTE-007**: Маршрутизация Данных Отладчика Ephys
-  - *Status*: Open | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L237)
+  - *Status*: Resolved (compute v2.2) | *Priority*: P2 | *Owner*: `compute` | *Duplicate Of*: - | *Source*: [compute_spec.md](./spec_L3/compute_spec.md#L237)
   - *Question / Problem*: - *Контекст*: Снимок осциллограмм Ephys передается в Python SDK.
     - *Вопрос*: Проходит ли поток осциллограмм через `ShardEngine`, или отправляется напрямую через IPC сокет в формате `EphysShm`?
+  - *Resolution*: Поток Ephys не проходит через `ShardEngine`, отладка осуществляется через полный съем памяти (`debug_snapshot`).
 
 #### [test_harness_spec.md](./spec_L3/test_harness_spec.md)
 *Source items: 6 / Registered items: 6*

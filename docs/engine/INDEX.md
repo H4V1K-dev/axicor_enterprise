@@ -151,7 +151,7 @@ graph TD
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `compute-api` | [compute_api_spec.md](spec_L3/compute_api_spec.md) | **Approved v2.2 / Implemented** | Аппаратно-независимый HAL контракт бэкендов вычислений (`ComputeBackend`), непрозрачные VRAM handles и DTO команд. |
-| `compute` | [compute_spec.md](spec_L3/compute_spec.md) | **Draft v2.1 / API Sync** | Фасад вычислений `ShardEngine`, автовыбор бэкендов (`BackendPreference`) и оркестрация жизненного цикла шарда. |
+| `compute` | [compute_spec.md](spec_L3/compute_spec.md) | **Approved v2.2 / Ready for Implementation** | Фасад вычислений `ShardEngine`, автовыбор бэкендов (`BackendPreference`) и оркестрация жизненного цикла шарда. |
 | `compute-cpu` | [compute_cpu_spec.md](spec_L3/compute_cpu_spec.md) | **Approved v2.2 / Implemented** | Многопоточная CPU-реализация `ComputeBackend` на базе Rayon, выровненные ресурсы хоста и проверочная реализация. |
 | `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
 | `compute-hip` | [compute_hip_spec.md](spec_L3/compute_hip_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная AMD ROCm/HIP реализация `ComputeBackend` на базе Wave64 вейвфронтов и неблокирующих стримов. |
