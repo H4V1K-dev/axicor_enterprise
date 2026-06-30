@@ -4466,3 +4466,145 @@ fn test_cuda_native_run_day_batch_short_input_stride_fails() {
 
     backend.free_shard(handle).unwrap();
 }
+
+#[test]
+#[cfg(feature = "native")]
+fn test_cuda_native_run_day_batch_scratch_reuse() {
+    if !is_gpu_available() {
+        return;
+    }
+    let _lock = GPU_TEST_LOCK.lock().unwrap();
+    let mut backend = CudaBackend::new(CudaBackendConfig::default()).unwrap();
+
+    let spec = compute_api::ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 2,
+        total_ghosts: 0,
+        virtual_offset: 100,
+    };
+
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = compute_api::validation::expected_axons_blob_size(2).unwrap();
+    let offsets = layout::compute_state_offsets(64);
+
+    let voltages = vec![-70_000i32; 64];
+    let flags = vec![0u8; 64];
+    let soma_to_axon = vec![0xFFFFFFFFu32; 64];
+    let dendrite_targets = vec![0u32; 64 * 128];
+    let dendrite_weights = vec![0i32; 64 * 128];
+
+    let mut test_state = vec![0u8; state_size];
+    test_state[offsets.off_voltage..offsets.off_voltage + 256]
+        .copy_from_slice(bytemuck::cast_slice(&voltages));
+    test_state[offsets.off_flags..offsets.off_flags + 64].copy_from_slice(&flags);
+    test_state[offsets.off_s2a..offsets.off_s2a + 256]
+        .copy_from_slice(bytemuck::cast_slice(&soma_to_axon));
+    test_state[offsets.off_targets..offsets.off_targets + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+    test_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+    let header = layout::AxonsFileHeader::new(2);
+    let mut test_axons = vec![0u8; axons_size];
+    test_axons[..16].copy_from_slice(bytemuck::bytes_of(&header));
+    let heads_init = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+    test_axons[16..16 + 2 * 32].copy_from_slice(bytemuck::cast_slice(&heads_init));
+
+    let variant_0 = layout::VariantParameters {
+        threshold: -50_000,
+        rest_potential: -70_000,
+        leak_shift: 4,
+        homeostasis_penalty: 1000,
+        spontaneous_firing_period_ticks: 0,
+        initial_synapse_weight: 0,
+        gsop_potentiation: 200,
+        gsop_depression: 150,
+        homeostasis_decay: 100,
+        refractory_period: 5,
+        synapse_refractory_period: 0,
+        signal_propagation_length: 5,
+        is_inhibitory: 0,
+        inertia_curve: [100, 90, 80, 70, 60, 50, 40, 30],
+        ahp_amplitude: 10_000,
+        _pad1: [0; 6],
+        adaptive_leak_min_shift: 0,
+        adaptive_leak_gain: 0,
+        adaptive_mode: 0,
+        _leak_pad: [0; 3],
+        d1_affinity: 128,
+        d2_affinity: 64,
+        heartbeat_m: 0,
+    };
+    let variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+
+    let handle = backend.alloc_shard(spec).unwrap();
+    let upload = compute_api::ShardUpload {
+        state_blob: &test_state,
+        axons_blob: &test_axons,
+        variant_table: &variant_table,
+    };
+    backend.upload_shard(handle, upload).unwrap();
+
+    use compute_api::ComputeBackend;
+
+    // First batch: larger sizes
+    let input_bitmask_1 = vec![0u32; 2];
+    let incoming_spikes_1 = vec![0u32; 4];
+    let mapped_soma_ids_1 = vec![0u32, 1u32];
+    let mut output_spikes_1 = vec![0u32; 4];
+    let mut output_spike_counts_1 = vec![999u32; 2];
+
+    let cmd_1 = compute_api::DayBatchCmd {
+        tick_base: 1,
+        sync_batch_ticks: 2,
+        v_seg: 2,
+        virtual_offset: 100,
+        num_virtual_axons: 32,
+        input_words_per_tick: 1,
+        max_spikes_per_tick: 2,
+        num_outputs: mapped_soma_ids_1.len() as u32,
+        dopamine: 100,
+        input_bitmask: Some(&input_bitmask_1),
+        incoming_spikes: Some(&incoming_spikes_1),
+        incoming_spike_counts: &[1, 1],
+        mapped_soma_ids: &mapped_soma_ids_1,
+        output_spikes: &mut output_spikes_1,
+        output_spike_counts: &mut output_spike_counts_1,
+    };
+
+    let result_1 = backend.run_day_batch(handle, cmd_1).unwrap();
+    assert_eq!(result_1.ticks_executed, 2);
+    assert_eq!(output_spike_counts_1[0], 0);
+    assert_eq!(output_spike_counts_1[1], 0);
+
+    // Second batch: smaller sizes (reuse scratch and check tails)
+    let input_bitmask_2 = vec![0u32; 1];
+    let incoming_spikes_2 = vec![0u32; 1];
+    let mapped_soma_ids_2 = vec![0u32];
+    let mut output_spikes_2 = vec![0u32; 1];
+    let mut output_spike_counts_2 = vec![999u32; 1];
+
+    let cmd_2 = compute_api::DayBatchCmd {
+        tick_base: 3,
+        sync_batch_ticks: 1,
+        v_seg: 2,
+        virtual_offset: 100,
+        num_virtual_axons: 32,
+        input_words_per_tick: 1,
+        max_spikes_per_tick: 1,
+        num_outputs: mapped_soma_ids_2.len() as u32,
+        dopamine: 50,
+        input_bitmask: Some(&input_bitmask_2),
+        incoming_spikes: Some(&incoming_spikes_2),
+        incoming_spike_counts: &[1],
+        mapped_soma_ids: &mapped_soma_ids_2,
+        output_spikes: &mut output_spikes_2,
+        output_spike_counts: &mut output_spike_counts_2,
+    };
+
+    let result_2 = backend.run_day_batch(handle, cmd_2).unwrap();
+    assert_eq!(result_2.ticks_executed, 1);
+    assert_eq!(output_spike_counts_2[0], 0);
+
+    backend.free_shard(handle).unwrap();
+}

@@ -10,6 +10,225 @@ use core::num::NonZeroU64;
 #[cfg(feature = "native")]
 use crate::native;
 
+/// GPU scratch memory manager for non-allocating production batch paths.
+pub struct CudaScratch {
+    pub d_i_in: *mut i32,
+    pub i_in_capacity: usize,
+
+    pub d_input_bitmask: *mut u32,
+    pub input_bitmask_capacity: usize,
+
+    pub d_incoming_spikes: *mut u32,
+    pub incoming_spikes_capacity: usize,
+
+    pub d_mapped_soma_ids: *mut u32,
+    pub mapped_soma_ids_capacity: usize,
+
+    pub d_output_spikes: *mut u32,
+    pub output_spikes_capacity: usize,
+
+    pub d_output_count: *mut u32,
+    pub d_generated_spikes_count: *mut u32,
+    pub d_dropped_spikes_count: *mut u32,
+}
+
+impl Default for CudaScratch {
+    fn default() -> Self {
+        Self {
+            d_i_in: std::ptr::null_mut(),
+            i_in_capacity: 0,
+            d_input_bitmask: std::ptr::null_mut(),
+            input_bitmask_capacity: 0,
+            d_incoming_spikes: std::ptr::null_mut(),
+            incoming_spikes_capacity: 0,
+            d_mapped_soma_ids: std::ptr::null_mut(),
+            mapped_soma_ids_capacity: 0,
+            d_output_spikes: std::ptr::null_mut(),
+            output_spikes_capacity: 0,
+            d_output_count: std::ptr::null_mut(),
+            d_generated_spikes_count: std::ptr::null_mut(),
+            d_dropped_spikes_count: std::ptr::null_mut(),
+        }
+    }
+}
+
+impl Drop for CudaScratch {
+    fn drop(&mut self) {
+        #[cfg(feature = "native")]
+        {
+            unsafe {
+                if !self.d_i_in.is_null() {
+                    let _ = native::axi_cuda_free(self.d_i_in as *mut u8);
+                }
+                if !self.d_input_bitmask.is_null() {
+                    let _ = native::axi_cuda_free(self.d_input_bitmask as *mut u8);
+                }
+                if !self.d_incoming_spikes.is_null() {
+                    let _ = native::axi_cuda_free(self.d_incoming_spikes as *mut u8);
+                }
+                if !self.d_mapped_soma_ids.is_null() {
+                    let _ = native::axi_cuda_free(self.d_mapped_soma_ids as *mut u8);
+                }
+                if !self.d_output_spikes.is_null() {
+                    let _ = native::axi_cuda_free(self.d_output_spikes as *mut u8);
+                }
+                if !self.d_output_count.is_null() {
+                    let _ = native::axi_cuda_free(self.d_output_count as *mut u8);
+                }
+                if !self.d_generated_spikes_count.is_null() {
+                    let _ = native::axi_cuda_free(self.d_generated_spikes_count as *mut u8);
+                }
+                if !self.d_dropped_spikes_count.is_null() {
+                    let _ = native::axi_cuda_free(self.d_dropped_spikes_count as *mut u8);
+                }
+            }
+        }
+    }
+}
+
+impl CudaScratch {
+    /// Lazy allocation / expansion of the GPU buffers.
+    #[cfg(feature = "native")]
+    pub fn ensure_capacity(
+        &mut self,
+        i_in_len: usize,
+        input_bitmask_len: usize,
+        incoming_spikes_len: usize,
+        mapped_soma_ids_len: usize,
+        output_spikes_len: usize,
+    ) -> Result<(), ComputeApiError> {
+        if i_in_len > self.i_in_capacity {
+            if !self.d_i_in.is_null() {
+                unsafe {
+                    native::axi_cuda_free(self.d_i_in as *mut u8);
+                }
+                self.d_i_in = std::ptr::null_mut();
+                self.i_in_capacity = 0;
+            }
+            let mut ptr = std::ptr::null_mut();
+            let size = i_in_len * std::mem::size_of::<i32>();
+            let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            self.d_i_in = ptr as *mut i32;
+            self.i_in_capacity = i_in_len;
+        }
+
+        if input_bitmask_len > self.input_bitmask_capacity {
+            if !self.d_input_bitmask.is_null() {
+                unsafe {
+                    native::axi_cuda_free(self.d_input_bitmask as *mut u8);
+                }
+                self.d_input_bitmask = std::ptr::null_mut();
+                self.input_bitmask_capacity = 0;
+            }
+            if input_bitmask_len > 0 {
+                let mut ptr = std::ptr::null_mut();
+                let size = input_bitmask_len * std::mem::size_of::<u32>();
+                let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+                if res != 0 {
+                    return Err(native::map_cuda_error(res));
+                }
+                self.d_input_bitmask = ptr as *mut u32;
+                self.input_bitmask_capacity = input_bitmask_len;
+            }
+        }
+
+        if incoming_spikes_len > self.incoming_spikes_capacity {
+            if !self.d_incoming_spikes.is_null() {
+                unsafe {
+                    native::axi_cuda_free(self.d_incoming_spikes as *mut u8);
+                }
+                self.d_incoming_spikes = std::ptr::null_mut();
+                self.incoming_spikes_capacity = 0;
+            }
+            if incoming_spikes_len > 0 {
+                let mut ptr = std::ptr::null_mut();
+                let size = incoming_spikes_len * std::mem::size_of::<u32>();
+                let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+                if res != 0 {
+                    return Err(native::map_cuda_error(res));
+                }
+                self.d_incoming_spikes = ptr as *mut u32;
+                self.incoming_spikes_capacity = incoming_spikes_len;
+            }
+        }
+
+        if mapped_soma_ids_len > self.mapped_soma_ids_capacity {
+            if !self.d_mapped_soma_ids.is_null() {
+                unsafe {
+                    native::axi_cuda_free(self.d_mapped_soma_ids as *mut u8);
+                }
+                self.d_mapped_soma_ids = std::ptr::null_mut();
+                self.mapped_soma_ids_capacity = 0;
+            }
+            if mapped_soma_ids_len > 0 {
+                let mut ptr = std::ptr::null_mut();
+                let size = mapped_soma_ids_len * std::mem::size_of::<u32>();
+                let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+                if res != 0 {
+                    return Err(native::map_cuda_error(res));
+                }
+                self.d_mapped_soma_ids = ptr as *mut u32;
+                self.mapped_soma_ids_capacity = mapped_soma_ids_len;
+            }
+        }
+
+        if output_spikes_len > self.output_spikes_capacity {
+            if !self.d_output_spikes.is_null() {
+                unsafe {
+                    native::axi_cuda_free(self.d_output_spikes as *mut u8);
+                }
+                self.d_output_spikes = std::ptr::null_mut();
+                self.output_spikes_capacity = 0;
+            }
+            if output_spikes_len > 0 {
+                let mut ptr = std::ptr::null_mut();
+                let size = output_spikes_len * std::mem::size_of::<u32>();
+                let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+                if res != 0 {
+                    return Err(native::map_cuda_error(res));
+                }
+                self.d_output_spikes = ptr as *mut u32;
+                self.output_spikes_capacity = output_spikes_len;
+            }
+        }
+
+        if self.d_output_count.is_null() {
+            let mut ptr = std::ptr::null_mut();
+            let size = std::mem::size_of::<u32>();
+            let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            self.d_output_count = ptr as *mut u32;
+        }
+
+        if self.d_generated_spikes_count.is_null() {
+            let mut ptr = std::ptr::null_mut();
+            let size = std::mem::size_of::<u32>();
+            let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            self.d_generated_spikes_count = ptr as *mut u32;
+        }
+
+        if self.d_dropped_spikes_count.is_null() {
+            let mut ptr = std::ptr::null_mut();
+            let size = std::mem::size_of::<u32>();
+            let res = unsafe { native::axi_cuda_alloc_bytes(size, &mut ptr) };
+            if res != 0 {
+                return Err(native::map_cuda_error(res));
+            }
+            self.d_dropped_spikes_count = ptr as *mut u32;
+        }
+
+        Ok(())
+    }
+}
+
 /// Internal VRAM resource allocated for a single simulation shard on the GPU.
 pub struct CudaResource {
     pub spec: ShardAllocSpec,
@@ -23,6 +242,7 @@ pub struct CudaResource {
     pub axons_size: usize,
     pub uploaded: bool,
     pub variant_table: [layout::VariantParameters; layout::VARIANT_LUT_LEN],
+    pub scratch: CudaScratch,
 }
 
 impl Drop for CudaResource {
@@ -119,6 +339,7 @@ impl ResourceRegistry {
                 axons_size,
                 uploaded: false,
                 variant_table: [zero_param; layout::VARIANT_LUT_LEN],
+                scratch: CudaScratch::default(),
             };
 
             let mut found_idx = None;

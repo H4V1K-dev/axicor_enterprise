@@ -1139,9 +1139,9 @@ cleanup_dma_err:
     cudaFree(d_i_in);
     if (d_mapped_soma_ids) cudaFree(d_mapped_soma_ids);
     if (d_output_spikes) cudaFree(d_output_spikes);
-    cudaFree(d_output_count);
-    cudaFree(d_generated_spikes_count);
-    cudaFree(d_dropped_spikes_count);
+    if (d_output_count) cudaFree(d_output_count);
+    if (d_generated_spikes_count) cudaFree(d_generated_spikes_count);
+    if (d_dropped_spikes_count) cudaFree(d_dropped_spikes_count);
     return -5;
 
 cleanup_err:
@@ -1152,6 +1152,168 @@ cleanup_err:
     if (d_generated_spikes_count) cudaFree(d_generated_spikes_count);
     if (d_dropped_spikes_count) cudaFree(d_dropped_spikes_count);
     return -2;
+}
+
+int axi_cuda_compute_input_current_production(
+    const void* state_ptr,
+    const void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_targets,
+    unsigned int off_weights,
+    unsigned int off_flags,
+    int* d_i_in
+) {
+    if (!state_ptr || !axons_ptr || !d_i_in) {
+        return -1;
+    }
+
+    cudaError_t err = cudaMemset(d_i_in, 0, padded_n * sizeof(int));
+    if (err != cudaSuccess) {
+        return -5;
+    }
+
+    unsigned int threads_per_block = 256;
+    unsigned int blocks = (padded_n + threads_per_block - 1) / threads_per_block;
+
+    compute_input_current_probe_kernel<<<blocks, threads_per_block>>>(
+        state_ptr,
+        axons_ptr,
+        padded_n,
+        total_axons,
+        off_targets,
+        off_weights,
+        off_flags,
+        d_i_in
+    );
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        return -3;
+    }
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        return -4;
+    }
+
+    return 0;
+}
+
+int axi_cuda_apply_glif_final_spike_production(
+    void* state_ptr,
+    void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_voltage,
+    unsigned int off_flags,
+    unsigned int off_thresh,
+    unsigned int off_timers,
+    unsigned int off_s2a,
+    int* d_i_in,
+    unsigned long long current_tick,
+    unsigned int v_seg,
+    const unsigned int* d_mapped_soma_ids,
+    unsigned int num_outputs,
+    unsigned int max_spikes_per_tick,
+    unsigned int* d_output_spikes,
+    unsigned int* d_output_count,
+    unsigned int* d_generated_spikes_count,
+    unsigned int* d_dropped_spikes_count
+) {
+    if (!state_ptr || !axons_ptr || !d_i_in || !d_output_count || 
+        !d_generated_spikes_count || !d_dropped_spikes_count) {
+        return -1;
+    }
+    if (num_outputs > 0 && !d_mapped_soma_ids) {
+        return -1;
+    }
+    if (max_spikes_per_tick > 0 && !d_output_spikes) {
+        return -1;
+    }
+
+    cudaError_t err = cudaMemset(d_output_count, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) return -5;
+
+    err = cudaMemset(d_generated_spikes_count, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) return -5;
+
+    err = cudaMemset(d_dropped_spikes_count, 0, sizeof(unsigned int));
+    if (err != cudaSuccess) return -5;
+
+    apply_glif_final_spike_probe_kernel<<<1, 1>>>(
+        state_ptr,
+        axons_ptr,
+        padded_n,
+        total_axons,
+        off_voltage,
+        off_flags,
+        off_thresh,
+        off_timers,
+        off_s2a,
+        d_i_in,
+        current_tick,
+        v_seg,
+        d_mapped_soma_ids,
+        num_outputs,
+        max_spikes_per_tick,
+        d_output_spikes,
+        d_output_count,
+        d_generated_spikes_count,
+        d_dropped_spikes_count
+    );
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess) return -3;
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) return -4;
+
+    return 0;
+}
+
+int axi_cuda_apply_gsop_plasticity_production(
+    void* state_ptr,
+    const void* axons_ptr,
+    unsigned int padded_n,
+    unsigned int total_axons,
+    unsigned int off_targets,
+    unsigned int off_weights,
+    unsigned int off_flags,
+    int dopamine
+) {
+    if (padded_n == 0) {
+        return 0;
+    }
+    if (!state_ptr) {
+        return -1;
+    }
+    if (total_axons > 0 && axons_ptr == nullptr) {
+        return -1;
+    }
+
+    apply_gsop_plasticity_probe_kernel<<<1, 1>>>(
+        state_ptr,
+        axons_ptr,
+        padded_n,
+        total_axons,
+        off_targets,
+        off_weights,
+        off_flags,
+        dopamine
+    );
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        return -3;
+    }
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        return -4;
+    }
+
+    return 0;
 }
 
 } // extern "C"

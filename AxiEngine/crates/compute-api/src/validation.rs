@@ -53,6 +53,13 @@ pub fn validate_day_batch_cmd(cmd: &DayBatchCmd<'_>) -> Result<(), ComputeApiErr
     if cmd.sync_batch_ticks == 0 {
         return Err(ComputeApiError::InvalidBatch);
     }
+    if cmd
+        .tick_base
+        .checked_add(cmd.sync_batch_ticks as u64 - 1)
+        .is_none()
+    {
+        return Err(ComputeApiError::InvalidBatch);
+    }
     if cmd.v_seg == 0 || cmd.v_seg > 255 {
         return Err(ComputeApiError::InvalidBatch);
     }
@@ -92,7 +99,7 @@ pub fn validate_day_batch_cmd(cmd: &DayBatchCmd<'_>) -> Result<(), ComputeApiErr
     }
 
     if let Some(mask) = cmd.input_bitmask {
-        if !mask.is_empty() && cmd.input_words_per_tick > 0 {
+        if cmd.num_virtual_axons > 0 {
             let required_words = (cmd.num_virtual_axons as usize).div_ceil(32);
             if (cmd.input_words_per_tick as usize) < required_words {
                 return Err(ComputeApiError::InvalidBatch);

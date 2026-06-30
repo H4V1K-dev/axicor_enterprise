@@ -306,7 +306,7 @@ fn test_facade_lifecycle_under_facade_feature() {
         let input_words = 0;
         let max_spikes = 10;
         let num_outputs = 2;
-        let num_virtual_axons = 10;
+        let num_virtual_axons = 0;
         let tick_base = 0;
 
         let mut cmd_bufs = fixture.create_cmd_buffers(ticks, max_spikes, input_words, num_outputs);

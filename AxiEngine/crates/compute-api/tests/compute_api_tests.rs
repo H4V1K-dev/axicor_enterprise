@@ -725,3 +725,116 @@ fn test_variant_table_lut_len() {
     };
     assert_eq!(upload.variant_table.len(), layout::VARIANT_LUT_LEN);
 }
+
+#[test]
+fn test_validate_day_batch_cmd_input_bitmask_validation() {
+    let mut out_counts = [0u32; 1];
+    let mut out_spikes = [0u32; 10];
+    let soma_ids = [0u32; 1];
+    let counts = [0u32; 1];
+    let bitmask = [0u32; 0];
+
+    // Invalid Case: input_bitmask is Some, num_virtual_axons = 32 (> 0) but input_words_per_tick = 0
+    let cmd_invalid = DayBatchCmd {
+        tick_base: 100,
+        sync_batch_ticks: 1,
+        v_seg: 1,
+        dopamine: 0,
+        input_words_per_tick: 0,
+        max_spikes_per_tick: 10,
+        num_outputs: 1,
+        virtual_offset: 0,
+        num_virtual_axons: 32,
+        input_bitmask: Some(&bitmask),
+        incoming_spikes: None,
+        incoming_spike_counts: &counts,
+        mapped_soma_ids: &soma_ids,
+        output_spikes: &mut out_spikes,
+        output_spike_counts: &mut out_counts,
+    };
+
+    assert_eq!(
+        validation::validate_day_batch_cmd(&cmd_invalid),
+        Err(ComputeApiError::InvalidBatch)
+    );
+
+    // Valid Case: input_bitmask is Some, num_virtual_axons = 32, input_words_per_tick = 1
+    let mut out_counts_v = [0u32; 1];
+    let mut out_spikes_v = [0u32; 10];
+    let bitmask_valid = [0u32; 1];
+    let cmd_valid = DayBatchCmd {
+        tick_base: 100,
+        sync_batch_ticks: 1,
+        v_seg: 1,
+        dopamine: 0,
+        input_words_per_tick: 1,
+        max_spikes_per_tick: 10,
+        num_outputs: 1,
+        virtual_offset: 0,
+        num_virtual_axons: 32,
+        input_bitmask: Some(&bitmask_valid),
+        incoming_spikes: None,
+        incoming_spike_counts: &counts,
+        mapped_soma_ids: &soma_ids,
+        output_spikes: &mut out_spikes_v,
+        output_spike_counts: &mut out_counts_v,
+    };
+
+    assert!(validation::validate_day_batch_cmd(&cmd_valid).is_ok());
+}
+
+#[test]
+fn test_validate_day_batch_cmd_tick_overflow() {
+    let mut out_counts = [0u32; 2];
+    let mut out_spikes = [0u32; 20];
+    let soma_ids = [0u32; 1];
+    let counts = [0u32; 2];
+
+    // Case 1: tick_base = u64::MAX, sync_batch_ticks = 2 -> tick_base + sync_batch_ticks - 1 overflows u64
+    let cmd_overflow = DayBatchCmd {
+        tick_base: u64::MAX,
+        sync_batch_ticks: 2,
+        v_seg: 1,
+        dopamine: 0,
+        input_words_per_tick: 0,
+        max_spikes_per_tick: 10,
+        num_outputs: 1,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_bitmask: None,
+        incoming_spikes: None,
+        incoming_spike_counts: &counts,
+        mapped_soma_ids: &soma_ids,
+        output_spikes: &mut out_spikes,
+        output_spike_counts: &mut out_counts,
+    };
+
+    assert_eq!(
+        validation::validate_day_batch_cmd(&cmd_overflow),
+        Err(ComputeApiError::InvalidBatch)
+    );
+
+    // Case 2: tick_base = u64::MAX, sync_batch_ticks = 1 -> tick_base + sync_batch_ticks - 1 does not overflow
+    let mut out_counts_ok = [0u32; 1];
+    let mut out_spikes_ok = [0u32; 10];
+    let counts_ok = [0u32; 1];
+    let cmd_ok = DayBatchCmd {
+        tick_base: u64::MAX,
+        sync_batch_ticks: 1,
+        v_seg: 1,
+        dopamine: 0,
+        input_words_per_tick: 0,
+        max_spikes_per_tick: 10,
+        num_outputs: 1,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_bitmask: None,
+        incoming_spikes: None,
+        incoming_spike_counts: &counts_ok,
+        mapped_soma_ids: &soma_ids,
+        output_spikes: &mut out_spikes_ok,
+        output_spike_counts: &mut out_counts_ok,
+    };
+
+    assert!(validation::validate_day_batch_cmd(&cmd_ok).is_ok());
+}
