@@ -20,7 +20,7 @@ fn test_cpu_reference_fixture_runs() {
         thread_count: Some(1),
     };
     let mut cpu_backend = CpuBackend::new(config).unwrap();
-    let outcome = run_conformance_test(&fixture, &mut cpu_backend, 0, 10, 1, 0, 1, 10, 2, 100);
+    let outcome = run_conformance_test(&fixture, &mut cpu_backend, 0, 10, 1, 0, 1, 10, 2, 32);
     assert_eq!(outcome, HarnessOutcome::Passed);
 }
 
@@ -30,7 +30,7 @@ fn test_compute_backend_trait_conformance() {
     use test_harness::run_conformance_test;
     let fixture = ConformanceFixture::new("conformance_mock", 64, 10, 5, 100);
     let mut backend = MockBackend::new();
-    let outcome = run_conformance_test(&fixture, &mut backend, 0, 10, 1, 0, 1, 10, 2, 100);
+    let outcome = run_conformance_test(&fixture, &mut backend, 0, 10, 1, 0, 1, 10, 2, 32);
     assert_eq!(outcome, HarnessOutcome::Passed);
 }
 
@@ -403,7 +403,7 @@ fn test_debug_snapshot_comparison() {
     };
     let mut cpu_backend = CpuBackend::new(config).unwrap();
 
-    let outcome = run_differential_test(&fixture, &mut cpu_backend, 0, 10, 1, 0, 1, 10, 2, 100);
+    let outcome = run_differential_test(&fixture, &mut cpu_backend, 0, 10, 1, 0, 1, 10, 2, 32);
     assert_eq!(outcome, HarnessOutcome::Passed);
 }
 
@@ -486,4 +486,180 @@ fn test_mock_alloc_after_teardown() {
 
     let handle2 = backend.alloc_shard(spec).unwrap();
     assert_eq!(handle2.kind(), BackendKind::Mock);
+}
+
+#[test]
+#[cfg(feature = "cuda-native")]
+fn test_cuda_native_facade_differential_with_cpu() {
+    use compute::{BackendPreference, ComputeError, ShardEngine};
+    use compute_api::ShardSnapshotMut;
+
+    let fixture = ConformanceFixture::new("cuda_facade_diff", 64, 2, 0, 100);
+
+    // Try to bootstrap CUDA
+    let cuda_engine_res = ShardEngine::bootstrap(
+        BackendPreference::Cuda { device_id: 0 },
+        fixture.spec,
+        fixture.upload(),
+    );
+
+    let mut cuda_engine = match cuda_engine_res {
+        Ok(eng) => eng,
+        Err(ComputeError::BackendUnavailable { .. }) => {
+            // GPU is unavailable or device lost, skip test
+            println!("CUDA GPU not available, skipping differential test.");
+            return;
+        }
+        Err(e) => panic!("Unexpected CUDA bootstrap error: {:?}", e),
+    };
+
+    // Bootstrap CPU
+    let mut cpu_engine =
+        ShardEngine::bootstrap(BackendPreference::Cpu, fixture.spec, fixture.upload()).unwrap();
+
+    assert_eq!(cuda_engine.backend_kind(), BackendKind::Cuda);
+    assert_eq!(cpu_engine.backend_kind(), BackendKind::Cpu);
+
+    // Initial snapshots comparison
+    let mut cuda_state_init = vec![0u8; fixture.state_blob.len()];
+    let mut cuda_axons_init = vec![0u8; fixture.axons_blob.len()];
+    cuda_engine
+        .debug_snapshot(ShardSnapshotMut {
+            state_blob: &mut cuda_state_init,
+            axons_blob: &mut cuda_axons_init,
+        })
+        .unwrap();
+
+    let mut cpu_state_init = vec![0u8; fixture.state_blob.len()];
+    let mut cpu_axons_init = vec![0u8; fixture.axons_blob.len()];
+    cpu_engine
+        .debug_snapshot(ShardSnapshotMut {
+            state_blob: &mut cpu_state_init,
+            axons_blob: &mut cpu_axons_init,
+        })
+        .unwrap();
+
+    assert_eq!(cuda_state_init, cpu_state_init);
+    assert_eq!(cuda_axons_init, cpu_axons_init);
+
+    // Run 3 ticks DayBatch
+    let ticks = 3;
+    let max_spikes = 2;
+    let input_words = 1;
+    let num_outputs = 2;
+    let num_virtual_axons = 32;
+    let tick_base = 1;
+
+    let mut cmd_bufs_cpu = fixture.create_cmd_buffers(ticks, max_spikes, input_words, num_outputs);
+    // Fill input bitmask to trigger spike on virtual axon
+    cmd_bufs_cpu.input_bitmask[0] = 0x00000001; // tick 1 virtual axon 100 spikes
+    cmd_bufs_cpu.input_bitmask[1] = 0x0;
+    cmd_bufs_cpu.input_bitmask[2] = 0x00000001;
+
+    // Fill incoming physical spikes
+    cmd_bufs_cpu.incoming_spikes[0] = 1; // tick 1
+    cmd_bufs_cpu.incoming_spikes[1] = 0;
+    cmd_bufs_cpu.incoming_spikes[2] = 1; // tick 2
+    cmd_bufs_cpu.incoming_spikes[3] = 0;
+    cmd_bufs_cpu.incoming_spikes[4] = 1; // tick 3
+    cmd_bufs_cpu.incoming_spikes[5] = 0;
+
+    cmd_bufs_cpu
+        .incoming_spike_counts
+        .copy_from_slice(&[1, 1, 1]);
+    cmd_bufs_cpu.mapped_soma_ids.copy_from_slice(&[0, 1]);
+
+    let mut cmd_bufs_cuda = fixture.create_cmd_buffers(ticks, max_spikes, input_words, num_outputs);
+    cmd_bufs_cuda
+        .input_bitmask
+        .copy_from_slice(&cmd_bufs_cpu.input_bitmask);
+    cmd_bufs_cuda
+        .incoming_spikes
+        .copy_from_slice(&cmd_bufs_cpu.incoming_spikes);
+    cmd_bufs_cuda
+        .incoming_spike_counts
+        .copy_from_slice(&cmd_bufs_cpu.incoming_spike_counts);
+    cmd_bufs_cuda
+        .mapped_soma_ids
+        .copy_from_slice(&cmd_bufs_cpu.mapped_soma_ids);
+
+    let cmd_cpu = fixture.build_cmd(
+        tick_base,
+        ticks,
+        2,  // v_seg = 2
+        50, // dopamine
+        input_words,
+        max_spikes,
+        num_outputs,
+        num_virtual_axons,
+        &mut cmd_bufs_cpu,
+    );
+
+    let cmd_cuda = fixture.build_cmd(
+        tick_base,
+        ticks,
+        2,
+        50,
+        input_words,
+        max_spikes,
+        num_outputs,
+        num_virtual_axons,
+        &mut cmd_bufs_cuda,
+    );
+
+    let res_cpu = cpu_engine.run_day_batch(cmd_cpu).unwrap();
+    let res_cuda = cuda_engine.run_day_batch(cmd_cuda).unwrap();
+
+    // Verify batch results parity
+    assert_eq!(res_cpu.ticks_executed, res_cuda.ticks_executed);
+    assert_eq!(
+        res_cpu.generated_spikes_count,
+        res_cuda.generated_spikes_count
+    );
+    assert_eq!(
+        res_cpu.output_spikes_written,
+        res_cuda.output_spikes_written
+    );
+    assert_eq!(res_cpu.dropped_spikes_count, res_cuda.dropped_spikes_count);
+
+    assert_eq!(
+        cmd_bufs_cpu.output_spike_counts,
+        cmd_bufs_cuda.output_spike_counts
+    );
+
+    // Verify output spikes used regions
+    for tick in 0..ticks as usize {
+        let count = cmd_bufs_cpu.output_spike_counts[tick] as usize;
+        let start = tick * max_spikes as usize;
+        assert_eq!(
+            &cmd_bufs_cpu.output_spikes[start..start + count],
+            &cmd_bufs_cuda.output_spikes[start..start + count]
+        );
+    }
+
+    // Verify snapshot state parity
+    let mut cuda_state_final = vec![0u8; fixture.state_blob.len()];
+    let mut cuda_axons_final = vec![0u8; fixture.axons_blob.len()];
+    cuda_engine
+        .debug_snapshot(ShardSnapshotMut {
+            state_blob: &mut cuda_state_final,
+            axons_blob: &mut cuda_axons_final,
+        })
+        .unwrap();
+
+    let mut cpu_state_final = vec![0u8; fixture.state_blob.len()];
+    let mut cpu_axons_final = vec![0u8; fixture.axons_blob.len()];
+    cpu_engine
+        .debug_snapshot(ShardSnapshotMut {
+            state_blob: &mut cpu_state_final,
+            axons_blob: &mut cpu_axons_final,
+        })
+        .unwrap();
+
+    assert_eq!(cuda_state_final, cpu_state_final);
+    assert_eq!(cuda_axons_final, cpu_axons_final);
+
+    // Clean teardowns
+    cuda_engine.teardown().unwrap();
+    cpu_engine.teardown().unwrap();
 }

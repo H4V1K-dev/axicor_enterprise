@@ -36,11 +36,13 @@ dependencies = [
 name = "compute"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "compute-api",
  "compute-cpu",
  "compute-cuda",
  "layout",
  "static_assertions",
+ "types",
 ]
 
 [[package]]

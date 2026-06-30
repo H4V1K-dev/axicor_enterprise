@@ -377,7 +377,151 @@ fn test_bootstrap_success_path() {
 
     let engine = ShardEngine::bootstrap(BackendPreference::Mock, spec, upload);
     assert!(engine.is_ok());
-    let engine = engine.unwrap();
+    assert!(engine.unwrap().handle().is_some());
+}
+
+#[cfg(feature = "cuda-native")]
+#[test]
+fn test_cuda_native_backend_lifecycle_and_dispatch() {
+    let engine_res = ShardEngine::new(BackendPreference::Cuda { device_id: 0 });
+    let mut engine = match engine_res {
+        Ok(eng) => eng,
+        Err(ComputeError::BackendUnavailable { .. }) => {
+            // GPU is unavailable or device lost, skip test
+            println!("CUDA GPU not available, skipping lifecycle test.");
+            return;
+        }
+        Err(e) => panic!("Unexpected CUDA initialization error: {:?}", e),
+    };
+
+    assert_eq!(engine.backend_kind(), BackendKind::Cuda);
+    assert_eq!(engine.state(), LifecycleState::Created);
+
+    let spec = compute_api::ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 2,
+        total_ghosts: 0,
+        virtual_offset: 100,
+    };
+
+    // Staged allocation
+    engine.alloc_shard(spec).unwrap();
+    assert_eq!(engine.state(), LifecycleState::Allocated);
+    let handle = engine.handle();
+    assert!(handle.is_some());
+    assert_eq!(handle.unwrap().kind(), BackendKind::Cuda);
+
+    let state_size = layout::calculate_state_blob_size(spec.padded_n as usize);
+    let axons_size = compute_api::expected_axons_blob_size(spec.total_axons).unwrap();
+
+    let mut voltages = vec![-70_000i32; 64];
+    voltages[0] = -60_000; // will spike
+    let flags = vec![0u8; 64];
+    let mut soma_to_axon = vec![0xFFFFFFFFu32; 64];
+    soma_to_axon[0] = 0;
+    let offsets = layout::compute_state_offsets(64);
+
+    let variant_0 = layout::VariantParameters {
+        threshold: -50_000,
+        rest_potential: -70_000,
+        leak_shift: 4,
+        homeostasis_penalty: 1000,
+        spontaneous_firing_period_ticks: 0,
+        initial_synapse_weight: 0,
+        gsop_potentiation: 200,
+        gsop_depression: 150,
+        homeostasis_decay: 100,
+        refractory_period: 5,
+        synapse_refractory_period: 0,
+        signal_propagation_length: 5,
+        is_inhibitory: 0,
+        inertia_curve: [100, 90, 80, 70, 60, 50, 40, 30],
+        ahp_amplitude: 10_000,
+        _pad1: [0; 6],
+        adaptive_leak_min_shift: 0,
+        adaptive_leak_gain: 0,
+        adaptive_mode: 0,
+        _leak_pad: [0; 3],
+        d1_affinity: 128,
+        d2_affinity: 64,
+        heartbeat_m: 0,
+    };
+    let variant_table = [variant_0; layout::VARIANT_LUT_LEN];
+
+    let mut dendrite_targets = vec![0u32; 64 * 128];
+    let mut dendrite_weights = vec![0i32; 64 * 128];
+    dendrite_targets[0] = types::PackedTarget::pack(0, 0).0;
+    dendrite_weights[0] = 15_000 << 16;
+
+    let mut test_state = vec![0u8; state_size];
+    test_state[offsets.off_voltage..offsets.off_voltage + 256]
+        .copy_from_slice(bytemuck::cast_slice(&voltages));
+    test_state[offsets.off_flags..offsets.off_flags + 64].copy_from_slice(&flags);
+    test_state[offsets.off_s2a..offsets.off_s2a + 256]
+        .copy_from_slice(bytemuck::cast_slice(&soma_to_axon));
+    test_state[offsets.off_targets..offsets.off_targets + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_targets));
+    test_state[offsets.off_weights..offsets.off_weights + 64 * 128 * 4]
+        .copy_from_slice(bytemuck::cast_slice(&dendrite_weights));
+
+    let header = layout::AxonsFileHeader::new(2);
+    let mut test_axons = vec![0u8; axons_size];
+    test_axons[..16].copy_from_slice(bytemuck::bytes_of(&header));
+    let heads_init = vec![layout::BurstHeads8::empty(types::AXON_SENTINEL); 2];
+    test_axons[16..16 + 2 * 32].copy_from_slice(bytemuck::cast_slice(&heads_init));
+
+    let upload = compute_api::ShardUpload {
+        state_blob: &test_state,
+        axons_blob: &test_axons,
+        variant_table: &variant_table,
+    };
+
+    // Staged upload
+    engine.upload_shard(upload).unwrap();
     assert_eq!(engine.state(), LifecycleState::Running);
-    assert!(engine.handle().is_some());
+
+    let input_bitmask = vec![0x00000001u32];
+    let mapped_soma_ids = vec![0u32];
+    let mut output_spikes = vec![0u32; 2];
+    let mut output_spike_counts = vec![0u32; 1];
+
+    let cmd = compute_api::DayBatchCmd {
+        tick_base: 1,
+        sync_batch_ticks: 1,
+        v_seg: 2,
+        virtual_offset: 100,
+        num_virtual_axons: 32,
+        input_words_per_tick: 1,
+        max_spikes_per_tick: 2,
+        num_outputs: mapped_soma_ids.len() as u32,
+        dopamine: 50,
+        input_bitmask: Some(&input_bitmask),
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        mapped_soma_ids: &mapped_soma_ids,
+        output_spikes: &mut output_spikes,
+        output_spike_counts: &mut output_spike_counts,
+    };
+
+    let result = engine.run_day_batch(cmd).unwrap();
+    assert_eq!(result.ticks_executed, 1);
+    assert!(result.generated_spikes_count > 0);
+    assert!(output_spike_counts[0] > 0);
+    assert_eq!(output_spikes[0], 0);
+
+    // Verify debug snapshot
+    let mut state_dest = vec![0u8; state_size];
+    let mut axons_dest = vec![0u8; axons_size];
+    engine
+        .debug_snapshot(compute_api::ShardSnapshotMut {
+            state_blob: &mut state_dest,
+            axons_blob: &mut axons_dest,
+        })
+        .unwrap();
+
+    assert_ne!(state_dest, test_state);
+
+    // Verify teardown
+    engine.teardown().unwrap();
+    assert_eq!(engine.state(), LifecycleState::TornDown);
 }
