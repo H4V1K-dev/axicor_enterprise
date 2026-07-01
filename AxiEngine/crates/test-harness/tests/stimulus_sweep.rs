@@ -92,25 +92,28 @@ fn make_neuron_type(
 fn make_shard_config(threshold: i32, initial_synapse_weight: u16) -> ShardConfig {
     let neuron_types = vec![
         make_neuron_type("Excitatory", false, threshold, initial_synapse_weight),
-        make_neuron_type("Inhibitory", true, threshold * 2, initial_synapse_weight / 2),
+        make_neuron_type(
+            "Inhibitory",
+            true,
+            threshold * 2,
+            initial_synapse_weight / 2,
+        ),
     ];
-    let layers = vec![
-        LayerConfig {
-            name: "L1".to_string(),
-            height_pct: 1.0,
-            density: 0.2,
-            composition: vec![
-                NeuronTypeDistribution {
-                    type_name: "Excitatory".to_string(),
-                    share: 0.8,
-                },
-                NeuronTypeDistribution {
-                    type_name: "Inhibitory".to_string(),
-                    share: 0.2,
-                },
-            ],
-        },
-    ];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.2,
+        composition: vec![
+            NeuronTypeDistribution {
+                type_name: "Excitatory".to_string(),
+                share: 0.8,
+            },
+            NeuronTypeDistribution {
+                type_name: "Inhibitory".to_string(),
+                share: 0.2,
+            },
+        ],
+    }];
 
     ShardConfig {
         meta: None,
@@ -203,7 +206,8 @@ fn test_stimulus_sweep() {
                     input_words_per_tick: 1,
                     mapped_soma_ids: mapped_somas,
                 };
-                let mut runtime = LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
+                let mut runtime = LocalRuntime::new(engine, runtime_config)
+                    .expect("Failed to create LocalRuntime");
 
                 // 3. Build the stimulus bitmask for the entire run
                 let mut full_bitmask = vec![0u32; total_ticks];
@@ -241,14 +245,17 @@ fn test_stimulus_sweep() {
 
                 // 4. Run the simulation batches
                 let start_time = Instant::now();
-                
+
                 let mut total_generated = 0u64;
                 let mut total_written = 0u64;
                 let mut total_dropped = 0u64;
                 let mut flat_output_spike_counts = Vec::new();
                 let mut detailed_batches_csv = Vec::new();
-                
-                detailed_batches_csv.push("batch_index,tick_base,generated_spikes,output_spikes_written,dropped_spikes".to_string());
+
+                detailed_batches_csv.push(
+                    "batch_index,tick_base,generated_spikes,output_spikes_written,dropped_spikes"
+                        .to_string(),
+                );
 
                 for b in 0..total_batches {
                     let start_tick = b * ticks_per_batch;
@@ -265,9 +272,9 @@ fn test_stimulus_sweep() {
                     total_generated += report.batch_result.generated_spikes_count as u64;
                     total_written += report.batch_result.output_spikes_written as u64;
                     total_dropped += report.batch_result.dropped_spikes_count as u64;
-                    
+
                     flat_output_spike_counts.extend_from_slice(&report.output_spike_counts);
-                    
+
                     detailed_batches_csv.push(format!(
                         "{},{},{},{},{}",
                         b,
@@ -277,12 +284,13 @@ fn test_stimulus_sweep() {
                         report.batch_result.dropped_spikes_count
                     ));
                 }
-                
+
                 let wall_time_us = start_time.elapsed().as_micros() as u64;
                 let _ = std::fs::remove_file(temp_axic_path);
 
                 // 5. Compute metrics
-                let nonzero_output_ticks = flat_output_spike_counts.iter().filter(|&&c| c > 0).count() as u64;
+                let nonzero_output_ticks =
+                    flat_output_spike_counts.iter().filter(|&&c| c > 0).count() as u64;
                 let mut first_output_tick = -1i32;
                 let mut last_output_tick = -1i32;
                 let mut peak_output_per_tick = 0u64;
@@ -363,7 +371,10 @@ fn test_stimulus_sweep() {
                 // Save detailed batch details for responsive examples
                 if status == "responsive" && examples_written < 3 {
                     examples_written += 1;
-                    let filename = format!("responsive_example_{}_t{}_w{}_batches.csv", pattern, threshold, weight);
+                    let filename = format!(
+                        "responsive_example_{}_t{}_w{}_batches.csv",
+                        pattern, threshold, weight
+                    );
                     let example_path = examples_dir.join(filename);
                     let mut ex_file = File::create(&example_path).unwrap();
                     for line in detailed_batches_csv {
@@ -373,5 +384,7 @@ fn test_stimulus_sweep() {
             }
         }
     }
-    println!("Stimulus sweep successfully executed. Summary output saved to stimulus_sweep_summary.csv.");
+    println!(
+        "Stimulus sweep successfully executed. Summary output saved to stimulus_sweep_summary.csv."
+    );
 }

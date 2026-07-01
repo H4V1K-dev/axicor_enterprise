@@ -579,9 +579,11 @@ dependencies = [
  "compute-cpu",
  "config",
  "layout",
+ "physics",
  "runtime",
  "serde",
  "serde_json",
+ "toml",
  "types",
 ]
 

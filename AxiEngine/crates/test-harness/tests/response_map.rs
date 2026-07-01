@@ -100,9 +100,19 @@ fn make_shard_config(
 
     if inhibitory_share > 0.0 {
         let excitatory_share = 1.0 - inhibitory_share;
-        neuron_types.push(make_neuron_type("Excitatory", false, threshold, initial_synapse_weight));
-        neuron_types.push(make_neuron_type("Inhibitory", true, threshold, initial_synapse_weight));
-        
+        neuron_types.push(make_neuron_type(
+            "Excitatory",
+            false,
+            threshold,
+            initial_synapse_weight,
+        ));
+        neuron_types.push(make_neuron_type(
+            "Inhibitory",
+            true,
+            threshold,
+            initial_synapse_weight,
+        ));
+
         composition.push(NeuronTypeDistribution {
             type_name: "Excitatory".to_string(),
             share: excitatory_share as f32,
@@ -112,21 +122,24 @@ fn make_shard_config(
             share: inhibitory_share as f32,
         });
     } else {
-        neuron_types.push(make_neuron_type("Excitatory", false, threshold, initial_synapse_weight));
+        neuron_types.push(make_neuron_type(
+            "Excitatory",
+            false,
+            threshold,
+            initial_synapse_weight,
+        ));
         composition.push(NeuronTypeDistribution {
             type_name: "Excitatory".to_string(),
             share: 1.0,
         });
     }
 
-    let layers = vec![
-        LayerConfig {
-            name: "L1".to_string(),
-            height_pct: 1.0,
-            density: density as f32,
-            composition,
-        },
-    ];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: density as f32,
+        composition,
+    }];
 
     ShardConfig {
         meta: None,
@@ -225,7 +238,8 @@ fn test_response_map() {
     for &density in &densities_b {
         for &inhibitory_share in &inhibitory_shares_b {
             for &weight in &weights_b {
-                let shard_config = make_shard_config(density, inhibitory_share, threshold_b, weight);
+                let shard_config =
+                    make_shard_config(density, inhibitory_share, threshold_b, weight);
                 let baker_input = LocalShardBakeInput {
                     shard_config: &shard_config,
                     master_seed: MasterSeed(42),
@@ -256,7 +270,9 @@ fn test_response_map() {
         }
     }
 
-    println!("Response map sweep successfully completed. CSV output saved to response_map_summary.csv.");
+    println!(
+        "Response map sweep successfully completed. CSV output saved to response_map_summary.csv."
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -306,7 +322,8 @@ fn run_one_combination(
         input_words_per_tick: 1,
         mapped_soma_ids: mapped_somas,
     };
-    let mut runtime = LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
+    let mut runtime =
+        LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
 
     // 2. Build the stimulus bitmask: single pulse on tick 0
     let mut full_bitmask = vec![0u32; total_ticks];
@@ -316,14 +333,16 @@ fn run_one_combination(
 
     // 3. Run batches
     let start_time = Instant::now();
-    
+
     let mut total_generated = 0u64;
     let mut total_written = 0u64;
     let mut total_dropped = 0u64;
     let mut flat_output_spike_counts = Vec::new();
     let mut detailed_batches_csv = Vec::new();
-    
-    detailed_batches_csv.push("batch_index,tick_base,generated_spikes,output_spikes_written,dropped_spikes".to_string());
+
+    detailed_batches_csv.push(
+        "batch_index,tick_base,generated_spikes,output_spikes_written,dropped_spikes".to_string(),
+    );
 
     for b in 0..total_batches {
         let start_tick = b * ticks_per_batch;
@@ -340,9 +359,9 @@ fn run_one_combination(
         total_generated += report.batch_result.generated_spikes_count as u64;
         total_written += report.batch_result.output_spikes_written as u64;
         total_dropped += report.batch_result.dropped_spikes_count as u64;
-        
+
         flat_output_spike_counts.extend_from_slice(&report.output_spike_counts);
-        
+
         detailed_batches_csv.push(format!(
             "{},{},{},{},{}",
             b,
@@ -352,7 +371,7 @@ fn run_one_combination(
             report.batch_result.dropped_spikes_count
         ));
     }
-    
+
     let wall_time_us = start_time.elapsed().as_micros() as u64;
     let _ = std::fs::remove_file(temp_axic_path);
 
@@ -388,7 +407,10 @@ fn run_one_combination(
         0.0
     };
 
-    let active_after_stimulus_ticks = flat_output_spike_counts[1..].iter().filter(|&&c| c > 0).count() as u64;
+    let active_after_stimulus_ticks = flat_output_spike_counts[1..]
+        .iter()
+        .filter(|&&c| c > 0)
+        .count() as u64;
 
     let dropped_ratio = if total_generated > 0 {
         total_dropped as f64 / total_generated as f64
@@ -407,7 +429,9 @@ fn run_one_combination(
         "no-response"
     } else if dropped_ratio > 0.1 {
         "bottleneck"
-    } else if nonzero_output_ticks as f64 / total_ticks as f64 > 0.75 || (last_output_tick >= 135 && nonzero_output_ticks as f64 / total_ticks as f64 >= 0.5) {
+    } else if nonzero_output_ticks as f64 / total_ticks as f64 > 0.75
+        || (last_output_tick >= 135 && nonzero_output_ticks as f64 / total_ticks as f64 >= 0.5)
+    {
         "runaway"
     } else if last_output_tick >= 135 {
         "sustained-response"
@@ -445,7 +469,10 @@ fn run_one_combination(
     let status_str = status.to_string();
     if !examples_written.contains(&status_str) && examples_written.len() < 4 {
         examples_written.insert(status_str.clone());
-        let example_dir_name = format!("{}_example_{}_t{}_w{}_in{}", status_str, experiment, threshold, weight, stimulus_input_count);
+        let example_dir_name = format!(
+            "{}_example_{}_t{}_w{}_in{}",
+            status_str, experiment, threshold, weight, stimulus_input_count
+        );
         let target_dir = examples_dir.join(example_dir_name);
         let _ = create_dir_all(&target_dir);
 
