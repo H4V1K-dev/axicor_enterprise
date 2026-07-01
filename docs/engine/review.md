@@ -190,16 +190,17 @@
 - **Affected specs**: [physics_spec.md](./spec_L0/physics_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md), [test_harness_spec.md](./spec_L3/test_harness_spec.md)
 - **Notes**: **[ЧАСТИЧНО РЕШЕНО в compute-cuda v2.3]**: Для CUDA-бэкенда утверждено решение генерации заголовка `axi_cuda_abi.h` в `OUT_DIR` силами `build.rs` на базе Rust-крейтов `types`, `layout` и `physics`. Для HIP-бэкенда вопрос остается открытым в рамках `REV-COMPUTE-HIP-002` и не блокирует реализацию `compute-cuda`.
 
-### REV-CFG-004: Размещение параметра `initial_synapse_weight` в TOML
-- **ID**: REV-CFG-004
-- **Status**: Open
+### REV-CFG-005: Размещение параметра `initial_synapse_weight` в TOML
+- **ID**: REV-CFG-005
+- **Status**: Resolved (config v2.1)
 - **Priority**: P1
 - **Owner candidate**: `config`
 - **Source**: [config_spec.md](./spec_L1/config_spec.md#L325) (§15.4) vs [boot_spec.md](./spec_L6/boot_spec.md#L359) (§8.9) vs [baker_spec.md](./spec_L4/baker_spec.md#L255) (§11.4) vs [topology_spec.md](./spec_L4/topology_spec.md#L247) (§11.3)
 - **Question / Problem**: Поле `initial_synapse_weight` внесено в тесты валидации, но в схеме `NeuronType` для него не определена конкретная секция (`gsop` или `membrane`).
 - **Why it matters**: Парсер `config` отклоняет валидные файлы конфигурации нейросетей при отсутствии этого поля.
 - **Affected specs**: [config_spec.md](./spec_L1/config_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [baker_spec.md](./spec_L4/baker_spec.md), [topology_spec.md](./spec_L4/topology_spec.md)
-- **Notes**: Зафиксировать размещение `initial_synapse_weight` в секции `[neuron_types.gsop]`.
+- **Notes**: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` размещено в секции `[neuron_types.gsop]` (GsopParams) с валидацией `<= 32767`.
+
 
 ### REV-BOOT-005: Точки интеграции boot/runtime/node при материализации сетевого рантайма
 - **ID**: REV-BOOT-005
@@ -403,44 +404,36 @@
 *Source items: 8 / Registered items: 8*
 
 - **REV-CFG-001**: Тип Физических Размеров `WorldConfig` (`f64` vs `u32`)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L321)
-  - *Question / Problem*: - *Контекст*: В AxiCAD TOML-схеме размеры мира `width_um` заданы как `f64`, в то время как легаси-движок использовал целые числа `u32`.
-    - *Вопрос*: Фиксируется ли `f64` как единый целевой тип для размеров мира?
+  - *Status*: Resolved (config v2.1) | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L321)
+  - *Decision*: Утвержден `f64` как единый целевой тип в TOML DTO для размеров мира (`width_um`, `depth_um`, `height_um`).
 
 - **REV-CFG-002**: Регистр Символов в `EntryZ` (`"Top"` vs `"top"`)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L325)
-  - *Question / Problem*: - *Контекст*: В примерах AxiCAD встречается написание с заглавной буквы (`"Top"`, `"Mid"`, `"Bottom"`), хотя `Direction` использует строчные буквы (`"in"`, `"out"`).
-    - *Вопрос*: Приводится ли `EntryZ` к нижнему регистру (`"top"`, `"mid"`, `"bottom"`) для единообразия Serde?
+  - *Status*: Resolved (config v2.1) | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L325)
+  - *Decision*: Оставляем PascalCase написание (`"Top"`, `"Mid"`, `"Bottom"`) для обратной совместимости. Настройка Serде `#[serde(rename_all = "PascalCase")]` добавлена для enum `EntryZ`.
 
 - **REV-CFG-003**: Верхняя Граница Плотности `density` (`<= 1.0`)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L329)
-  - *Question / Problem*: - *Контекст*: Инвариант `INV-CONFIG-002` требует только `density >= 0.0`.
-    - *Вопрос*: Требуется ли жестко ограничить плотность сверху значением `density <= 1.0`?
+  - *Status*: Resolved (config v2.1) | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L329)
+  - *Decision*: Плотность `density` в `LayerConfig` строго ограничена диапазоном `0.0..=1.0`.
 
 - **REV-CFG-004**: Формат Стабильного Идентификатора Связи `connections.id`
-  - *Status*: Open | *Priority*: P1 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L333)
-  - *Question / Problem*: - *Контекст*: Поле `id` добавлено как целевой связующий ключ для геометрии.
-    - *Вопрос*: Фиксируется ли формат `id` как UUID v4 или разрешаются произвольные текстовые слаги?
+  - *Status*: Resolved (config v2.1) | *Priority*: P1 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L333)
+  - *Decision*: Разрешается произвольный текстовый слаг по regex `^[a-zA-Z0-9_-]+$`. UUID v4 не требуется на уровне TOML.
 
 - **REV-CFG-005**: Размещение и Тестирование `initial_synapse_weight` в TOML-схеме
-  - *Status*: Open | *Priority*: P1 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L337)
-  - *Question / Problem*: - *Контекст*: В C-ABI структуре `VariantParameters` из `layout` присутствует поле `initial_synapse_weight: u16`, однако в текущей TOML-схеме `NeuronType` оно отсутствует.
-    - *Вопрос*: В какую секцию `NeuronType` в TOML следует добавить поле `initial_synapse_weight` (в `gsop` или `membrane`)? Тест этого поля перенесен в категорию Review Debt.
+  - *Status*: Resolved (config v2.1) | *Priority*: P1 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L337)
+  - *Decision*: Поле `initial_synapse_weight: u16` добавлено в секцию `GsopParams` в `NeuronType`. Валидация проверяет лимит `<= 32767`.
 
 - **REV-CFG-006**: Крайний Случай DDS Heartbeat (`period = 1`)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L341)
-  - *Question / Problem*: - *Контекст*: В валидации `spontaneous_firing_period_ticks` значение `1` связано с открытым вопросом в `physics_spec.md` по поводу вычисления фазового аккумулятора.
-    - *Вопрос*: Как семантически утверждается период `1` на уровне конфигурации?
+  - *Status*: Resolved (config v2.1) | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L341)
+  - *Decision*: Спонтанный спайкинг с периодом 1 запрещен (минимально допустимый период — 2 тика).
 
 - **REV-CFG-007**: Политика Точности Валидации `v_seg`
-  - *Status*: Open | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L345)
-  - *Question / Problem*: - *Контекст*: Проверка целочисленности `v_seg` в `physics` зависит от точности входных параметров.
-    - *Вопрос*: Рассмотреть использование фиксированной точной арифметики при проверке `v_seg`?
+  - *Status*: Resolved (config v2.1) | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L345)
+  - *Decision*: Проверка целочисленности `v_seg` выполняется путем вызова `physics::compute_v_seg(...)`.
 
 - **REV-CFG-008**: Будущее Поля `max_dendrites` в TOML
-  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: REV-PHYS-004 | *Source*: [config_spec.md](./spec_L1/config_spec.md#L349)
-  - *Question / Problem*: - *Контекст*: Сейчас `max_dendrites` жестко проверяется на равенство `128` (согласно `layout::MAX_DENDRITES`).
-    - *Вопрос*: Сохраняется ли это поле как явный assertion пользователя в TOML или удаляется из пользовательского DSL в следующих версиях?
+  - *Status*: Resolved (config v2.1) | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: REV-PHYS-004 | *Source*: [config_spec.md](./spec_L1/config_spec.md#L349)
+  - *Decision*: Поле `max_dendrites` полностью удалено из TOML-схем. Движок неявно оперирует константой 128.
 
 #### [layout_spec.md](./spec_L1/layout_spec.md)
 *Source items: 7 / Registered items: 7*
@@ -716,6 +709,13 @@
     - *Вопрос*: Относятся ли методы уплотнения синапсов к `ComputeBackend`, или они выносятся в отдельный сервисный слой?
   - *Resolution*: Операции сортировки и уплотнения синапсов вынесены на уровень рантайма/сети и исключены из ответственности `ComputeBackend` в Stage 1. Бэкенд реализует исключительно базовые методы HAL API.
 
+- **REV-COMPUTE-CUDA-007**: Синхронизация реализации Stage 1R (Batch-Native FFI)
+  - *Status*: Resolved / Implemented (Stage 1R) | *Priority*: P1 | *Owner*: `compute-cuda` | *Duplicate Of*: - | *Source*: [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md) (§4, §5)
+  - *Question / Problem*: - *Контекст*: Переход от потикового запуска FFI на стороне Rust к пакетному batch-native исполнению на стороне GPU.
+    - *Вопрос*: Как именно фиксируется интерфейс запуска и управление scratch-памятью для устранения per-tick allocations и context switches?
+  - *Resolution*: Реализован единый FFI-метод `axi_cuda_run_day_batch_production`. Выделение VRAM под все тики батча сведено к ленивой аллокации `CudaScratch` при инициализации шарда. Добавлена защита от stale scratch pointers (передача `null`/`null_mut` при `None`), checked math лимитов и pre-check bounds для размеров буферов на C++.
+
+
 #### [compute_hip_spec.md](./spec_L3/compute_hip_spec.md)
 *Source items: 7 / Registered items: 7*
 
@@ -892,7 +892,7 @@
     - *Вопрос*: В каком формате хранится геометрия трактов редактора и как именно выполняется ее первичный резолвинг?
 
 - **REV-BAKER-004**: Инжекция Поля Начального Веса `initial_synapse_weight`
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-CFG-004 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L255)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-CFG-005 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L255)
   - *Question / Problem*: - *Контекст*: Поле начального веса учитывается в `VariantParameters`, но временно отсутствует в TOML-схемах `config`.
     - *Вопрос*: Каким образом значение базового синаптического веса передается из конфигурации проекта в макеты `layout`?
 
@@ -978,7 +978,7 @@
     - *Вопрос*: Где именно должны жить оригинальные декларативные DTO документов трактов — в `config`, в `baker` или в отдельном крейте геометрических контрактов?
 
 - **REV-TOPOLOGY-003**: Отсутствие Поля Начального Веса `initial_synapse_weight` в Конфигурации
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: REV-CFG-004 | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L247)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: REV-CFG-005 | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L247)
   - *Question / Problem*: - *Контекст*: При заведении новых синапсов начальный вес рассчитывается с защитой DoA.
     - *Вопрос*: Каким образом параметры базового веса синапсов должны передаваться из TOML конфигурации в `topology`?
 
@@ -1191,7 +1191,7 @@
   - *Status*: Duplicate Of | *Priority*: Deferred | *Owner*: `boot` | *Duplicate Of*: REV-NODE-004 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L358)
 
 - **REV-BOOT-009**: **Недостающие параметры TOML**: Определение полей `initial_synapse_weight`, а также физических координат сетевых сокетов.
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-CFG-004 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L359)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-CFG-005 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L359)
 
 - **REV-BOOT-010**: **Протоколы сетевого автообнаружения**: Начальная геометрия распределения соседей по зонам.
   - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `boot` | *Duplicate Of*: REV-NET-006 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L360)

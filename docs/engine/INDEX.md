@@ -14,7 +14,7 @@ graph TD
     end
     subgraph L1["Слой 1"]
         layout["layout (v2.2)"]
-        config["config (v2.0)"]
+        config["config (v2.1)"]
         wire["wire (v2.0)"]
     end
     subgraph L2["Слой 2"]
@@ -136,7 +136,7 @@ graph TD
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `layout` | [layout_spec.md](spec_L1/layout_spec.md) | **Approved v2.2** | C-ABI макеты физической памяти (`VariantParameters`), выравнивание плоскостей SoA и заголовки файлов. |
-| `config` | [config_spec.md](spec_L1/config_spec.md) | **Draft v2.0** | Serde/TOML DTO, парсинг и "Shift-Left" валидация DSL (`model.toml`, `department.toml`, `shard.toml`). |
+| `config` | [config_spec.md](spec_L1/config_spec.md) | **Approved v2.1 / Ready for Implementation** | Serde/TOML DTO, парсинг и "Shift-Left" локальная валидация DSL (`model.toml`, `department.toml`, `shard.toml`). |
 | `wire` | [wire_spec.md](spec_L1/wire_spec.md) | **Draft v2.0** | C-ABI структуры сетевых и IPC пакетов, magic-константы, выравнивание, Little-Endian политика и `no-alloc` хелперы. |
 
 ### Слой 2 (Layer 2: Infrastructure & OS Isolation)
@@ -153,7 +153,7 @@ graph TD
 | `compute-api` | [compute_api_spec.md](spec_L3/compute_api_spec.md) | **Approved v2.2 / Implemented** | Аппаратно-независимый HAL контракт бэкендов вычислений (`ComputeBackend`), непрозрачные VRAM handles и DTO команд. |
 | `compute` | [compute_spec.md](spec_L3/compute_spec.md) | **Approved v2.2 / Implemented** | Фасад вычислений `ShardEngine`, автовыбор бэкендов (`BackendPreference`) и оркестрация жизненного цикла шарда. |
 | `compute-cpu` | [compute_cpu_spec.md](spec_L3/compute_cpu_spec.md) | **Approved v2.2 / Implemented** | Многопоточная CPU-реализация `ComputeBackend` на базе Rayon, выровненные ресурсы хоста и проверочная реализация. |
-| `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Approved v2.3 / Stage 1P Production Helper Cleanup** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
+| `compute-cuda` | [compute_cuda_spec.md](spec_L3/compute_cuda_spec.md) | **Approved v2.3 / Stage 1R Batch-Native Implemented** | Высокопроизводительная CUDA-реализация `ComputeBackend` на базе NVIDIA Runtime API и неблокирующих стримов. |
 | `compute-hip` | [compute_hip_spec.md](spec_L3/compute_hip_spec.md) | **Draft v2.1 / API Sync** | Высокопроизводительная AMD ROCm/HIP реализация `ComputeBackend` на базе Wave64 вейвфронтов и неблокирующих стримов. |
 | `test-harness` | [test_harness_spec.md](spec_L3/test_harness_spec.md) | **Approved v2.2 / Implemented** | Вспомогательный тестовый крейт для дифференциальных проверок `ComputeBackend`, фикстур и контроля ABI-зеркал. |
 

@@ -1,8 +1,8 @@
 # spec_config
 
-> Версия спеки: 2.0  
-> Дата: 2026-06-29  
-> Статус: Draft (Architecture Pass 1)
+> Версия спеки: 2.1  
+> Дата: 2026-07-01  
+> Статус: Approved v2.1 / Ready for Implementation
 
 ---
 
@@ -13,7 +13,7 @@
 | Название | `config` |
 | Слой | Слой 1 — Контракты Данных и Десериализация (Data Contracts & Configuration) |
 | Тип | Library (`lib`) |
-| no_std | Нет (использует `std` для `String`, `Vec`, `HashMap` и `Serde`) |
+| no_std | config является std-only крейтом; использует String, Vec, HashMap, файловый ввод-вывод и Serde. |
 | Описание | Единый источник истины для парсинга, десериализации (Serde/TOML) и валидации декларативного биологического DSL движка `AxiEngine` и редактора AxiCAD (`model.toml`, `department.toml`, `shard.toml`). Крейт выступает в роли "Shift-Left" предохранителя, обеспечивая математическую и топологическую корректность всех параметров симуляции до начала стадии компиляции (`baker`) и аллокации VRAM (`compute`). |
 
 ---
@@ -37,13 +37,11 @@
 |---|---|---|
 | `serde` | `=1.0.228`, features=`["derive"]` | Декларативная десериализация TOML-файлов в типизированные Rust DTO структуры с зафиксированными правилами наименования полей. |
 | `toml` | `=0.8.23` | Парсинг текстовых документов конфигурации в промежуточные Serde-деревья. |
-| `thiserror` | `=1.0.69` *(Опционально)* | Иерархическое строгое представление ошибок парсинга и валидации. |
+| `thiserror` | `=1.0.69` | Иерархическое строгое представление ошибок парсинга и валидации. |
 
 ### §2.4. Feature Flags
 
-| Feature | Default | Что включает |
-|---|---|---|
-| `default` | `["std"]` | По умолчанию крейт использует стандартную библиотеку `std` для работы со строковыми типами и динамическими коллекциями. |
+Крейт собирается как стандартная `std`-библиотека. Отдельные `no_std`-сборки отсутствуют, так как крейт `config` используется исключительно на этапе компиляции Ahead-of-Time (AOT) и оффлайн-инструментария (`baker`, `baker-cli`, редактор AxiCAD) и не задействуется во время выполнения горячего цикла симуляции на встраиваемых устройствах.
 
 ### §2.5. Запрещенные операции и зависимости
 
@@ -60,11 +58,13 @@
 
 | Крейт / Модуль | Монопольная Зона Владения (Single Source of Truth) | Строгие Запреты (Что категорически запрещено в крейте) |
 |---|---|---|
-| **`config`** (Слой 1) | **Serde/TOML DTO и валидация DSL**: Парсинг `model.toml`, `department.toml`, `shard.toml`, проверка синтаксиса, диапазонов полей, уникальности имен, проверка целочисленности `v_seg` (через вызов `physics`) и валидация связей сокетов. | Запрещен генератор топологии, сборка бинарников `.state`, mmap, GPU upload, FFI и дублирование C-ABI макетов `layout`. |
+| **`config`** (Слой 1) | **Serde/TOML DTO и валидация DSL**: Парсинг `model.toml`, `department.toml`, `shard.toml`, проверка синтаксиса, диапазонов полей, уникальности имен внутри документов, проверка целочисленности `v_seg` (через вызов `physics`) и локальная валидация связей. | Запрещен генератор топологии, сборка бинарников `.state`, mmap, GPU upload, FFI и дублирование C-ABI макетов `layout`. Крейт не занимается файловым резолвингом относительных путей или проверкой существования файлов на диске. |
 | **`types`** (Слой 0) | Базовые типы данных (`Tick`, `MasterSeed`, `Microns`) и фундаментальные доменные лимиты. | Запрещен парсинг TOML-строк и Serde-атрибуты. |
 | **`layout`** (Слой 1) | C-ABI макеты физической памяти (`VariantParameters`), выравнивание плоскостей SoA и заголовки файлов. | Запрещены Serde-структуры и парсинг текстовых конфигураций. |
 | **`physics`** (Слой 0) | Математические формулы GLIF, GSOP, Active Tail, DDS и функцию деривации `compute_v_seg`. | Запрещена деривация параметров из TOML. |
-| **`baker`** (Слой 4) | Компиляция 3D-пространства, генерация воксельных координат, процедурный рост аксонов, межшардовый граф-резолвинг и сборка `.state`. | Запрещен самостоятельный парсинг TOML без вызова `config`. |
+| **`vfs`** (Слой 2) | Формат архива `.axic`, таблицы оглавления TOC и низкоуровневая mmap упаковка/распаковка. | Запрещен семантический разбор TOML-схем. |
+| **`baker`** (Слой 4) | Компиляция 3D-пространства, генерация воксельных координат, процедурный рост аксонов, междокументный/межшардовый граф-резолвинг (включая поиск файлов на диске и связывание Shard/Department ссылок), а также сборка `.state` и вызов `vfs::pack_directory`. | Запрещен самостоятельный парсинг TOML без вызова `config`. |
+| **`topology`** (Слой 4) | Алгоритмы и структуры данных 3D размещения нейронов, геометрического роста аксонов, расчета длин путей и начальной синаптической связности. | Запрещен парсинг TOML-схем. |
 
 ---
 
@@ -114,6 +114,7 @@ pub enum EmptyPixelMode {
 #### EntryZ (Высотная привязка аксонов)
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum EntryZ {
     Top,    // "Top"
     Mid,    // "Mid"
@@ -129,7 +130,7 @@ pub enum EntryZ {
 - **`SystemMeta`**: `id: String`, `version: String`, `created_at: String`.
 - **`ModelConfig`**: `meta: Option<SystemMeta>`, `world: WorldConfig`, `simulation: SimulationParams`, `departments: Vec<DepartmentEntry>`, `connections: Vec<ModelConnectionConfig>`.
 - **`WorldConfig`**: `width_um: f64`, `depth_um: f64`, `height_um: f64`.
-- **`SimulationParams`**: `tick_duration_us: u32`, `total_ticks: u64`, `master_seed: String`, `voxel_size_um: f32`, `segment_length_voxels: u32`, `signal_speed_m_s: f32`, `sync_batch_ticks: u32`, `axon_growth_max_steps: u32`, `max_dendrites: u8`.
+- **`SimulationParams`**: `tick_duration_us: u32`, `total_ticks: u64`, `master_seed: String`, `voxel_size_um: f32`, `segment_length_voxels: u32`, `signal_speed_m_s: f32`, `sync_batch_ticks: u32`, `axon_growth_max_steps: u32`.
 - **`DepartmentEntry`**: `name: String`, `config: String`, `meta: Option<SystemMeta>`.
 - **`ModelConnectionConfig`**: `id: String`, `from: String`, `to: String`.
 
@@ -153,7 +154,7 @@ pub enum EntryZ {
 - **`HomeostasisParams`**: `homeostasis_penalty: i32`, `homeostasis_decay: u16`.
 - **`AdaptiveLeakParams`**: `adaptive_leak_min_shift: i32`, `adaptive_leak_gain: u16`, `adaptive_mode: u8`.
 - **`DopamineParams`**: `d1_affinity: u8`, `d2_affinity: u8`.
-- **`GsopParams`**: `gsop_potentiation: u16`, `gsop_depression: u16`, `is_inhibitory: bool`, `inertia_curve: Vec<u8>`.
+- **`GsopParams`**: `gsop_potentiation: u16`, `gsop_depression: u16`, `initial_synapse_weight: u16`, `is_inhibitory: bool`, `inertia_curve: Vec<u8>`.
 - **`GrowthParams`**: `steering_fov_deg: f32`, `steering_radius_um: f32`, `steering_weight_inertia: f32`, `steering_weight_sensor: f32`, `steering_weight_jitter: f32`, `dendrite_radius_um: f32`, `growth_vertical_bias: f32`, `type_affinity: f32`, `dendrite_whitelist: Vec<String>`, `sprouting_weight_distance: f32`, `sprouting_weight_power: f32`, `sprouting_weight_explore: f32`, `sprouting_weight_type: f32`.
 - **`SpontaneousParams`**: `spontaneous_firing_period_ticks: u32`.
 
@@ -193,7 +194,6 @@ pub enum EntryZ {
    - `signal_speed_m_s > 0.0`.
    - `sync_batch_ticks > 0`.
    - `axon_growth_max_steps <= 255`.
-   - `max_dendrites == 128` (строгое соответствие константе `layout::MAX_DENDRITES`).
 3. **Департаменты**: Имена `departments[i].name` уникальны и соответствуют регулярному выражению `^[a-zA-Z0-9_-]+$`. Пути `config` не пусты.
 4. **Связи**: Идентификаторы `connections[i].id` уникальны. Строки `from` и `to` успешно парсятся грамматикой (3 компонента, разделенных точкой).
 
@@ -236,7 +236,7 @@ let v_seg = physics::compute_v_seg(
 2. **Анатомические Слои (`layers`)**:
    - Массив `layers` не пуст. Имена `layers[i].name` уникальны и соответствуют regex.
    - Каждый `height_pct > 0.0`. Сумма всех `height_pct` равна `1.0` ($\pm 1e-4$).
-   - Плотность `density >= 0.0` (`INV-CONFIG-002`).
+   - Плотность `density >= 0.0` и `density <= 1.0` (верхняя граница набивки вокселей нейронами).
    - Массив `composition` не пуст. Каждый `share >= 0.0`. Сумма всех `share` в слое равна `1.0` ($\pm 1e-4$).
    - Каждый `composition.type_name` ссылается на существующее имя из `neuron_types`.
 
@@ -252,7 +252,8 @@ let v_seg = physics::compute_v_seg(
 - **Кривая Инерции**: Массив `inertia_curve` содержит ровно **8 элементов**.
 - **Адаптивная Утечка**: `adaptive_mode` принимает значения `0`, `1` или `2`. Значение `adaptive_leak_min_shift` может быть отрицательным (рантайм физика выполняет безопасный clamp).
 - **Валидация Вайтлистов (`dendrite_whitelist`)**: Если в `growth.dendrite_whitelist` указаны имена типов нейронов, каждый элемент списка обязан ссылаться на объявленное имя из `neuron_types`.
-- **Спонтанный Спайкинг**: `spontaneous_firing_period_ticks == 0` означает выключено.
+- **Спонтанный Спайкинг**: `spontaneous_firing_period_ticks == 0` означает выключено. Значение `1` запрещено на уровне TOML DSL (вызывает ошибку валидации), минимально разрешенный период — `2` тика. Хотя низкоуровневые физические примитивы `physics` аппаратно поддерживают период 1 для гибкости расчетов, пользовательский DSL config намеренно вводит это ограничение для предотвращения истощения синапсов. Это не является архитектурным конфликтом: физика шире, config строже.
+- **Веса Синапсов**: Начальный вес синапсов `initial_synapse_weight` в `GsopParams` должен быть в диапазоне `0..=32767`.
 
 ---
 
@@ -275,19 +276,37 @@ let v_seg = physics::compute_v_seg(
 
 ## §13. API Поверхность Крейта
 
-Крейт `config` предоставляет чисто функциональный API для парсинга и валидации:
+Крейт `config` предоставляет строго типизированный функциональный API:
 
 ```rust
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Parse error: {0}")]
+    ParseError(String),
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+    #[error("Unsupported feature: {0}")]
+    UnsupportedFeature(String),
+    #[error("I/O error: {0}")]
+    IoError(String),
+}
+
 pub fn parse_model_str(toml_content: &str) -> Result<ModelConfig, ConfigError>;
 pub fn parse_department_str(toml_content: &str) -> Result<DepartmentConfig, ConfigError>;
 pub fn parse_shard_str(toml_content: &str) -> Result<ShardConfig, ConfigError>;
 
-pub fn validate_model(config: &ModelConfig) -> Result<(), ValidationError>;
-pub fn validate_department(config: &DepartmentConfig) -> Result<(), ValidationError>;
-pub fn validate_shard(config: &ShardConfig) -> Result<(), ValidationError>;
+pub fn validate_model(config: &ModelConfig) -> Result<(), ConfigError>;
+pub fn validate_department(config: &DepartmentConfig) -> Result<(), ConfigError>;
+pub fn validate_shard(config: &ShardConfig) -> Result<(), ConfigError>;
 ```
 
-В режиме `std` крейт может предоставлять обертки загрузки из файловой системы (`load_model_from_path`), однако резолвинг относительных путей файлов и проверка их существования на диске относятся к компетенции компилятора `baker`.
+В режиме `std` крейт предоставляет утилитарные методы загрузки файлов с диска:
+```rust
+pub fn load_model_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<ModelConfig, ConfigError>;
+pub fn load_department_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<DepartmentConfig, ConfigError>;
+pub fn load_shard_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<ShardConfig, ConfigError>;
+```
+Файловые хелперы выполняют исключительно чтение и парсинг по указанному пути. Они не занимаются разрешением относительных путей соседних файлов, path containment, include-графом или валидацией целостности проекта. Вся оркестрация сборки и проверка структуры проекта на диске является монопольной зоной ответственности `baker`.
 
 ---
 
@@ -306,46 +325,44 @@ pub fn validate_shard(config: &ShardConfig) -> Result<(), ValidationError>;
 9. **Сумма Высот Слоев (`test_bad_layer_height_sum_rejected`)**: Сумма `height_pct != 1.0` вызывает ошибку.
 10. **Сумма Долей Слоя (`test_bad_composition_sum_rejected`)**: Сумма `composition.share != 1.0` вызывает ошибку.
 11. **Дробный `v_seg` (`test_fractional_v_seg_rejected`)**: Физические параметры, при которых вызов `physics::compute_v_seg` возвращает ошибку, отклоняются.
-12. **Проверка `max_dendrites` (`test_max_dendrites_assertion`)**: Значение `max_dendrites != 128` вызывает ошибку.
+12. **Валидация Периода Спонтанного Спайкинга (`test_spontaneous_firing_period_validation`)**: Значение `spontaneous_firing_period_ticks == 1` отклоняется при валидации; `0` или `>= 2` разрешены.
 13. **Лимит Шагов Роста (`test_axon_growth_max_steps_limit`)**: Значение `axon_growth_max_steps > 255` отклоняется.
 14. **Переполнение UV Проекции Пина (`test_pin_uv_overflow_rejected`)**: Условие `local_u + u_width > 1.0` вызывает ошибку.
 15. **Входящий Сокет при Ghost Capacity 0 (`test_input_socket_zero_ghost_capacity_rejected`)**: Отклонение входящего сокета при `ghost_capacity == 0`.
 16. **Serde Range Rejection (`test_serde_u8_range_rejection`)**: Проверка, что значения $> 255$ для полей `synapse_refractory_period`, `d1_affinity`, `d2_affinity` отклоняются на этапе Serde десериализации.
+17. **Валидация Веса Синапсов (`test_initial_synapse_weight_validation`)**: Значение `initial_synapse_weight > 32767` в `GsopParams` отклоняется при валидации.
+18. **Предельная Плотность Слая (`test_density_out_of_bounds`)**: Значение `density > 1.0` в `LayerConfig` отклоняется при валидации.
 
 ---
 
 ## §15. Open Questions / Review Debt (Открытые Вопросы и Противоречия)
 
-В процессе анализа спецификации конфигурации выявлены следующие открытые вопросы для согласования:
+Все архитектурные и структурные вопросы по крейту `config` были полностью разрешены в рамках прохода Pass 2.1. Новые блокирующие вопросы отсутствуют.
 
-1. **Тип Физических Размеров `WorldConfig` (`f64` vs `u32`)**:
-   - *Контекст*: В AxiCAD TOML-схеме размеры мира `width_um` заданы как `f64`, в то время как легаси-движок использовал целые числа `u32`.
-   - *Вопрос*: Фиксируется ли `f64` как единый целевой тип для размеров мира?
+---
 
-2. **Регистр Символов в `EntryZ` (`"Top"` vs `"top"`)**:
-   - *Контекст*: В примерах AxiCAD встречается написание с заглавной буквы (`"Top"`, `"Mid"`, `"Bottom"`), хотя `Direction` использует строчные буквы (`"in"`, `"out"`).
-   - *Вопрос*: Приводится ли `EntryZ` к нижнему регистру (`"top"`, `"mid"`, `"bottom"`) для единообразия Serde?
+## §16. Resolved Architectural Decisions (Принятые Решения Pass 2.1)
 
-3. **Верхняя Граница Плотности `density` (`<= 1.0`)**:
-   - *Контекст*: Инвариант `INV-CONFIG-002` требует только `density >= 0.0`.
-   - *Вопрос*: Требуется ли жестко ограничить плотность сверху значением `density <= 1.0`?
+1. **[RESOLVED] Тип Физических Размеров `WorldConfig` (REV-CFG-001)**:
+   - *Решение*: Фиксируется `f64` как единый целевой тип в TOML DTO для размеров мира (`width_um`, `depth_um`, `height_um`).
 
-4. **Формат Стабильного Идентификатора Связи `connections.id`**:
-   - *Контекст*: Поле `id` добавлено как целевой связующий ключ для геометрии.
-   - *Вопрос*: Фиксируется ли формат `id` как UUID v4 или разрешаются произвольные текстовые слаги?
+2. **[RESOLVED] Регистр Символов в `EntryZ` (REV-CFG-002)**:
+   - *Решение*: Оставляем PascalCase написание (`"Top"`, `"Mid"`, `"Bottom"`). Настраиваем Serde через `#[serde(rename_all = "PascalCase")]` для `EntryZ` для совместимости со схемами AxiCAD.
 
-5. **Размещение и Тестирование `initial_synapse_weight` в TOML-схеме**:
-   - *Контекст*: В C-ABI структуре `VariantParameters` из `layout` присутствует поле `initial_synapse_weight: u16`, однако в текущей TOML-схеме `NeuronType` оно отсутствует.
-   - *Вопрос*: В какую секцию `NeuronType` в TOML следует добавить поле `initial_synapse_weight` (в `gsop` или `membrane`)? Тест этого поля перенесен в категорию Review Debt.
+3. **[RESOLVED] Верхняя Граница Плотности `density` (REV-CFG-003)**:
+   - *Решение*: Плотность `density` в `LayerConfig` строго ограничена диапазоном `0.0..=1.0`.
 
-6. **Крайний Случай DDS Heartbeat (`period = 1`)**:
-   - *Контекст*: В валидации `spontaneous_firing_period_ticks` значение `1` связано с открытым вопросом в `physics_spec.md` по поводу вычисления фазового аккумулятора.
-   - *Вопрос*: Как семантически утверждается период `1` на уровне конфигурации?
+4. **[RESOLVED] Формат Стабильного Идентификатора Связи `connections.id` (REV-CFG-004)**:
+   - *Решение*: Разрешается любой текстовый слаг по regex `^[a-zA-Z0-9_-]+$`. UUID v4 не требуется на уровне TOML.
 
-7. **Политика Точности Валидации `v_seg`**:
-   - *Контекст*: Проверка целочисленности `v_seg` в `physics` зависит от точности входных параметров.
-   - *Вопрос*: Рассмотреть использование фиксированной точной арифметики при проверке `v_seg`?
+5. **[RESOLVED] Размещение и Тестирование `initial_synapse_weight` в TOML-схеме (REV-CFG-005)**:
+   - *Решение*: Поле `initial_synapse_weight` добавлено в секцию `GsopParams` (`initial_synapse_weight: u16`) в `NeuronType`. Валидация контролирует значение по порогу `<= 32767`.
 
-8. **Будущее Поля `max_dendrites` в TOML**:
-   - *Контекст*: Сейчас `max_dendrites` жестко проверяется на равенство `128` (согласно `layout::MAX_DENDRITES`).
-   - *Вопрос*: Сохраняется ли это поле как явный assertion пользователя в TOML или удаляется из пользовательского DSL в следующих версиях?
+6. **[RESOLVED] Крайний Случай DDS Heartbeat (REV-CFG-006)**:
+   - *Решение*: Спонтанный период `spontaneous_firing_period_ticks == 1` запрещен, так как спайкинг на каждом тике ломает синаптический рефрактерный период. Минимально допустимый период — `2` тика. Хотя низкоуровневые физические примитивы `physics` аппаратно поддерживают период 1 для гибкости расчетов, пользовательский DSL config намеренно вводит это ограничение для предотвращения истощения синапсов. Это не является архитектурным конфликтом: физика шире, config строже.
+
+7. **[RESOLVED] Политика Точности Валидации `v_seg` (REV-CFG-007)**:
+   - *Решение*: Валидация выполняется путем вызова функции `physics::compute_v_seg(...)` из крейта `physics`. Для параметров в `model.toml` проверяется, что они строго положительные конечные `f32`/`f64` числа.
+
+8. **[RESOLVED] Будущее Поля `max_dendrites` в TOML (REV-CFG-008)**:
+   - *Решение*: Поле `max_dendrites` полностью удалено из TOML-схем. Движок неявно оперирует константой `MAX_DENDRITES = 128` из `layout`.
