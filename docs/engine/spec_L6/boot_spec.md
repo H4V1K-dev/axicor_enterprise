@@ -2,7 +2,7 @@
 
 > Версия спеки: 2.1  
 > Дата: 2026-07-01  
-> Статус: Approved / Ready for Implementation (Stage A: Local Shard Archive Loader)
+> Статус: Approved / Implemented (Stage A: Local Shard Archive Loader)
 
 ---
 
@@ -218,7 +218,7 @@ compute_api::validation::validate_upload(&spec, &upload)?;
 
 ## §6. Требуемые Инварианты Stage A
 
-- **INV-BOOT-A01**: `boot` не парсит оглавление архива (TOC) `.axic` напрямую на байтовом уровне, а делегирует эту задачу библиотеке `vfs` (через метод `AxicArchive::open` и вызовы `require_file`).
+- **INV-BOOT-A01**: `boot` не парсит оглавление архива (TOC) `.axic` напрямую на байтовом уровне, а делегирует эту задачу библиотеке `vfs` (через метод `AxicArchive::open` и вызовы `get_file`).
 - **INV-BOOT-A02**: Перечень обязательных файлов Stage A (`Required Files`) равен минимальному набору: `state.bin`, `axons.bin`, `paths.bin`, `variant_table.bin`. Любые другие/дополнительные файлы в архиве (например, манифесты) полностью игнорируются на этой стадии.
 - **INV-BOOT-A03**: `boot` копирует извлеченные данные в owned buffers и возвращает `LocalShardBootBundle`. После возврата бандла хэндл `AxicArchive` закрывается, и в памяти не остается borrowed-ссылок на исходный файл архива.
 - **INV-BOOT-A04**: Представление `compute_api::ShardUpload` создается исключительно как временное заимствованное отображение (borrowed view) поверх живой структуры `LocalShardBootBundle`.

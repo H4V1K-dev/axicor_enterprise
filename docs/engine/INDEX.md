@@ -51,7 +51,7 @@ graph LR
         net["net (v2.0)"]
     end
     subgraph L6["Layer 6"]
-        boot["boot (v1.0)"]
+        boot["boot (v2.1)"]
         runtime["runtime (v2.0)"]
         node["node (v1.0)"]
     end
@@ -147,7 +147,7 @@ graph LR
 
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
-| `boot` | [boot_spec.md](spec_L6/boot_spec.md) | **Approved v2.1 / Ready for Implementation (Stage A)** | Локальная загрузка `.axic`, валидация артефактов и подготовка compute upload bundle. |
+| `boot` | [boot_spec.md](spec_L6/boot_spec.md) | **Approved v2.1 / Implemented (Stage A)** | Локальная загрузка `.axic`, валидация артефактов и подготовка compute upload bundle. |
 | `runtime` | [runtime_spec.md](spec_L6/runtime_spec.md) | **Draft v2.0** | Оркестратор вычислений шардов, Day/Night переходы, координация с `weaver-daemon` и сбои. |
 | `node` | [node_spec.md](spec_L6/node_spec.md) | **Draft v1.0** | Тонкий OS-демон: разбор CLI-аргументов, CPU affinity, Tokio-изоляция и graceful shutdown. |
 

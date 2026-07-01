@@ -19,6 +19,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "boot"
+version = "0.1.0"
+dependencies = [
+ "baker",
+ "bytemuck",
+ "compute",
+ "compute-api",
+ "config",
+ "layout",
+ "thiserror",
+ "types",
+ "vfs",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

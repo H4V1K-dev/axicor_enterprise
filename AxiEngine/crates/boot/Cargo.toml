@@ -1,0 +1,17 @@
+[package]
+name = "boot"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vfs = { path = "../vfs" }
+layout = { path = "../layout" }
+compute-api = { path = "../compute-api" }
+compute = { path = "../compute" }
+bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"] }
+thiserror = "=1.0.69"
+
+[dev-dependencies]
+baker = { path = "../baker" }
+config = { path = "../config" }
+types = { path = "../types" }
