@@ -1022,3 +1022,239 @@ fn test_legacy_stability_band() {
 
     println!("Legacy baseline stability band test successfully completed.");
 }
+
+#[test]
+#[ignore]
+fn test_legacy_representative_traces() {
+    let workspace = get_workspace_root();
+    let exc_toml_path = Path::new(
+        "W:\\Workspace\\axicor-master\\Axicor_Neuron-Lib\\Cortex\\L23\\spiny\\VISp23\\1.toml",
+    );
+    let inh_toml_path = Path::new(
+        "W:\\Workspace\\axicor-master\\Axicor_Neuron-Lib\\Cortex\\L23\\aspiny\\VISp23\\1.toml",
+    );
+
+    let exc_toml_str = fs::read_to_string(exc_toml_path).expect("Failed to read excitatory TOML");
+    let inh_toml_str = fs::read_to_string(inh_toml_path).expect("Failed to read inhibitory TOML");
+
+    let exc_file: LegacyNeuronFile =
+        toml::from_str(&exc_toml_str).expect("Failed to deserialize excitatory TOML");
+    let inh_file: LegacyNeuronFile =
+        toml::from_str(&inh_toml_str).expect("Failed to deserialize inhibitory TOML");
+
+    let exc_legacy = &exc_file.neuron_type[0];
+    let inh_legacy = &inh_file.neuron_type[0];
+
+    // Spontaneous is disabled
+    let exc_type = map_legacy_to_config(exc_legacy, true);
+    let inh_type = map_legacy_to_config(inh_legacy, true);
+
+    let traces_dir = workspace.join("artifacts/legacy_baseline_traces");
+    create_dir_all(&traces_dir).unwrap();
+
+    let summary_csv_path = traces_dir.join("traces_summary.csv");
+    let mut summary_file = File::create(&summary_csv_path).unwrap();
+    writeln!(
+        summary_file,
+        "config,first_activity_tick,last_activity_tick,peak_tick,peak_spike_count,total_spikes,decay_slope"
+    ).unwrap();
+
+    struct TraceConfig<'a> {
+        name: &'a str,
+        density: f64,
+        inhibitory_share: f64,
+    }
+
+    let configs = vec![
+        TraceConfig {
+            name: "immediate_transient",
+            density: 0.08,
+            inhibitory_share: 0.20,
+        },
+        TraceConfig {
+            name: "long_transient",
+            density: 0.10,
+            inhibitory_share: 0.25,
+        },
+        TraceConfig {
+            name: "sustained",
+            density: 0.09,
+            inhibitory_share: 0.225,
+        },
+    ];
+
+    let total_ticks = 1000;
+
+    for c in configs {
+        let shard_config = make_legacy_shard_config(
+            exc_type.clone(),
+            inh_type.clone(),
+            c.density,
+            c.inhibitory_share,
+            8,
+        );
+
+        let baker_input = LocalShardBakeInput {
+            shard_config: &shard_config,
+            master_seed: MasterSeed(42),
+            voxel_size_um: 1.0,
+        };
+        let (artifacts, report) = bake_local_shard(&baker_input).expect("Baking failed");
+        let axic_data = pack_local_shard_artifacts(&artifacts).expect("Packaging failed");
+
+        // Stimulus is single_pulse_2
+        let mut full_bitmask = vec![0u32; total_ticks];
+        full_bitmask[0] = 0b11; // 2 active axons
+
+        let temp_axic_path = std::env::temp_dir().join(format!("legacy_trace_{}.axic", c.name));
+        {
+            let mut f = File::create(&temp_axic_path).unwrap();
+            f.write_all(&axic_data).unwrap();
+        }
+
+        let boot_input = LocalShardComputeInput {
+            archive_path: temp_axic_path.clone(),
+            backend_preference: compute::BackendPreference::Cpu,
+            virtual_offset: 0,
+            total_ghosts: 0,
+        };
+        let (engine, _boot_bundle) =
+            bootstrap_local_shard_engine(&boot_input).expect("Bootstrap failed");
+
+        let mapped_somas: Vec<u32> = (0..report.total_somas).collect();
+        let runtime_config = LocalRuntimeConfig {
+            sync_batch_ticks: 100,
+            v_seg: 1,
+            dopamine: 0,
+            max_spikes_per_tick: 2000,
+            virtual_offset: 0,
+            num_virtual_axons: 32,
+            input_words_per_tick: 1,
+            mapped_soma_ids: mapped_somas,
+        };
+        let mut runtime =
+            LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
+
+        let total_batches = 10;
+        let ticks_per_batch = 100;
+        let max_spikes = 2000;
+
+        let mut per_tick_output_count = Vec::new();
+        let mut per_tick_exc_count = Vec::new();
+        let mut per_tick_inh_count = Vec::new();
+
+        let excitatory_boundary = (report.total_somas as f64 * 0.8).round() as u32;
+
+        for b in 0..total_batches {
+            let start_tick = b * ticks_per_batch;
+            let end_tick = start_tick + ticks_per_batch;
+            let batch_bitmask = &full_bitmask[start_tick..end_tick];
+
+            let input = RuntimeBatchInput {
+                input_bitmask: Some(batch_bitmask),
+                incoming_spikes: None,
+                incoming_spike_counts: &vec![0; ticks_per_batch],
+            };
+
+            let r = runtime.run_batch(input).expect("Batch failed");
+
+            for (tick_local, &cnt) in r.output_spike_counts.iter().enumerate() {
+                let mut exc_spikes = 0u32;
+                let mut inh_spikes = 0u32;
+
+                for slot in 0..cnt as usize {
+                    let idx_spikes = tick_local * max_spikes + slot;
+                    let soma_id = r.output_spikes[idx_spikes];
+                    if soma_id < excitatory_boundary {
+                        exc_spikes += 1;
+                    } else {
+                        inh_spikes += 1;
+                    }
+                }
+
+                per_tick_output_count.push(cnt);
+                per_tick_exc_count.push(exc_spikes);
+                per_tick_inh_count.push(inh_spikes);
+            }
+        }
+
+        let _ = std::fs::remove_file(temp_axic_path);
+
+        let mut cumulative_spikes = 0u64;
+        let mut cumulative_spikes_trace = Vec::new();
+        let mut first_activity_tick = -1i32;
+        let mut last_activity_tick = -1i32;
+        let mut peak_tick = 0usize;
+        let mut peak_spike_count = 0u32;
+
+        for (t, &cnt) in per_tick_output_count.iter().enumerate() {
+            cumulative_spikes += cnt as u64;
+            cumulative_spikes_trace.push(cumulative_spikes);
+
+            if cnt > 0 {
+                if first_activity_tick == -1 {
+                    first_activity_tick = t as i32;
+                }
+                last_activity_tick = t as i32;
+                if cnt > peak_spike_count {
+                    peak_spike_count = cnt;
+                    peak_tick = t;
+                }
+            }
+        }
+
+        let decay_slope = if last_activity_tick > peak_tick as i32 {
+            let active_after_peak = last_activity_tick as f64 - peak_tick as f64;
+            let peak_val = peak_spike_count as f64;
+            let last_val = per_tick_output_count[last_activity_tick as usize] as f64;
+            (last_val - peak_val) / active_after_peak
+        } else {
+            0.0
+        };
+
+        let trace_csv_path = traces_dir.join(format!("{}_trace.csv", c.name));
+        let mut trace_file = File::create(&trace_csv_path).unwrap();
+        writeln!(
+            trace_file,
+            "tick_index,output_spike_count,exc_spike_count,inh_spike_count,cumulative_spikes,windowed_mean_10,windowed_mean_50"
+        ).unwrap();
+
+        for t in 0..total_ticks {
+            let win_10_start = t.saturating_sub(9);
+            let sum_10: u32 = per_tick_output_count[win_10_start..=t].iter().sum();
+            let win_10_mean = sum_10 as f64 / (t - win_10_start + 1) as f64;
+
+            let win_50_start = t.saturating_sub(49);
+            let sum_50: u32 = per_tick_output_count[win_50_start..=t].iter().sum();
+            let win_50_mean = sum_50 as f64 / (t - win_50_start + 1) as f64;
+
+            writeln!(
+                trace_file,
+                "{},{},{},{},{},{:.6},{:.6}",
+                t,
+                per_tick_output_count[t],
+                per_tick_exc_count[t],
+                per_tick_inh_count[t],
+                cumulative_spikes_trace[t],
+                win_10_mean,
+                win_50_mean
+            )
+            .unwrap();
+        }
+
+        writeln!(
+            summary_file,
+            "{},{},{},{},{},{},{:.6}",
+            c.name,
+            first_activity_tick,
+            last_activity_tick,
+            peak_tick,
+            peak_spike_count,
+            cumulative_spikes,
+            decay_slope
+        )
+        .unwrap();
+    }
+
+    println!("Legacy baseline representative traces test successfully completed.");
+}

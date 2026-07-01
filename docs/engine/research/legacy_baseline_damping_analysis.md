@@ -38,9 +38,25 @@ A 30-run grid search sweep across densities `[0.05..0.10]` and inhibitory shares
   - `inhibitory_share = 0.250` triggers a long-lived **transient-response** of **482 ticks** (active from tick 12 to 493).
   - `inhibitory_share = 0.300` triggers a long-lived **transient-response** of **836 ticks** (active from tick 12 to 847).
 
+## Representative Temporal Traces
+
+To understand the trajectory shapes of these responses, we simulated three key configurations and exported their per-tick temporal traces (available at `artifacts/legacy_baseline_traces/`):
+
+1. **Immediate Transient** (`density = 0.08, inhibitory_share = 0.20`):
+   - Activates at tick 12 with only 2 spikes (both excitatory) and immediately decays to 0. No recruitment occurs.
+2. **Long Transient** (`density = 0.10, inhibitory_share = 0.25`):
+   - Activates at tick 12, then recruits slowly over 316 ticks to reach peak activity of **21 spikes** at tick `328` (18 excitatory, 3 inhibitory).
+   - After the peak, activity decays linearly (decay slope $\approx$ `-0.12`) over 165 ticks until it dies at tick `493` (total spikes: 2,732).
+3. **Sustained** (`density = 0.09, inhibitory_share = 0.225`):
+   - Activates at tick 12, recruits slowly to reach a peak of **34 spikes** at tick `498` (28 excitatory, 6 inhibitory).
+   - After the peak, it enters a very slow decay (decay slope $\approx$ `-0.06`), remaining active to the end of the simulation at tick `999` (total spikes: 12,761).
+
+These trajectories show a characteristic **slow-recruitment** pattern: when a stimulus is presented, it takes hundreds of ticks for recurrent pathways to reach maximum firing intensity, followed by a gradual decay.
+
 ## Conclusion & Next Steps
 The precise stability boundary zone where the network transitions from immediate decay to infinite sustained activity is located at:
 - **Soma Density**: `0.09..0.10`
 - **Inhibitory Share**: `0.25..0.30`
 
 This parameter coordinate represents the critical damping region where the network can sustain long-lived transients, making it the primary target for biological baseline calibrations.
+
