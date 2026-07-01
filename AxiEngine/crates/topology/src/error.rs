@@ -49,4 +49,11 @@ pub enum TopologyError {
         /// The name of the parameter field.
         field: &'static str,
     },
+    /// Synapse target address parameters exceed allowed domain boundaries.
+    InvalidSynapseTarget {
+        /// Axon identifier.
+        axon_id: u32,
+        /// Segment offset.
+        segment_offset: u8,
+    },
 }

@@ -632,8 +632,8 @@ fn test_topology_no_forbidden_dependencies() {
 
     assert_eq!(
         deps.len(),
-        3,
-        "Expected exactly 3 dependencies, found: {:?}",
+        4,
+        "Expected exactly 4 dependencies, found: {:?}",
         deps
     );
     assert!(
@@ -647,6 +647,10 @@ fn test_topology_no_forbidden_dependencies() {
     assert!(
         deps.contains(&"layout".to_string()),
         "Missing 'layout' dependency"
+    );
+    assert!(
+        deps.contains(&"physics".to_string()),
+        "Missing 'physics' dependency"
     );
 }
 
@@ -1402,4 +1406,452 @@ fn test_topology_score_overflow_rejected() {
 
     let res = TopologyEngine::grow_local_axons(&input);
     assert_eq!(res.err(), Some(TopologyError::CapacityOverflow));
+}
+
+// ==========================================
+// Stage B2: Local Synapse Formation Tests
+// ==========================================
+
+use topology::{AxonSegment, GrownAxonPath, LocalGrowthResult, SynapseFormationInput};
+
+fn make_formation_test_setup() -> (ShardConfig, SingleShardTopology, LocalGrowthResult) {
+    let neuron_types = vec![
+        make_dummy_neuron_type("TypeA"),
+        make_dummy_neuron_type("TypeB"),
+    ];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+
+    let somas = vec![
+        PlacedSoma {
+            soma_id: 0,
+            variant_id: 0,
+            position: types::PackedPosition::new(3, 3, 3, 0),
+        },
+        PlacedSoma {
+            soma_id: 1,
+            variant_id: 1,
+            position: types::PackedPosition::new(6, 6, 6, 1),
+        },
+    ];
+    let topology = SingleShardTopology { somas };
+
+    // Axon of soma 0 grows to 5,5,5. Axon of soma 1 grows to 4,4,4
+    let axons = vec![
+        GrownAxonPath {
+            soma_id: 0,
+            segments: vec![
+                AxonSegment {
+                    position: types::PackedPosition::new(4, 4, 4, 0),
+                    segment_offset: 1,
+                },
+                AxonSegment {
+                    position: types::PackedPosition::new(5, 5, 5, 0),
+                    segment_offset: 2,
+                },
+            ],
+            stop_reason: AxonGrowthStopReason::Blocked,
+        },
+        GrownAxonPath {
+            soma_id: 1,
+            segments: vec![
+                AxonSegment {
+                    position: types::PackedPosition::new(5, 5, 5, 1),
+                    segment_offset: 1,
+                },
+                AxonSegment {
+                    position: types::PackedPosition::new(4, 4, 4, 1),
+                    segment_offset: 2,
+                },
+            ],
+            stop_reason: AxonGrowthStopReason::Blocked,
+        },
+    ];
+    let growth = LocalGrowthResult { axons };
+
+    (config, topology, growth)
+}
+
+#[test]
+fn test_topology_formation_deterministic_same_seed() {
+    let (config, topology, growth) = make_formation_test_setup();
+    let seed = MasterSeed(42);
+
+    let input1 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed,
+    };
+    let input2 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed,
+    };
+
+    let res1 = TopologyEngine::form_local_synapses(&input1).unwrap();
+    let res2 = TopologyEngine::form_local_synapses(&input2).unwrap();
+
+    assert_eq!(res1, res2);
+}
+
+#[test]
+fn test_topology_formation_whitelist_respected() {
+    let (mut config, topology, growth) = make_formation_test_setup();
+    // Target TypeB (soma 1) whitelists only "TypeX" (soma 0 is "TypeA", so should be blocked)
+    config.neuron_types[1].growth.dendrite_whitelist = vec!["TypeX".to_string()];
+
+    let input = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+
+    let plan = TopologyEngine::form_local_synapses(&input).unwrap();
+    // Soma 1 has variant_id 1, TypeB. It shouldn't receive any synapses from soma 0 (TypeA).
+    let row1 = &plan.rows[1];
+    assert!(row1.slots.is_empty());
+}
+
+#[test]
+fn test_topology_formation_radius_boundary() {
+    let (mut config, topology, _) = make_formation_test_setup();
+
+    // Only one segment at (4,4,4) for axon 0, so distance to soma 1 (6,6,6) is exactly dx=2, dy=2, dz=2 -> dist_sq = 12.
+    let growth = LocalGrowthResult {
+        axons: vec![
+            GrownAxonPath {
+                soma_id: 0,
+                segments: vec![AxonSegment {
+                    position: types::PackedPosition::new(4, 4, 4, 0),
+                    segment_offset: 1,
+                }],
+                stop_reason: AxonGrowthStopReason::Blocked,
+            },
+            GrownAxonPath {
+                soma_id: 1,
+                segments: vec![],
+                stop_reason: AxonGrowthStopReason::Blocked,
+            },
+        ],
+    };
+
+    // voxel_size_um = 1.0. If radius is 3.4 um, radius_voxels = ceil(3.4) = 4, radius_voxels_sq = 16. Candidate allowed.
+    // If radius is 3.0 um, radius_voxels = ceil(3.0) = 3, radius_voxels_sq = 9. Candidate blocked.
+    config.neuron_types[1].growth.dendrite_radius_um = 3.4;
+
+    let input1 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+    let plan1 = TopologyEngine::form_local_synapses(&input1).unwrap();
+    assert!(!plan1.rows[1].slots.is_empty());
+
+    config.neuron_types[1].growth.dendrite_radius_um = 3.0;
+    let input2 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+    let plan2 = TopologyEngine::form_local_synapses(&input2).unwrap();
+    assert!(plan2.rows[1].slots.is_empty());
+}
+
+#[test]
+fn test_topology_formation_max_dendrites_cap() {
+    let (mut config, topology, mut growth) = make_formation_test_setup();
+    // Make target radius huge so it sees all segments
+    config.neuron_types[1].growth.dendrite_radius_um = 100.0;
+
+    // Create axon path with 200 segments for soma 0
+    let mut segments = Vec::new();
+    for i in 1..=200 {
+        segments.push(AxonSegment {
+            position: types::PackedPosition::new(5, 5, 5, 0),
+            segment_offset: i as u8,
+        });
+    }
+    growth.axons[0].segments = segments;
+
+    let input = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+
+    let plan = TopologyEngine::form_local_synapses(&input).unwrap();
+    let row1 = &plan.rows[1]; // Target is soma 1
+    assert_eq!(row1.slots.len(), 128); // Capped to MAX_DENDRITES
+    assert_eq!(plan.dropped_candidates, 72); // 200 - 128 = 72
+}
+
+#[test]
+fn test_topology_formation_packed_target_safety() {
+    let (config, topology, mut growth) = make_formation_test_setup();
+
+    // Set segment offset to 0 (which is invalid)
+    growth.axons[0].segments[0].segment_offset = 0;
+
+    let input = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+
+    let res = TopologyEngine::form_local_synapses(&input);
+    assert_eq!(
+        res.err(),
+        Some(TopologyError::InvalidSynapseTarget {
+            axon_id: 0,
+            segment_offset: 0
+        })
+    );
+}
+
+#[test]
+fn test_topology_formation_no_self_synapse() {
+    let (config, topology, growth) = make_formation_test_setup();
+
+    let input = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+
+    let plan = TopologyEngine::form_local_synapses(&input).unwrap();
+    // Soma 0 has axon segments. It shouldn't form synapses on itself (soma 0)
+    let row0 = &plan.rows[0];
+    assert!(row0.slots.iter().all(|s| s.source_soma_id != 0));
+}
+
+#[test]
+fn test_topology_formation_initial_weights() {
+    let (mut config, topology, growth) = make_formation_test_setup();
+
+    // Case 1: normal weights
+    config.neuron_types[0].gsop.initial_synapse_weight = 100;
+    config.neuron_types[0].gsop.is_inhibitory = true; // GABA -> negative weight
+    config.neuron_types[1].gsop.initial_synapse_weight = 200;
+    config.neuron_types[1].gsop.is_inhibitory = false; // Glutamate -> positive weight
+
+    let input1 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+    let plan1 = TopologyEngine::form_local_synapses(&input1).unwrap();
+    // Target 1 receives synapse from source 0 (inhibitory, weight = -100)
+    assert_eq!(plan1.rows[1].slots[0].weight, -100);
+    // Target 0 receives synapse from source 1 (excitatory, weight = 200)
+    assert_eq!(plan1.rows[0].slots[0].weight, 200);
+
+    // Case 2: initial weight is 0 -> corrected to MIN_WEIGHT_LIMIT (1)
+    config.neuron_types[0].gsop.initial_synapse_weight = 0;
+    config.neuron_types[0].gsop.is_inhibitory = true;
+    let input2 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+    let plan2 = TopologyEngine::form_local_synapses(&input2).unwrap();
+    assert_eq!(plan2.rows[1].slots[0].weight, -1);
+}
+
+#[test]
+fn test_topology_formation_empty_slot_policy() {
+    let (config, topology, growth) = make_formation_test_setup();
+
+    let input = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+
+    let plan = TopologyEngine::form_local_synapses(&input).unwrap();
+
+    // The DTO plan should only have live synapses. No empty/tombstone target IDs.
+    for row in &plan.rows {
+        for slot in &row.slots {
+            assert!(!slot.target.is_zero_none());
+            assert!(!slot.target.is_tombstone());
+            assert!(slot.target.is_valid_raw());
+            assert!(!slot.target.is_inactive());
+        }
+    }
+}
+
+#[test]
+fn test_topology_formation_invalid_voxel_size_rejected() {
+    let (config, topology, growth) = make_formation_test_setup();
+
+    let input1 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: f32::NAN,
+        seed: MasterSeed(42),
+    };
+    assert_eq!(
+        TopologyEngine::form_local_synapses(&input1).err(),
+        Some(TopologyError::InvalidGrowthParameter {
+            variant_id: 0,
+            field: "voxel_size_um"
+        })
+    );
+
+    let input2 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 0.0,
+        seed: MasterSeed(42),
+    };
+    assert_eq!(
+        TopologyEngine::form_local_synapses(&input2).err(),
+        Some(TopologyError::InvalidGrowthParameter {
+            variant_id: 0,
+            field: "voxel_size_um"
+        })
+    );
+
+    let input3 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: -2.5,
+        seed: MasterSeed(42),
+    };
+    assert_eq!(
+        TopologyEngine::form_local_synapses(&input3).err(),
+        Some(TopologyError::InvalidGrowthParameter {
+            variant_id: 0,
+            field: "voxel_size_um"
+        })
+    );
+
+    let input4 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: f32::INFINITY,
+        seed: MasterSeed(42),
+    };
+    assert_eq!(
+        TopologyEngine::form_local_synapses(&input4).err(),
+        Some(TopologyError::InvalidGrowthParameter {
+            variant_id: 0,
+            field: "voxel_size_um"
+        })
+    );
+}
+
+#[test]
+fn test_topology_formation_invalid_dendrite_radius_rejected() {
+    let (mut config, topology, growth) = make_formation_test_setup();
+
+    // Case 1: dendrite_radius_um = 0.0
+    config.neuron_types[1].growth.dendrite_radius_um = 0.0;
+    let input1 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+    assert_eq!(
+        TopologyEngine::form_local_synapses(&input1).err(),
+        Some(TopologyError::InvalidGrowthParameter {
+            variant_id: 1,
+            field: "dendrite_radius_um"
+        })
+    );
+
+    // Case 2: dendrite_radius_um = NaN
+    config.neuron_types[1].growth.dendrite_radius_um = f32::NAN;
+    let input2 = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+    assert_eq!(
+        TopologyEngine::form_local_synapses(&input2).err(),
+        Some(TopologyError::InvalidGrowthParameter {
+            variant_id: 1,
+            field: "dendrite_radius_um"
+        })
+    );
+}
+
+#[test]
+fn test_topology_formation_growth_topology_mismatch_rejected() {
+    let (config, topology, mut growth) = make_formation_test_setup();
+
+    // Change soma_id of the second axon to create a mismatch with topology.somas[1] (which is soma_id=1)
+    growth.axons[1].soma_id = 999;
+
+    let input = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+    assert_eq!(
+        TopologyEngine::form_local_synapses(&input).err(),
+        Some(TopologyError::CapacityOverflow)
+    );
+}
+
+#[test]
+fn test_topology_formation_huge_radius_saturates() {
+    let (mut config, topology, growth) = make_formation_test_setup();
+
+    // Very large but finite radius
+    config.neuron_types[1].growth.dendrite_radius_um = 1e20;
+
+    let input = SynapseFormationInput {
+        config: &config,
+        topology: &topology,
+        growth: &growth,
+        voxel_size_um: 1.0,
+        seed: MasterSeed(42),
+    };
+
+    let res = TopologyEngine::form_local_synapses(&input);
+    assert!(res.is_ok());
+    let plan = res.unwrap();
+    // Shard is fully covered, so target 1 (TypeB) should receive synapses.
+    assert!(!plan.rows[1].slots.is_empty());
 }

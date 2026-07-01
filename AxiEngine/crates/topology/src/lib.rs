@@ -4,9 +4,11 @@ pub mod dto;
 pub mod error;
 mod growth;
 mod placement;
+mod synapses;
 
 pub use dto::{
-    AxonGrowthInput, AxonGrowthStopReason, AxonSegment, GrownAxonPath, LocalGrowthResult,
-    PlacedSoma, SingleShardTopology, SingleShardTopologyInput, TopologyEngine,
+    AxonGrowthInput, AxonGrowthStopReason, AxonSegment, FormedSynapse, GrownAxonPath,
+    LocalGrowthResult, LocalSynapsePlan, NeuronSynapseRow, PlacedSoma, SingleShardTopology,
+    SingleShardTopologyInput, SynapseFormationInput, TopologyEngine,
 };
 pub use error::TopologyError;

@@ -2,7 +2,7 @@
 
 use crate::error::TopologyError;
 use config::ShardConfig;
-use types::{MasterSeed, PackedPosition};
+use types::{MasterSeed, PackedPosition, PackedTarget};
 
 /// Input parameters for single-shard topology generation.
 #[derive(Debug, Clone)]
@@ -109,4 +109,73 @@ impl TopologyEngine {
     pub fn grow_local_axons(input: &AxonGrowthInput) -> Result<LocalGrowthResult, TopologyError> {
         crate::growth::grow_local_axons(input)
     }
+
+    /// Deterministically builds the plan of local synaptic connections.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TopologyError`] if parameters or inputs are inconsistent.
+    pub fn form_local_synapses(
+        input: &SynapseFormationInput,
+    ) -> Result<LocalSynapsePlan, TopologyError> {
+        crate::synapses::form_local_synapses(input)
+    }
+}
+
+// ==========================================
+// DTO: Local Synapse Formation (Stage B2)
+// ==========================================
+
+/// Input parameters for single-shard local synapse formation.
+#[derive(Debug, Clone)]
+pub struct SynapseFormationInput<'a> {
+    /// Reference to the validated shard configuration.
+    pub config: &'a ShardConfig,
+    /// Reference to the generated topology of somas.
+    pub topology: &'a SingleShardTopology,
+    /// Reference to the results of axon growth.
+    pub growth: &'a LocalGrowthResult,
+    /// Voxel size of the grid in micrometers.
+    pub voxel_size_um: f32,
+    /// Root generation seed for deterministic pseudo-random choices.
+    pub seed: MasterSeed,
+}
+
+/// Connectome plan of local synaptic contacts within a single shard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalSynapsePlan {
+    /// Ordered rows of synaptic connections per target soma.
+    pub rows: Vec<NeuronSynapseRow>,
+    /// Total count of successfully established live synapse contacts in the shard.
+    pub total_live_synapses: usize,
+    /// Total count of connection candidates dropped due to MAX_DENDRITES limit.
+    pub dropped_candidates: usize,
+}
+
+/// Row representing all active incoming synapses of a target neuron soma.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NeuronSynapseRow {
+    /// ID of the target soma.
+    pub target_soma_id: u32,
+    /// Established active synapse connections (capped to 128 slots).
+    pub slots: Vec<FormedSynapse>,
+}
+
+/// Parameters of an established active synaptic connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormedSynapse {
+    /// Index of the dendrite slot (ranging from 0 to 127).
+    pub dendrite_slot: u8,
+    /// Packed target identifying the source axon and segment offset.
+    pub target: PackedTarget,
+    /// Initial synaptic weight mass value (preserving excitability/inhibitory sign).
+    pub weight: i32,
+    /// Synaptic timer value (always initialized to 0).
+    pub timer: u8,
+    /// ID of the source soma neuron.
+    pub source_soma_id: u32,
+    /// Axon identifier (identical to source_soma_id in local domain).
+    pub axon_id: u32,
+    /// Offset of the axon segment.
+    pub segment_offset: u8,
 }

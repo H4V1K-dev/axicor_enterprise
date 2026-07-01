@@ -8,6 +8,7 @@ publish = false
 types = { path = "../types" }
 config = { path = "../config" }
 layout = { path = "../layout" }
+physics = { path = "../physics" }
 
 [dev-dependencies]
 static_assertions = "=1.1.0"
