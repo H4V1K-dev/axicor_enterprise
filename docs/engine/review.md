@@ -421,7 +421,7 @@
 
 - **REV-CFG-005**: Размещение и Тестирование `initial_synapse_weight` в TOML-схеме
   - *Status*: Resolved (config v2.1) | *Priority*: P1 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L337)
-  - *Decision*: Поле `initial_synapse_weight: u16` добавлено в секцию `GsopParams` в `NeuronType`. Валидация проверяет лимит `<= 32767`.
+  - *Decision*: Поле `initial_synapse_weight: u16` добавлено в секцию `GsopParams` в `NeuronType`. Валидация проверяет лимит `<= 32653` (значение задается в Charge-scale, а при формировании связей в `topology` переводится в Mass Domain через сдвиг влево на `MASS_TO_CHARGE_SHIFT`).
 
 - **REV-CFG-006**: Крайний Случай DDS Heartbeat (`period = 1`)
   - *Status*: Resolved (config v2.1) | *Priority*: P2 | *Owner*: `config` | *Duplicate Of*: - | *Source*: [config_spec.md](./spec_L1/config_spec.md#L341)

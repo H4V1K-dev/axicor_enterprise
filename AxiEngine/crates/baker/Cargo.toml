@@ -1,0 +1,18 @@
+[package]
+name = "baker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+types = { path = "../types" }
+physics = { path = "../physics" }
+layout = { path = "../layout" }
+config = { path = "../config" }
+topology = { path = "../topology" }
+bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"] }
+thiserror = "=1.0.69"
+
+[dev-dependencies]
+static_assertions = "=1.1.0"
+compute-api = { path = "../compute-api" }

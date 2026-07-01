@@ -3,6 +3,21 @@
 version = 4
 
 [[package]]
+name = "baker"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "compute-api",
+ "config",
+ "layout",
+ "physics",
+ "static_assertions",
+ "thiserror",
+ "topology",
+ "types",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -278,9 +293,12 @@ dependencies = [
 name = "test-harness"
 version = "0.1.0"
 dependencies = [
+ "baker",
+ "bytemuck",
  "compute",
  "compute-api",
  "compute-cpu",
+ "config",
  "layout",
  "types",
 ]

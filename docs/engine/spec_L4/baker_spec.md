@@ -96,7 +96,7 @@ pub struct LocalShardArtifacts {
     pub state_blob: Vec<u8>,
     pub axons_blob: Vec<u8>,
     pub paths_blob: Vec<u8>,
-    pub variant_table: Vec<VariantParameters>, // до 16 элементов
+    pub variant_table: [VariantParameters; layout::VARIANT_LUT_LEN],
 }
 
 /// Статистический отчет о сборке локального шарда.

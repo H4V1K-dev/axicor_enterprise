@@ -12,10 +12,14 @@ layout = { path = "../layout" }
 compute-api = { path = "../compute-api" }
 compute-cpu = { path = "../compute-cpu", optional = true }
 compute = { path = "../compute", optional = true, default-features = false }
+baker = { path = "../baker", optional = true }
+config = { path = "../config", optional = true }
+bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"], optional = true }
 
 [features]
 default = ["cpu", "mock", "abi"]
 cpu = ["dep:compute-cpu"]
+baker-probe = ["dep:baker", "dep:config", "dep:bytemuck", "cpu"]
 mock = []
 abi = []
 cuda = []
