@@ -5,7 +5,8 @@
   "main": "index.html",
   "scripts": {
     "start": "serve -p 3000 .",
-    "capture": "node capture.js"
+    "capture": "node capture.js",
+    "sweep": "node sweep.js"
   },
   "devDependencies": {
     "chart.js": "=4.4.3",
