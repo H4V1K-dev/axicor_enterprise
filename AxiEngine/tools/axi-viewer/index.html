@@ -51,6 +51,17 @@
         <p class="text-xs text-slate-400">Dev Telemetry Microscope</p>
       </div>
     </div>
+    
+    <!-- Mode Switcher Toggle -->
+    <div class="flex bg-slate-950/60 p-1 rounded-xl border border-slate-800/80">
+      <button id="btn-single-mode" class="px-4 py-1.5 rounded-lg text-xs font-semibold font-display transition duration-150 text-white bg-slate-800 shadow-md focus:outline-none">
+        Single Run
+      </button>
+      <button id="btn-compare-mode" class="px-4 py-1.5 rounded-lg text-xs font-semibold font-display transition duration-150 text-slate-400 hover:text-white focus:outline-none">
+        Compare Runs
+      </button>
+    </div>
+
     <div class="flex items-center space-x-3">
       <button id="exportPngBtn" class="px-4 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-medium text-sm rounded-lg shadow-lg hover:shadow-cyan-500/20 transition duration-150 ease-in-out disabled:opacity-50" disabled>
         Export PNG Screenshot
@@ -61,13 +72,13 @@
   <!-- Main Content Layout -->
   <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
 
-    <!-- Upload and File Status Banner -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- Single Run Upload Container -->
+    <div id="single-upload-container" class="grid grid-cols-1 md:grid-cols-3 gap-6">
       <!-- File Picker Card -->
       <div class="glass-card p-6 rounded-2xl flex flex-col justify-between space-y-4 col-span-1">
         <div>
           <h2 class="text-lg font-display font-semibold text-white">Load Telemetry Folder</h2>
-          <p class="text-xs text-slate-400 mt-1">Select an exported simulation directory containing CSV/JSON outputs.</p>
+          <p class="text-xs text-slate-400 mt-1">Select an simulation output directory containing CSV/JSON telemetry.</p>
         </div>
         <div>
           <label class="w-full flex flex-col items-center px-4 py-6 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-xl border-2 border-dashed border-slate-700 hover:border-cyan-500 cursor-pointer transition duration-150">
@@ -115,11 +126,123 @@
       </div>
     </div>
 
+    <!-- Compare Runs Upload Container -->
+    <div id="compare-upload-container" class="grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+      <!-- Dataset A (Baseline) Card -->
+      <div class="glass-card p-6 rounded-2xl flex flex-col justify-between space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <div>
+            <h2 class="text-md font-display font-semibold text-emerald-450">Dataset A (Baseline)</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Reference baseline simulation run.</p>
+          </div>
+          <span id="dataset-a-badge" class="px-2 py-0.5 text-2xs font-semibold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hidden"></span>
+        </div>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <!-- Picker -->
+          <div class="flex flex-col justify-center">
+            <label class="w-full flex flex-col items-center px-3 py-4 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-xl border-2 border-dashed border-slate-700 hover:border-emerald-500 cursor-pointer transition duration-150">
+              <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9l-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+              </svg>
+              <span class="mt-1 text-xs font-medium text-center">Choose Folder / Files</span>
+              <input type="file" id="folderInputA" multiple webkitdirectory directory class="hidden" />
+              <input type="file" id="dirInputA" multiple class="hidden" />
+            </label>
+            <button type="button" id="fileFallbackBtnA" class="text-center text-2xs text-cyan-400 hover:text-cyan-300 underline mt-1.5 focus:outline-none">
+              Or select files
+            </button>
+          </div>
+          
+          <!-- checklist -->
+          <div class="grid grid-cols-1 gap-1 text-xs">
+            <div class="flex items-center space-x-2 py-1 px-2 bg-slate-900/30 rounded border border-slate-800/60">
+              <span id="status-summary-a" class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+              <span class="text-slate-400 font-mono text-2xs">summary.json</span>
+            </div>
+            <div class="flex items-center space-x-2 py-1 px-2 bg-slate-900/30 rounded border border-slate-800/60">
+              <span id="status-batches-a" class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+              <span class="text-slate-400 font-mono text-2xs">node_batches.csv</span>
+            </div>
+            <div class="flex items-center space-x-2 py-1 px-2 bg-slate-900/30 rounded border border-slate-800/60">
+              <span id="status-outputs-a" class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+              <span class="text-slate-400 font-mono text-2xs">node_outputs.csv</span>
+            </div>
+            <div class="flex items-center space-x-2 py-1 px-2 bg-slate-900/30 rounded border border-slate-800/60">
+              <span id="status-spikes-a" class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+              <span class="text-slate-400 font-mono text-2xs">node_output_spikes.csv</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dataset B (Active) Card -->
+      <div class="glass-card p-6 rounded-2xl flex flex-col justify-between space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <div>
+            <h2 class="text-md font-display font-semibold text-indigo-400">Dataset B (Active)</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Active or stimulated simulation run.</p>
+          </div>
+          <span id="dataset-b-badge" class="px-2 py-0.5 text-2xs font-semibold rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hidden"></span>
+        </div>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <!-- Picker -->
+          <div class="flex flex-col justify-center">
+            <label class="w-full flex flex-col items-center px-3 py-4 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-xl border-2 border-dashed border-slate-700 hover:border-indigo-500 cursor-pointer transition duration-150">
+              <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9l-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+              </svg>
+              <span class="mt-1 text-xs font-medium text-center">Choose Folder / Files</span>
+              <input type="file" id="folderInputB" multiple webkitdirectory directory class="hidden" />
+              <input type="file" id="dirInputB" multiple class="hidden" />
+            </label>
+            <button type="button" id="fileFallbackBtnB" class="text-center text-2xs text-cyan-400 hover:text-cyan-300 underline mt-1.5 focus:outline-none">
+              Or select files
+            </button>
+          </div>
+          
+          <!-- checklist -->
+          <div class="grid grid-cols-1 gap-1 text-xs">
+            <div class="flex items-center space-x-2 py-1 px-2 bg-slate-900/30 rounded border border-slate-800/60">
+              <span id="status-summary-b" class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+              <span class="text-slate-400 font-mono text-2xs">summary.json</span>
+            </div>
+            <div class="flex items-center space-x-2 py-1 px-2 bg-slate-900/30 rounded border border-slate-800/60">
+              <span id="status-batches-b" class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+              <span class="text-slate-400 font-mono text-2xs">node_batches.csv</span>
+            </div>
+            <div class="flex items-center space-x-2 py-1 px-2 bg-slate-900/30 rounded border border-slate-800/60">
+              <span id="status-outputs-b" class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+              <span class="text-slate-400 font-mono text-2xs">node_outputs.csv</span>
+            </div>
+            <div class="flex items-center space-x-2 py-1 px-2 bg-slate-900/30 rounded border border-slate-800/60">
+              <span id="status-spikes-b" class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+              <span class="text-slate-400 font-mono text-2xs">node_output_spikes.csv</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Main Dashboard Visuals (Initially Hidden / Overlay shown) -->
     <div id="dashboardContainer" class="space-y-6 opacity-40 transition-opacity duration-300">
       
-      <!-- Summary Cards Grid -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <!-- Diagnostic Warnings Box -->
+      <div id="diagnostics-container" class="glass-card p-4 rounded-xl border-rose-500/20 bg-rose-950/10 hidden">
+        <div class="flex items-center space-x-2 text-rose-400 font-display font-semibold text-sm mb-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+          <span>Diagnostic Warnings Detected</span>
+        </div>
+        <ul id="diagnostics-list" class="list-disc pl-5 text-xs text-rose-300 space-y-1">
+          <!-- Warnings populated here -->
+        </ul>
+      </div>
+
+      <!-- Single Run Cards Container (Shown only in Single mode) -->
+      <div id="single-cards-container" class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <!-- Hardware -->
         <div class="glass-card p-4 rounded-xl">
           <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Active Backend</div>
@@ -159,6 +282,51 @@
         <div class="glass-card p-4 rounded-xl">
           <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Dropped Ratio</div>
           <div id="val-dropped-ratio" class="text-2xl font-bold text-orange-400 mt-1 font-display">-</div>
+        </div>
+      </div>
+
+      <!-- Comparison Cards Container (Shown only in Compare mode) -->
+      <div id="comparison-cards-container" class="grid grid-cols-2 md:grid-cols-4 gap-4 hidden">
+        <!-- Hardware -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Active Backend (A | B)</div>
+          <div id="compare-backend" class="text-md font-bold text-cyan-400 mt-1 font-display">- | -</div>
+        </div>
+        <!-- Wall Time -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Wall Time (A | B)</div>
+          <div id="compare-wall-time" class="text-md font-bold text-indigo-400 mt-1 font-display">- | -</div>
+        </div>
+        <!-- Generated Spikes -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Gen Spikes (A | B)</div>
+          <div id="compare-spikes" class="text-md font-bold text-emerald-400 mt-1 font-display">- | -</div>
+        </div>
+        <!-- Dropped Spikes -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Dropped Spikes (A | B)</div>
+          <div id="compare-dropped" class="text-md font-bold text-rose-400 mt-1 font-display">- | -</div>
+        </div>
+      </div>
+
+      <!-- Delta Table Card (Shown only in Compare mode) -->
+      <div id="delta-table-card" class="glass-card p-6 rounded-2xl hidden">
+        <h3 class="text-md font-display font-semibold text-white mb-4">Telemetry Delta Analysis</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm font-mono border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider">
+                <th class="py-3 px-4">Metric</th>
+                <th class="py-3 px-4">Baseline (A)</th>
+                <th class="py-3 px-4">Active (B)</th>
+                <th class="py-3 px-4">Absolute Delta</th>
+                <th class="py-3 px-4 text-right">Relative Change</th>
+              </tr>
+            </thead>
+            <tbody id="delta-table-body" class="divide-y divide-slate-800/40 text-slate-300">
+              <!-- Populate dynamically -->
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -209,10 +377,31 @@
 
   <!-- Script logic -->
   <script>
+    // Global datasets state
+    let currentMode = 'single'; // 'single' or 'compare'
+    
+    const singleDataset = { summary: null, batches: [], outputs: [], spikes: [], summaryFile: null };
+    const datasetA = { summary: null, batches: [], outputs: [], spikes: [], summaryFile: null };
+    const datasetB = { summary: null, batches: [], outputs: [], spikes: [], summaryFile: null };
+
     // Elements references
+    const btnSingleMode = document.getElementById('btn-single-mode');
+    const btnCompareMode = document.getElementById('btn-compare-mode');
+    const singleUploadContainer = document.getElementById('single-upload-container');
+    const compareUploadContainer = document.getElementById('compare-upload-container');
+
     const folderInput = document.getElementById('folderInput');
     const dirInput = document.getElementById('dirInput');
     const fileFallbackBtn = document.getElementById('fileFallbackBtn');
+
+    const folderInputA = document.getElementById('folderInputA');
+    const dirInputA = document.getElementById('dirInputA');
+    const fileFallbackBtnA = document.getElementById('fileFallbackBtnA');
+
+    const folderInputB = document.getElementById('folderInputB');
+    const dirInputB = document.getElementById('dirInputB');
+    const fileFallbackBtnB = document.getElementById('fileFallbackBtnB');
+
     const exportPngBtn = document.getElementById('exportPngBtn');
     const dashboardContainer = document.getElementById('dashboardContainer');
 
@@ -236,6 +425,18 @@
     let spikesChart = null;
     let rasterChart = null;
 
+    // Delta metrics list
+    const deltaMetrics = [
+      { key: 'total_generated_spikes', label: 'Generated Spikes', format: 'num', lowerIsBetter: false },
+      { key: 'total_output_spikes_written', label: 'Output Spikes Written', format: 'num', lowerIsBetter: false },
+      { key: 'total_dropped_spikes', label: 'Dropped Spikes', format: 'num', lowerIsBetter: true },
+      { key: 'output_saturation', label: 'Output Saturation', format: 'pct', lowerIsBetter: false },
+      { key: 'dropped_ratio', label: 'Dropped Ratio', format: 'pct', lowerIsBetter: true },
+      { key: 'wall_time_us', label: 'Wall Time (us)', format: 'num', lowerIsBetter: true },
+      { key: 'mean_backend_execution_time_us', label: 'Mean Backend Execution (us)', format: 'num', lowerIsBetter: true },
+      { key: 'nonzero_output_ticks', label: 'Nonzero Output Ticks', format: 'num', lowerIsBetter: false }
+    ];
+
     // Helper: Parse CSV content
     function parseCSV(text) {
       const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
@@ -247,7 +448,6 @@
         const obj = {};
         headers.forEach((h, index) => {
           const val = values[index];
-          // Try to convert to float or int if possible
           if (val === undefined) {
             obj[h] = null;
           } else if (val === '') {
@@ -263,37 +463,70 @@
       return data;
     }
 
-    // Set up file fallback click handler
+    // Set up file fallback click handlers
     if (fileFallbackBtn && dirInput) {
-      fileFallbackBtn.addEventListener('click', () => {
-        dirInput.click();
-      });
+      fileFallbackBtn.addEventListener('click', () => dirInput.click());
+    }
+    if (fileFallbackBtnA && dirInputA) {
+      fileFallbackBtnA.addEventListener('click', () => dirInputA.click());
+    }
+    if (fileFallbackBtnB && dirInputB) {
+      fileFallbackBtnB.addEventListener('click', () => dirInputB.click());
+    }
+
+    // Mode Toggle click handlers
+    btnSingleMode.addEventListener('click', () => {
+      setMode('single');
+    });
+    btnCompareMode.addEventListener('click', () => {
+      setMode('compare');
+    });
+
+    function setMode(mode) {
+      currentMode = mode;
+      if (mode === 'single') {
+        btnSingleMode.className = "px-4 py-1.5 rounded-lg text-xs font-semibold font-display transition duration-150 text-white bg-slate-800 shadow-md focus:outline-none";
+        btnCompareMode.className = "px-4 py-1.5 rounded-lg text-xs font-semibold font-display transition duration-150 text-slate-400 hover:text-white focus:outline-none";
+        singleUploadContainer.classList.remove('hidden');
+        compareUploadContainer.classList.add('hidden');
+      } else {
+        btnSingleMode.className = "px-4 py-1.5 rounded-lg text-xs font-semibold font-display transition duration-150 text-slate-400 hover:text-white focus:outline-none";
+        btnCompareMode.className = "px-4 py-1.5 rounded-lg text-xs font-semibold font-display transition duration-150 text-white bg-slate-800 shadow-md focus:outline-none";
+        singleUploadContainer.classList.add('hidden');
+        compareUploadContainer.classList.remove('hidden');
+      }
+      updateDashboard();
+    }
+
+    function updateStatusIndicator(el, success) {
+      if (!el) return;
+      if (success) {
+        el.className = "h-2 w-2 rounded-full bg-emerald-500 shadow-md shadow-emerald-500/20";
+      } else {
+        el.className = "h-2 w-2 rounded-full bg-rose-500 shadow-md shadow-rose-500/20";
+      }
     }
 
     // Processing files logic
-    const processFiles = async (files) => {
-      console.log("Processing files count: " + files.length);
-      files.forEach(f => console.log("File loaded: " + f.name));
+    const processDatasetFiles = async (files, targetDataset, suffix) => {
+      console.log(`Processing files count: ${files.length} for ${suffix}`);
       if (files.length === 0) return;
 
-      // Find required files
       let summaryFile = files.find(f => f.name.endsWith('summary.json') || f.name === 'node_summary.csv');
       let batchesFile = files.find(f => f.name === 'node_batches.csv');
       let outputsFile = files.find(f => f.name === 'node_outputs.csv');
       let spikesFile = files.find(f => f.name === 'node_output_spikes.csv');
 
-      // Update indicators
-      updateStatusIndicator(statusSummary, !!summaryFile);
-      updateStatusIndicator(statusBatches, !!batchesFile);
-      updateStatusIndicator(statusOutputs, !!outputsFile);
-      updateStatusIndicator(statusSpikes, !!spikesFile);
+      updateStatusIndicator(document.getElementById(`status-summary${suffix}`), !!summaryFile);
+      updateStatusIndicator(document.getElementById(`status-batches${suffix}`), !!batchesFile);
+      updateStatusIndicator(document.getElementById(`status-outputs${suffix}`), !!outputsFile);
+      updateStatusIndicator(document.getElementById(`status-spikes${suffix}`), !!spikesFile);
 
       let parsedSummary = {};
       let parsedBatches = [];
       let parsedOutputs = [];
       let parsedSpikes = [];
 
-      // 1. Process summary
       if (summaryFile) {
         const text = await summaryFile.text();
         if (summaryFile.name.endsWith('.json')) {
@@ -303,7 +536,6 @@
             console.error("Failed to parse summary JSON", err);
           }
         } else {
-          // Parse summary CSV
           const rows = parseCSV(text);
           rows.forEach(r => {
             if (r.key !== undefined) {
@@ -314,51 +546,100 @@
         }
       }
 
-      // 2. Process batches
       if (batchesFile) {
         const text = await batchesFile.text();
         parsedBatches = parseCSV(text);
       }
 
-      // 3. Process outputs
       if (outputsFile) {
         const text = await outputsFile.text();
         parsedOutputs = parseCSV(text);
       }
 
-      // 4. Process spikes
       if (spikesFile) {
         const text = await spikesFile.text();
         parsedSpikes = parseCSV(text);
       }
 
-      // Populate interface
-      populateDashboard(parsedSummary, parsedBatches, parsedOutputs, parsedSpikes, summaryFile);
+      targetDataset.summary = parsedSummary;
+      targetDataset.batches = parsedBatches;
+      targetDataset.outputs = parsedOutputs;
+      targetDataset.spikes = parsedSpikes;
+      targetDataset.summaryFile = summaryFile;
+
+      updateDashboard();
     };
 
-    // Bind change listeners to both inputs
-    if (folderInput) {
-      folderInput.addEventListener('change', async (e) => {
-        await processFiles(Array.from(e.target.files));
-      });
+    // Bind change listeners to all inputs
+    if (folderInput) folderInput.addEventListener('change', async (e) => {
+      await processDatasetFiles(Array.from(e.target.files), singleDataset, "");
+    });
+    if (dirInput) dirInput.addEventListener('change', async (e) => {
+      await processDatasetFiles(Array.from(e.target.files), singleDataset, "");
+    });
+
+    if (folderInputA) folderInputA.addEventListener('change', async (e) => {
+      await processDatasetFiles(Array.from(e.target.files), datasetA, "-a");
+    });
+    if (dirInputA) dirInputA.addEventListener('change', async (e) => {
+      await processDatasetFiles(Array.from(e.target.files), datasetA, "-a");
+    });
+
+    if (folderInputB) folderInputB.addEventListener('change', async (e) => {
+      await processDatasetFiles(Array.from(e.target.files), datasetB, "-b");
+    });
+    if (dirInputB) dirInputB.addEventListener('change', async (e) => {
+      await processDatasetFiles(Array.from(e.target.files), datasetB, "-b");
+    });
+
+    function getDiagnostics(summary, batches, baselineSummary) {
+      const warnings = [];
+      const totalGen = summary.total_generated_spikes !== undefined ? summary.total_generated_spikes : (batches.reduce((acc, curr) => acc + (curr.generated_spikes_count || 0), 0));
+      const totalDropped = summary.total_dropped_spikes !== undefined ? summary.total_dropped_spikes : (batches.reduce((acc, curr) => acc + (curr.dropped_spikes_count || 0), 0));
+      const totalWritten = summary.total_output_spikes_written !== undefined ? summary.total_output_spikes_written : (batches.reduce((acc, curr) => acc + (curr.output_spikes_written || 0), 0));
+      
+      const droppedRatio = totalGen > 0 ? (totalDropped / totalGen) : 0;
+      const saturation = totalGen > 0 ? (totalWritten / totalGen) : 0;
+      
+      if (droppedRatio > 0.5) {
+        warnings.push(`High dropped spike ratio (${(droppedRatio * 100).toFixed(2)}%)`);
+      }
+      if (totalGen === 0) {
+        warnings.push(`Silent run (0 spikes generated)`);
+      }
+      if (saturation < 0.2 && totalGen > 0) {
+        warnings.push(`Output bottleneck (saturation: ${(saturation * 100).toFixed(2)}%)`);
+      }
+      
+      if (baselineSummary) {
+        const activeWall = summary.wall_time_us;
+        const baselineWall = baselineSummary.wall_time_us;
+        if (activeWall && baselineWall && activeWall > baselineWall * 1.1) {
+          const increase = ((activeWall - baselineWall) / baselineWall * 100).toFixed(1);
+          warnings.push(`Runtime regression: Wall time increased by ${increase}% (${baselineWall} us -> ${activeWall} us)`);
+        }
+      }
+      
+      return warnings;
     }
 
-    if (dirInput) {
-      dirInput.addEventListener('change', async (e) => {
-        await processFiles(Array.from(e.target.files));
-      });
-    }
-
-    function updateStatusIndicator(el, success) {
-      if (success) {
-        el.className = "h-2 w-2 rounded-full bg-emerald-500 shadow-md shadow-emerald-500/20";
+    function renderDiagnostics(warnings) {
+      const container = document.getElementById('diagnostics-container');
+      const list = document.getElementById('diagnostics-list');
+      if (warnings.length > 0) {
+        list.innerHTML = '';
+        warnings.forEach(w => {
+          const li = document.createElement('li');
+          li.textContent = w;
+          list.appendChild(li);
+        });
+        container.classList.remove('hidden');
       } else {
-        el.className = "h-2 w-2 rounded-full bg-rose-500 shadow-md shadow-rose-500/20";
+        container.classList.add('hidden');
       }
     }
 
-    function populateDashboard(summary, batches, outputs, spikes, summaryFile) {
-      // 1. Set summary metrics
+    function populateSingleCards(summary, batches) {
       valBackend.textContent = summary.backend_kind || (summary.backend_preference ? summary.backend_preference.toUpperCase() : "CPU");
       valTicks.textContent = summary.total_ticks !== undefined ? summary.total_ticks : (batches.reduce((acc, curr) => acc + (curr.tick_count || 0), 0));
       valBatches.textContent = summary.total_batches !== undefined ? summary.total_batches : batches.length;
@@ -388,6 +669,7 @@
 
       // Dataset Badge display
       const datasetBadge = document.getElementById('dataset-badge');
+      const summaryFile = singleDataset.summaryFile;
       if (summaryFile) {
         const pathOrName = (summaryFile.webkitRelativePath || summaryFile.name).toLowerCase();
         let displayName = "";
@@ -410,47 +692,225 @@
       } else {
         datasetBadge.classList.add('hidden');
       }
-
-      // Enable panels styling
-      dashboardContainer.classList.remove('opacity-40');
-      exportPngBtn.disabled = false;
-
-      // 2. Render Batch execution time chart
-      renderBatchTimeChart(batches);
-
-      // 3. Render Spikes allocation metrics
-      renderSpikesChart(batches);
-
-      // 4. Render Spike Raster plot
-      renderRasterChart(spikes);
     }
 
-    function renderBatchTimeChart(batches) {
+    function populateCompareCards(sumA, sumB) {
+      const activeBackendA = sumA.backend_kind || (sumA.backend_preference ? sumA.backend_preference.toUpperCase() : "CPU");
+      const activeBackendB = sumB.backend_kind || (sumB.backend_preference ? sumB.backend_preference.toUpperCase() : "CPU");
+      document.getElementById('compare-backend').textContent = `${activeBackendA} | ${activeBackendB}`;
+
+      const wallTimeA = sumA.wall_time_us ? (sumA.wall_time_us >= 1000000 ? `${(sumA.wall_time_us / 1000000).toFixed(2)}s` : `${(sumA.wall_time_us / 1000).toFixed(1)}ms`) : "-";
+      const wallTimeB = sumB.wall_time_us ? (sumB.wall_time_us >= 1000000 ? `${(sumB.wall_time_us / 1000000).toFixed(2)}s` : `${(sumB.wall_time_us / 1000).toFixed(1)}ms`) : "-";
+      document.getElementById('compare-wall-time').textContent = `${wallTimeA} | ${wallTimeB}`;
+
+      const genSpikesA = (sumA.total_generated_spikes !== undefined ? sumA.total_generated_spikes : 0).toLocaleString();
+      const genSpikesB = (sumB.total_generated_spikes !== undefined ? sumB.total_generated_spikes : 0).toLocaleString();
+      document.getElementById('compare-spikes').textContent = `${genSpikesA} | ${genSpikesB}`;
+
+      const droppedSpikesA = (sumA.total_dropped_spikes !== undefined ? sumA.total_dropped_spikes : 0).toLocaleString();
+      const droppedSpikesB = (sumB.total_dropped_spikes !== undefined ? sumB.total_dropped_spikes : 0).toLocaleString();
+      document.getElementById('compare-dropped').textContent = `${droppedSpikesA} | ${droppedSpikesB}`;
+
+      // Update badges on loader
+      const badgeA = document.getElementById('dataset-a-badge');
+      if (datasetA.summaryFile) {
+        badgeA.textContent = datasetA.summaryFile.webkitRelativePath || datasetA.summaryFile.name;
+        badgeA.classList.remove('hidden');
+      } else {
+        badgeA.classList.add('hidden');
+      }
+
+      const badgeB = document.getElementById('dataset-b-badge');
+      if (datasetB.summaryFile) {
+        badgeB.textContent = datasetB.summaryFile.webkitRelativePath || datasetB.summaryFile.name;
+        badgeB.classList.remove('hidden');
+      } else {
+        badgeB.classList.add('hidden');
+      }
+    }
+
+    function populateDeltaTable(dsA, dsB) {
+      const getVal = (ds, key) => {
+        const sum = ds.summary;
+        const bat = ds.batches;
+        if (key === 'output_saturation') {
+          const gen = sum.total_generated_spikes !== undefined ? sum.total_generated_spikes : (bat.reduce((acc, curr) => acc + (curr.generated_spikes_count || 0), 0));
+          const wr = sum.total_output_spikes_written !== undefined ? sum.total_output_spikes_written : (bat.reduce((acc, curr) => acc + (curr.output_spikes_written || 0), 0));
+          return gen > 0 ? (wr / gen) : 0;
+        }
+        if (key === 'dropped_ratio') {
+          const gen = sum.total_generated_spikes !== undefined ? sum.total_generated_spikes : (bat.reduce((acc, curr) => acc + (curr.generated_spikes_count || 0), 0));
+          const dr = sum.total_dropped_spikes !== undefined ? sum.total_dropped_spikes : (bat.reduce((acc, curr) => acc + (curr.dropped_spikes_count || 0), 0));
+          return gen > 0 ? (dr / gen) : 0;
+        }
+        if (sum[key] !== undefined) return sum[key];
+        if (key === 'total_generated_spikes') return bat.reduce((acc, curr) => acc + (curr.generated_spikes_count || 0), 0);
+        if (key === 'total_output_spikes_written') return bat.reduce((acc, curr) => acc + (curr.output_spikes_written || 0), 0);
+        if (key === 'total_dropped_spikes') return bat.reduce((acc, curr) => acc + (curr.dropped_spikes_count || 0), 0);
+        if (key === 'wall_time_us') return null;
+        if (key === 'mean_backend_execution_time_us') {
+          const sumTime = bat.reduce((acc, curr) => acc + (curr.backend_execution_time_us || 0), 0);
+          return bat.length > 0 ? (sumTime / bat.length) : 0;
+        }
+        if (key === 'nonzero_output_ticks') return null;
+        return null;
+      };
+
+      const deltaTableBody = document.getElementById('delta-table-body');
+      deltaTableBody.innerHTML = '';
+
+      deltaMetrics.forEach(m => {
+        const valA = getVal(dsA, m.key);
+        const valB = getVal(dsB, m.key);
+        
+        let strA = "-";
+        let strB = "-";
+        let strDelta = "-";
+        let strPct = "-";
+        let colorClass = "text-slate-400";
+
+        if (valA !== null && valB !== null) {
+          if (m.format === 'pct') {
+            strA = `${(valA * 100).toFixed(2)}%`;
+            strB = `${(valB * 100).toFixed(2)}%`;
+          } else {
+            strA = valA.toLocaleString(undefined, { maximumFractionDigits: 2 });
+            strB = valB.toLocaleString(undefined, { maximumFractionDigits: 2 });
+          }
+
+          const delta = valB - valA;
+          const pct = valA > 0 ? (delta / valA * 100) : 0;
+
+          if (Math.abs(delta) < 1e-7) {
+            strDelta = "0";
+            strPct = "0.00%";
+            colorClass = "text-slate-400";
+          } else {
+            const sign = delta > 0 ? "+" : "";
+            if (m.format === 'pct') {
+              strDelta = `${sign}${(delta * 100).toFixed(2)}%`;
+            } else {
+              strDelta = `${sign}${delta.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+            }
+            strPct = `${sign}${pct.toFixed(2)}%`;
+
+            const isImprovement = m.lowerIsBetter ? (delta < 0) : (delta > 0);
+            colorClass = isImprovement ? "text-emerald-400" : "text-rose-400";
+          }
+        }
+
+        const row = document.createElement('tr');
+        row.className = "border-b border-slate-800/40 hover:bg-slate-900/10";
+        row.innerHTML = `
+          <td class="py-3 px-4 text-slate-300 font-sans text-xs">${m.label}</td>
+          <td class="py-3 px-4 font-mono text-slate-400 text-xs">${strA}</td>
+          <td class="py-3 px-4 font-mono text-slate-200 text-xs">${strB}</td>
+          <td class="py-3 px-4 font-mono text-xs ${colorClass}">${strDelta}</td>
+          <td class="py-3 px-4 font-mono text-xs text-right ${colorClass}">${strPct}</td>
+        `;
+        deltaTableBody.appendChild(row);
+      });
+    }
+
+    function updateDashboard() {
+      if (currentMode === 'single') {
+        if (!singleDataset.summary || singleDataset.batches.length === 0) {
+          dashboardContainer.classList.add('opacity-40');
+          exportPngBtn.disabled = true;
+          return;
+        }
+
+        document.getElementById('single-cards-container').classList.remove('hidden');
+        document.getElementById('comparison-cards-container').classList.add('hidden');
+        document.getElementById('delta-table-card').classList.add('hidden');
+
+        populateSingleCards(singleDataset.summary, singleDataset.batches);
+
+        const warnings = getDiagnostics(singleDataset.summary, singleDataset.batches, null);
+        renderDiagnostics(warnings);
+
+        dashboardContainer.classList.remove('opacity-40');
+        exportPngBtn.disabled = false;
+
+        renderBatchTimeChart(singleDataset.batches, null);
+        renderSpikesChart(singleDataset.batches, null);
+        renderRasterChart(singleDataset.spikes, null);
+
+      } else {
+        if (!datasetA.summary || !datasetB.summary || datasetA.batches.length === 0 || datasetB.batches.length === 0) {
+          dashboardContainer.classList.add('opacity-40');
+          exportPngBtn.disabled = true;
+          return;
+        }
+
+        document.getElementById('single-cards-container').classList.add('hidden');
+        document.getElementById('comparison-cards-container').classList.remove('hidden');
+        document.getElementById('delta-table-card').classList.remove('hidden');
+
+        populateCompareCards(datasetA.summary, datasetB.summary);
+        populateDeltaTable(datasetA, datasetB);
+
+        const warnings = getDiagnostics(datasetB.summary, datasetB.batches, datasetA.summary);
+        renderDiagnostics(warnings);
+
+        dashboardContainer.classList.remove('opacity-40');
+        exportPngBtn.disabled = false;
+
+        renderBatchTimeChart(datasetA.batches, datasetB.batches);
+        renderSpikesChart(datasetA.batches, datasetB.batches);
+        renderRasterChart(datasetA.spikes, datasetB.spikes);
+      }
+    }
+
+    function renderBatchTimeChart(batchesA, batchesB) {
       if (batchTimeChart) batchTimeChart.destroy();
 
-      const labels = batches.map(b => `Batch ${b.batch_idx}`);
-      const durations = batches.map(b => b.backend_execution_time_us);
+      const labels = Array.from(
+        { length: Math.max(batchesA.length, batchesB ? batchesB.length : 0) }, 
+        (_, i) => `Batch ${i}`
+      );
+      
+      const datasets = [];
+      if (batchesB) {
+        datasets.push({
+          label: 'Baseline (A) Duration (us)',
+          data: batchesA.map(b => b.backend_execution_time_us),
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+          borderWidth: 2,
+          tension: 0.15,
+          fill: true
+        });
+        datasets.push({
+          label: 'Active (B) Duration (us)',
+          data: batchesB.map(b => b.backend_execution_time_us),
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99, 102, 241, 0.1)',
+          borderWidth: 2,
+          tension: 0.15,
+          fill: true
+        });
+      } else {
+        datasets.push({
+          label: 'Backend Time (us)',
+          data: batchesA.map(b => b.backend_execution_time_us),
+          borderColor: '#22d3ee',
+          backgroundColor: 'rgba(34, 211, 238, 0.1)',
+          borderWidth: 2,
+          tension: 0.15,
+          fill: true
+        });
+      }
 
       const ctx = document.getElementById('batchTimeChart').getContext('2d');
       batchTimeChart = new Chart(ctx, {
         type: 'line',
-        data: {
-          labels: labels,
-          datasets: [{
-            label: 'Backend Time (us)',
-            data: durations,
-            borderColor: '#22d3ee',
-            backgroundColor: 'rgba(34, 211, 238, 0.1)',
-            borderWidth: 2,
-            tension: 0.15,
-            fill: true
-          }]
-        },
+        data: { labels, datasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { display: false }
+            legend: { display: !!batchesB, labels: { color: '#f8fafc' } }
           },
           scales: {
             x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
@@ -460,37 +920,72 @@
       });
     }
 
-    function renderSpikesChart(batches) {
+    function renderSpikesChart(batchesA, batchesB) {
       if (spikesChart) spikesChart.destroy();
 
-      const labels = batches.map(b => `B${b.batch_idx}`);
-      const generated = batches.map(b => b.generated_spikes_count);
-      const output = batches.map(b => b.output_spikes_written);
-      const dropped = batches.map(b => b.dropped_spikes_count);
+      const labels = Array.from(
+        { length: Math.max(batchesA.length, batchesB ? batchesB.length : 0) }, 
+        (_, i) => `B${i}`
+      );
+
+      let datasets = [];
+      if (batchesB) {
+        datasets = [
+          {
+            label: 'Gen (A)',
+            data: batchesA.map(b => b.generated_spikes_count),
+            backgroundColor: '#a7f3d0'
+          },
+          {
+            label: 'Gen (B)',
+            data: batchesB.map(b => b.generated_spikes_count),
+            backgroundColor: '#059669'
+          },
+          {
+            label: 'Written (A)',
+            data: batchesA.map(b => b.output_spikes_written),
+            backgroundColor: '#c7d2fe'
+          },
+          {
+            label: 'Written (B)',
+            data: batchesB.map(b => b.output_spikes_written),
+            backgroundColor: '#4f46e5'
+          },
+          {
+            label: 'Dropped (A)',
+            data: batchesA.map(b => b.dropped_spikes_count),
+            backgroundColor: '#fecdd3'
+          },
+          {
+            label: 'Dropped (B)',
+            data: batchesB.map(b => b.dropped_spikes_count),
+            backgroundColor: '#e11d48'
+          }
+        ];
+      } else {
+        datasets = [
+          {
+            label: 'Generated',
+            data: batchesA.map(b => b.generated_spikes_count),
+            backgroundColor: '#10b981'
+          },
+          {
+            label: 'Written (Output)',
+            data: batchesA.map(b => b.output_spikes_written),
+            backgroundColor: '#6366f1'
+          },
+          {
+            label: 'Dropped',
+            data: batchesA.map(b => b.dropped_spikes_count),
+            backgroundColor: '#ef4444'
+          }
+        ];
+      }
 
       const ctx = document.getElementById('spikesChart').getContext('2d');
       spikesChart = new Chart(ctx, {
         type: 'bar',
-        data: {
-          labels: labels,
-          datasets: [
-            {
-              label: 'Generated',
-              data: generated,
-              backgroundColor: '#10b981'
-            },
-            {
-              label: 'Written (Output)',
-              data: output,
-              backgroundColor: '#6366f1'
-            },
-            {
-              label: 'Dropped',
-              data: dropped,
-              backgroundColor: '#ef4444'
-            }
-          ]
-        },
+        data: { labels, datasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -505,33 +1000,44 @@
       });
     }
 
-    function renderRasterChart(spikes) {
+    function renderRasterChart(spikesA, spikesB) {
       if (rasterChart) rasterChart.destroy();
 
-      // Convert spikes to scatter format
-      // node_output_spikes contains: batch_idx, tick_index, slot, soma_id
-      const dataset = spikes.map(s => ({
-        x: s.tick_index,
-        y: s.soma_id
-      }));
+      const datasets = [];
+      if (spikesB) {
+        datasets.push({
+          label: 'Baseline (A) Spikes',
+          data: spikesA.map(s => ({ x: s.tick_index, y: s.soma_id })),
+          backgroundColor: '#f59e0b',
+          pointRadius: 4,
+          pointHoverRadius: 6
+        });
+        datasets.push({
+          label: 'Active (B) Spikes',
+          data: spikesB.map(s => ({ x: s.tick_index, y: s.soma_id })),
+          backgroundColor: '#38bdf8',
+          pointRadius: 4,
+          pointHoverRadius: 6
+        });
+      } else {
+        datasets.push({
+          label: 'Spike Events',
+          data: spikesA.map(s => ({ x: s.tick_index, y: s.soma_id })),
+          backgroundColor: '#f59e0b',
+          pointRadius: 4,
+          pointHoverRadius: 6
+        });
+      }
 
       const ctx = document.getElementById('rasterChart').getContext('2d');
       rasterChart = new Chart(ctx, {
         type: 'scatter',
-        data: {
-          datasets: [{
-            label: 'Spike Events',
-            data: dataset,
-            backgroundColor: '#f59e0b',
-            pointRadius: 4,
-            pointHoverRadius: 6
-          }]
-        },
+        data: { datasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { display: false }
+            legend: { display: !!spikesB, labels: { color: '#f8fafc' } }
           },
           scales: {
             x: {
@@ -551,11 +1057,10 @@
 
     // Export PNG handler using html2canvas
     exportPngBtn.addEventListener('click', () => {
-      // Capture dashboardContainer
       const element = document.body;
       html2canvas(element, {
         backgroundColor: '#0f172a',
-        scale: 2 // Higher quality
+        scale: 2
       }).then(canvas => {
         const link = document.createElement('a');
         link.download = 'axi-viewer-dashboard.png';
