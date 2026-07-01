@@ -129,7 +129,7 @@ graph LR
 
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
-| `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Approved v2.2 / Implemented (Stage A)** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки и роста аксонов. |
+| `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Approved v2.2 / Implemented (Stage A+B1)** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки и роста аксонов. |
 | `baker` | [baker_spec.md](spec_L4/baker_spec.md) | **Draft v2.0** | Оркестратор компиляции AOT, координация фаз сборки, генерация бинарных блобов по `layout` и упаковка `.axic`. |
 | `baker-cli` | [baker_cli_spec.md](spec_L4/baker_cli_spec.md) | **Draft v2.0** | Консольная утилита и sidecar-интерфейс для запуска `baker`, вывода отчетов/прогресса и управления флагами. |
 | `edge-model` | [edge_model_spec.md](spec_L4/edge_model_spec.md) | **Draft v2.0** | Оффлайн-конвертор десктопных моделей в edge-артефакты (WTA top-K срез, разделение SRAM/Flash, MMU padding). |

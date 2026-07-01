@@ -1,4 +1,4 @@
-//! Deterministic Stage A soma placement core algorithms.
+//! Deterministic soma placement core algorithms.
 
 use crate::dto::{PlacedSoma, SingleShardTopology, SingleShardTopologyInput};
 use crate::error::TopologyError;

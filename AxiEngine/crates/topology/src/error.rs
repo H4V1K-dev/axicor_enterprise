@@ -37,4 +37,9 @@ pub enum TopologyError {
     },
     /// Arithmetic overflow during checked calculations of capacity or count.
     CapacityOverflow,
+    /// Reference to an undefined neuron type variant.
+    UnknownNeuronType {
+        /// The variant identifier that was not found in config.
+        variant_id: u8,
+    },
 }

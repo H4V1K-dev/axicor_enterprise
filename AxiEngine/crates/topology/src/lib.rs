@@ -2,7 +2,11 @@
 
 pub mod dto;
 pub mod error;
+mod growth;
 mod placement;
 
-pub use dto::{PlacedSoma, SingleShardTopology, SingleShardTopologyInput, TopologyEngine};
+pub use dto::{
+    AxonGrowthInput, AxonGrowthStopReason, AxonSegment, GrownAxonPath, LocalGrowthResult,
+    PlacedSoma, SingleShardTopology, SingleShardTopologyInput, TopologyEngine,
+};
 pub use error::TopologyError;

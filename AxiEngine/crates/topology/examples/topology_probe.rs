@@ -8,7 +8,7 @@ use config::{
 use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, File};
 use std::io::Write;
-use topology::{SingleShardTopologyInput, TopologyEngine};
+use topology::{AxonGrowthInput, AxonGrowthStopReason, SingleShardTopologyInput, TopologyEngine};
 use types::MasterSeed;
 
 fn make_dummy_neuron_type(name: &str) -> NeuronType {
@@ -175,6 +175,20 @@ fn main() {
         }
     };
 
+    // 2a. Grow axons
+    let growth_input = AxonGrowthInput {
+        config: &config,
+        topology: &result,
+        seed,
+    };
+    let growth_result = match TopologyEngine::grow_local_axons(&growth_input) {
+        Ok(res) => res,
+        Err(e) => {
+            eprintln!("Failed to grow axons: {:?}", e);
+            std::process::exit(1);
+        }
+    };
+
     let total_somas = result.somas.len();
     let shard_capacity =
         (config.dimensions.w as u64) * (config.dimensions.d as u64) * (config.dimensions.h as u64);
@@ -256,6 +270,33 @@ fn main() {
             key.0, key.1, stats.count, stats.z_min, stats.z_max
         )
         .unwrap();
+    }
+
+    // 5. Write axons CSV
+    let axons_csv_path = artifacts_dir.join("topology_probe_axons.csv");
+    let mut axons_file = File::create(&axons_csv_path).unwrap();
+    writeln!(axons_file, "soma_id,segment_offset,x,y,z").unwrap();
+
+    let mut total_segments = 0;
+    let mut stop_reasons_stats = HashMap::new();
+
+    for axon in &growth_result.axons {
+        let entry = stop_reasons_stats.entry(axon.stop_reason).or_insert(0);
+        *entry += 1;
+        total_segments += axon.segments.len();
+
+        for seg in &axon.segments {
+            writeln!(
+                axons_file,
+                "{},{},{},{},{}",
+                axon.soma_id,
+                seg.segment_offset,
+                seg.position.x(),
+                seg.position.y(),
+                seg.position.z()
+            )
+            .unwrap();
+        }
     }
 
     // 5a. Write SVG visualization
@@ -461,7 +502,23 @@ fn main() {
         );
     }
 
+    println!("\n=== Axon Growth Probe ===");
+    println!("1. Total Axons Grown: {}", growth_result.axons.len());
+    println!("2. Total Axon Segments: {}", total_segments);
+    println!("3. Axon Stop Reasons Distribution:");
+    let reasons = vec![
+        AxonGrowthStopReason::MaxLengthReached,
+        AxonGrowthStopReason::BoundaryReached,
+        AxonGrowthStopReason::Blocked,
+        AxonGrowthStopReason::SourceOutOfBounds,
+    ];
+    for reason in reasons {
+        let count = stop_reasons_stats.get(&reason).unwrap_or(&0);
+        println!("   - {:?}: {}", reason, count);
+    }
+
     println!("\nCSV artifacts generated successfully:");
     println!("  - Somas log: {:?}", somas_csv_path);
     println!("  - Summary log: {:?}", summary_csv_path);
+    println!("  - Axons log: {:?}", axons_csv_path);
 }

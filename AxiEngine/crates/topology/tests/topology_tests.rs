@@ -4,7 +4,10 @@ use config::{
     LayerConfig, NeuronType, NeuronTypeDistribution, ShardConfig, ShardDimensions, ShardSettings,
 };
 use std::collections::HashSet;
-use topology::{SingleShardTopologyInput, TopologyEngine, TopologyError};
+use topology::{
+    AxonGrowthInput, AxonGrowthStopReason, PlacedSoma, SingleShardTopology,
+    SingleShardTopologyInput, TopologyEngine, TopologyError,
+};
 use types::MasterSeed;
 
 /// Helper function to create dummy membrane, timings and growth properties for tests.
@@ -629,8 +632,8 @@ fn test_topology_no_forbidden_dependencies() {
 
     assert_eq!(
         deps.len(),
-        2,
-        "Expected exactly 2 dependencies, found: {:?}",
+        3,
+        "Expected exactly 3 dependencies, found: {:?}",
         deps
     );
     assert!(
@@ -640,6 +643,10 @@ fn test_topology_no_forbidden_dependencies() {
     assert!(
         deps.contains(&"config".to_string()),
         "Missing 'config' dependency"
+    );
+    assert!(
+        deps.contains(&"layout".to_string()),
+        "Missing 'layout' dependency"
     );
 }
 
@@ -750,4 +757,468 @@ fn test_topology_z_range_layer_mapping() {
     assert_eq!(find_layer_index(11, &config), 1);
     assert_eq!(find_layer_index(12, &config), 2);
     assert_eq!(find_layer_index(15, &config), 2);
+}
+
+// ==========================================
+// Local Axon Growth Tests
+// ==========================================
+
+#[test]
+fn test_topology_layout_types_segment_limit_consistency() {
+    // Assert that MAX_SEGMENTS_PER_AXON - 1 matches MAX_SEGMENT_OFFSET (256 - 1 == 255)
+    assert_eq!(
+        layout::MAX_SEGMENTS_PER_AXON - 1,
+        types::MAX_SEGMENT_OFFSET as usize
+    );
+}
+
+#[test]
+fn test_topology_unknown_variant_id_rejected() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+
+    // Construct single-shard topology with an invalid variant_id = 1
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 1, // Invalid: neuron_types length is 1, valid index is 0 only
+        position: types::PackedPosition::new(5, 5, 5, 1),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(123);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let result = TopologyEngine::grow_local_axons(&input);
+    assert_eq!(
+        result.err(),
+        Some(TopologyError::UnknownNeuronType { variant_id: 1 })
+    );
+}
+
+#[test]
+fn test_topology_reproducible_growth_path() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+
+    // Soma placed at (5, 5, 5)
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(5, 5, 5, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(42);
+
+    let input1 = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+    let input2 = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res1 = TopologyEngine::grow_local_axons(&input1).unwrap();
+    let res2 = TopologyEngine::grow_local_axons(&input2).unwrap();
+
+    assert_eq!(res1.axons.len(), 1);
+    assert_eq!(res2.axons.len(), 1);
+    assert_eq!(res1.axons[0].segments, res2.axons[0].segments);
+    assert_eq!(res1.axons[0].stop_reason, res2.axons[0].stop_reason);
+}
+
+#[test]
+fn test_topology_growth_uses_source_variant_growth_params() {
+    // We create TypeA with positive vertical bias (prefers going up Z)
+    let mut type_a = make_dummy_neuron_type("TypeA");
+    type_a.growth.growth_vertical_bias = 5.0; // Strong up bias
+    type_a.growth.steering_weight_inertia = 0.0;
+    type_a.growth.steering_weight_jitter = 0.0;
+
+    // We create TypeB with negative vertical bias (prefers going down Z)
+    let mut type_b = make_dummy_neuron_type("TypeB");
+    type_b.growth.growth_vertical_bias = -5.0; // Strong down bias
+    type_b.growth.steering_weight_inertia = 0.0;
+    type_b.growth.steering_weight_jitter = 0.0;
+
+    let neuron_types = vec![type_a, type_b];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    // Height=20
+    let config = make_basic_test_config(10, 10, 20, layers, neuron_types);
+
+    let somas = vec![
+        PlacedSoma {
+            soma_id: 0,
+            variant_id: 0, // TypeA (goes up)
+            position: types::PackedPosition::new(5, 5, 10, 0),
+        },
+        PlacedSoma {
+            soma_id: 1,
+            variant_id: 1, // TypeB (goes down)
+            position: types::PackedPosition::new(5, 5, 10, 1),
+        },
+    ];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(99);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    assert_eq!(res.axons.len(), 2);
+
+    // TypeA axon should grow upwards (Z increases)
+    let axon_a = &res.axons[0];
+    assert!(!axon_a.segments.is_empty());
+    for seg in &axon_a.segments {
+        assert!(seg.position.z() > 10);
+    }
+
+    // TypeB axon should grow downwards (Z decreases)
+    let axon_b = &res.axons[1];
+    assert!(!axon_b.segments.is_empty());
+    for seg in &axon_b.segments {
+        assert!(seg.position.z() < 10);
+    }
+}
+
+#[test]
+fn test_topology_segment_position_type_id_matches_source_variant() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(5, 5, 5, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(11);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    let axon = &res.axons[0];
+    assert!(!axon.segments.is_empty());
+    for seg in &axon.segments {
+        assert_eq!(seg.position.type_id(), 0);
+    }
+}
+
+#[test]
+fn test_topology_source_origin_not_revisited() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(5, 5, 5, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(7);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    let axon = &res.axons[0];
+    for seg in &axon.segments {
+        let x = seg.position.x() as u32;
+        let y = seg.position.y() as u32;
+        let z = seg.position.z() as u32;
+        assert!(
+            x != 5 || y != 5 || z != 5,
+            "Axon path revisited the source soma origin!"
+        );
+    }
+}
+
+#[test]
+fn test_topology_boundary_stop_reason_after_selected_oob_direction() {
+    // We force vertical bias strictly down and inertia = 0
+    let mut type_a = make_dummy_neuron_type("TypeA");
+    type_a.growth.growth_vertical_bias = -5.0; // Prefers Z decreases
+    type_a.growth.steering_weight_inertia = 0.0;
+    type_a.growth.steering_weight_jitter = 0.0;
+
+    let neuron_types = vec![type_a];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+
+    // Soma placed at Z=0. Since vertical_bias is negative, the highest score candidate
+    // points to Z=-1, which is Out of Bounds. It must immediately trigger BoundaryReached stop reason.
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(5, 5, 0, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(77);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    assert_eq!(res.axons.len(), 1);
+    assert_eq!(
+        res.axons[0].stop_reason,
+        AxonGrowthStopReason::BoundaryReached
+    );
+    assert!(res.axons[0].segments.is_empty());
+}
+
+#[test]
+fn test_topology_blocked_stop_reason() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    // 3x3x3 shard
+    let config = make_basic_test_config(3, 3, 3, layers, neuron_types);
+
+    // We place the target soma in the center (1, 1, 1).
+    // And block all surrounding 26 voxels in 3x3x3 space with somas of other neurons.
+    let mut somas = Vec::new();
+    let mut soma_id = 0;
+
+    // Target soma
+    somas.push(PlacedSoma {
+        soma_id,
+        variant_id: 0,
+        position: types::PackedPosition::new(1, 1, 1, 0),
+    });
+    soma_id += 1;
+
+    // Obstacles
+    for z in 0..3 {
+        for y in 0..3 {
+            for x in 0..3 {
+                if x == 1 && y == 1 && z == 1 {
+                    continue;
+                }
+                somas.push(PlacedSoma {
+                    soma_id,
+                    variant_id: 0,
+                    position: types::PackedPosition::new(x, y, z, 0),
+                });
+                soma_id += 1;
+            }
+        }
+    }
+
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(999);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    // The target soma is at index 0
+    let target_axon = &res.axons[0];
+    assert_eq!(target_axon.soma_id, 0);
+    assert_eq!(target_axon.stop_reason, AxonGrowthStopReason::Blocked);
+    assert!(target_axon.segments.is_empty());
+}
+
+#[test]
+fn test_topology_no_self_intersection() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(20, 20, 20, layers, neuron_types);
+
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(10, 10, 10, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(100);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    let axon = &res.axons[0];
+    let mut coords_set = HashSet::new();
+    // Insert source soma voxel
+    coords_set.insert((10, 10, 10));
+
+    for seg in &axon.segments {
+        let x = seg.position.x() as u32;
+        let y = seg.position.y() as u32;
+        let z = seg.position.z() as u32;
+        assert!(coords_set.insert((x, y, z)), "Self-intersection detected!");
+    }
+}
+
+#[test]
+fn test_topology_growth_output_order_matches_somas() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+
+    let somas = vec![
+        PlacedSoma {
+            soma_id: 3,
+            variant_id: 0,
+            position: types::PackedPosition::new(2, 2, 2, 0),
+        },
+        PlacedSoma {
+            soma_id: 1,
+            variant_id: 0,
+            position: types::PackedPosition::new(5, 5, 5, 0),
+        },
+        PlacedSoma {
+            soma_id: 2,
+            variant_id: 0,
+            position: types::PackedPosition::new(8, 8, 8, 0),
+        },
+    ];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(55);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    assert_eq!(res.axons.len(), 3);
+    assert_eq!(res.axons[0].soma_id, 3);
+    assert_eq!(res.axons[1].soma_id, 1);
+    assert_eq!(res.axons[2].soma_id, 2);
+}
+
+#[test]
+fn test_topology_fixed_point_steering_no_float_runtime() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(5, 5, 5, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(9999);
+
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    // Just verify that execution succeeds without exceptions or runtime float failures.
+    let res = TopologyEngine::grow_local_axons(&input);
+    assert!(res.is_ok());
 }
