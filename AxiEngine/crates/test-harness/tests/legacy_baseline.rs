@@ -126,6 +126,7 @@ fn make_legacy_shard_config(
     inh: config::NeuronType,
     density: f64,
     inhibitory_share: f64,
+    max_sprouts: u32,
 ) -> ShardConfig {
     let neuron_types = vec![exc, inh];
     let composition = vec![
@@ -156,7 +157,7 @@ fn make_legacy_shard_config(
         settings: ShardSettings {
             ghost_capacity: 1024,
             prune_threshold: 0,
-            max_sprouts: 8,
+            max_sprouts,
             night_interval_ticks: 100,
             save_checkpoints_interval_ticks: 1000,
         },
@@ -202,7 +203,7 @@ fn test_legacy_baseline() {
 
     // Bake both configurations
     let shard_config_spon =
-        make_legacy_shard_config(exc_type_spon, inh_type_spon, density, inhibitory_share);
+        make_legacy_shard_config(exc_type_spon, inh_type_spon, density, inhibitory_share, 8);
     let baker_input_spon = LocalShardBakeInput {
         shard_config: &shard_config_spon,
         master_seed: MasterSeed(42),
@@ -216,6 +217,7 @@ fn test_legacy_baseline() {
         inh_type_no_spon,
         density,
         inhibitory_share,
+        8,
     );
     let baker_input_no_spon = LocalShardBakeInput {
         shard_config: &shard_config_no_spon,
@@ -512,4 +514,330 @@ fn run_scenario_decomp(
         activity_status
     )
     .unwrap();
+}
+
+#[test]
+#[ignore]
+fn test_legacy_connectivity_damping() {
+    let workspace = get_workspace_root();
+    let exc_toml_path = Path::new(
+        "W:\\Workspace\\axicor-master\\Axicor_Neuron-Lib\\Cortex\\L23\\spiny\\VISp23\\1.toml",
+    );
+    let inh_toml_path = Path::new(
+        "W:\\Workspace\\axicor-master\\Axicor_Neuron-Lib\\Cortex\\L23\\aspiny\\VISp23\\1.toml",
+    );
+
+    let exc_toml_str = fs::read_to_string(exc_toml_path).expect("Failed to read excitatory TOML");
+    let inh_toml_str = fs::read_to_string(inh_toml_path).expect("Failed to read inhibitory TOML");
+
+    let exc_file: LegacyNeuronFile =
+        toml::from_str(&exc_toml_str).expect("Failed to deserialize excitatory TOML");
+    let inh_file: LegacyNeuronFile =
+        toml::from_str(&inh_toml_str).expect("Failed to deserialize inhibitory TOML");
+
+    let exc_legacy = &exc_file.neuron_type[0];
+    let inh_legacy = &inh_file.neuron_type[0];
+
+    let artifacts_dir = workspace.join("artifacts");
+    create_dir_all(&artifacts_dir).unwrap();
+
+    let damping_csv_path = artifacts_dir.join("legacy_baseline_connectivity_damping.csv");
+    let mut damping_file = File::create(&damping_csv_path).unwrap();
+
+    writeln!(
+        damping_file,
+        "mode,density,inhibitory_share,max_sprouts,whitelist_type,total_somas,total_synapses,is_ignited,decays,active_duration_ticks,nonzero_output_ticks,first_output_tick,last_output_tick,total_generated_spikes,total_output_spikes_written,total_dropped_spikes,dropped_ratio,mean_output_per_nonzero_tick,max_output_per_tick,activity_status"
+    ).unwrap();
+
+    struct ModeConfig<'a> {
+        name: &'a str,
+        density: f64,
+        inhibitory_share: f64,
+        max_sprouts: u32,
+        whitelist_type: &'a str,
+        disable_spontaneous: bool,
+        stimulus_axons: u32,
+    }
+
+    let modes = vec![
+        // 1. Current baseline
+        ModeConfig {
+            name: "baseline",
+            density: 0.2,
+            inhibitory_share: 0.2,
+            max_sprouts: 8,
+            whitelist_type: "all-to-all",
+            disable_spontaneous: false,
+            stimulus_axons: 0,
+        },
+        // 2. spontaneous off + single_pulse_2
+        ModeConfig {
+            name: "spon_off_pulse2",
+            density: 0.2,
+            inhibitory_share: 0.2,
+            max_sprouts: 8,
+            whitelist_type: "all-to-all",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+        // 3. More inhibitory_share: 30%
+        ModeConfig {
+            name: "inh_share_30",
+            density: 0.2,
+            inhibitory_share: 0.3,
+            max_sprouts: 8,
+            whitelist_type: "all-to-all",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+        // 4. More inhibitory_share: 40%
+        ModeConfig {
+            name: "inh_share_40",
+            density: 0.2,
+            inhibitory_share: 0.4,
+            max_sprouts: 8,
+            whitelist_type: "all-to-all",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+        // 5. Less density: 0.1
+        ModeConfig {
+            name: "density_10",
+            density: 0.1,
+            inhibitory_share: 0.2,
+            max_sprouts: 8,
+            whitelist_type: "all-to-all",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+        // 6. Less density: 0.05
+        ModeConfig {
+            name: "density_05",
+            density: 0.05,
+            inhibitory_share: 0.2,
+            max_sprouts: 8,
+            whitelist_type: "all-to-all",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+        // 7. E/I whitelist: E accepts E/I, I accepts E only
+        ModeConfig {
+            name: "whitelist_E_all_I_E",
+            density: 0.2,
+            inhibitory_share: 0.2,
+            max_sprouts: 8,
+            whitelist_type: "E_all_I_E",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+        // 8. E/I whitelist: E accepts I only, I accepts E only
+        ModeConfig {
+            name: "whitelist_E_I_I_E",
+            density: 0.2,
+            inhibitory_share: 0.2,
+            max_sprouts: 8,
+            whitelist_type: "E_I_I_E",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+        // 9. max_sprouts = 4
+        ModeConfig {
+            name: "max_sprouts_4",
+            density: 0.2,
+            inhibitory_share: 0.2,
+            max_sprouts: 4,
+            whitelist_type: "all-to-all",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+        // 10. max_sprouts = 2
+        ModeConfig {
+            name: "max_sprouts_2",
+            density: 0.2,
+            inhibitory_share: 0.2,
+            max_sprouts: 2,
+            whitelist_type: "all-to-all",
+            disable_spontaneous: true,
+            stimulus_axons: 2,
+        },
+    ];
+
+    let total_ticks = 1000;
+
+    for m in modes {
+        let mut exc = map_legacy_to_config(exc_legacy, m.disable_spontaneous);
+        let mut inh = map_legacy_to_config(inh_legacy, m.disable_spontaneous);
+
+        match m.whitelist_type {
+            "all-to-all" => {
+                exc.growth.dendrite_whitelist = vec![];
+                inh.growth.dendrite_whitelist = vec![];
+            }
+            "E_all_I_E" => {
+                exc.growth.dendrite_whitelist = vec![];
+                inh.growth.dendrite_whitelist = vec!["L23_spiny_VISp23_1".to_string()];
+            }
+            "E_I_I_E" => {
+                exc.growth.dendrite_whitelist = vec!["L23_aspiny_VISp23_1".to_string()];
+                inh.growth.dendrite_whitelist = vec!["L23_spiny_VISp23_1".to_string()];
+            }
+            _ => {}
+        }
+
+        let shard_config =
+            make_legacy_shard_config(exc, inh, m.density, m.inhibitory_share, m.max_sprouts);
+
+        let baker_input = LocalShardBakeInput {
+            shard_config: &shard_config,
+            master_seed: MasterSeed(42),
+            voxel_size_um: 1.0,
+        };
+        let (artifacts, report) = bake_local_shard(&baker_input).expect("Baking failed");
+        let axic_data = pack_local_shard_artifacts(&artifacts).expect("Packaging failed");
+
+        let mut full_bitmask = vec![0u32; total_ticks];
+        if m.stimulus_axons > 0 {
+            let mask = (1 << m.stimulus_axons) - 1;
+            full_bitmask[0] = mask;
+        }
+
+        let temp_axic_path = std::env::temp_dir().join(format!("legacy_damping_{}.axic", m.name));
+        {
+            let mut f = File::create(&temp_axic_path).unwrap();
+            f.write_all(&axic_data).unwrap();
+        }
+
+        let boot_input = LocalShardComputeInput {
+            archive_path: temp_axic_path.clone(),
+            backend_preference: compute::BackendPreference::Cpu,
+            virtual_offset: 0,
+            total_ghosts: 0,
+        };
+        let (engine, _boot_bundle) =
+            bootstrap_local_shard_engine(&boot_input).expect("Bootstrap failed");
+
+        let mapped_somas: Vec<u32> = (0..report.total_somas).collect();
+        let runtime_config = LocalRuntimeConfig {
+            sync_batch_ticks: 100,
+            v_seg: 1,
+            dopamine: 0,
+            max_spikes_per_tick: 2000,
+            virtual_offset: 0,
+            num_virtual_axons: 32,
+            input_words_per_tick: 1,
+            mapped_soma_ids: mapped_somas,
+        };
+        let mut runtime =
+            LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
+
+        let total_batches = 10;
+        let ticks_per_batch = 100;
+
+        let mut total_generated = 0u64;
+        let mut total_written = 0u64;
+        let mut total_dropped = 0u64;
+        let mut flat_output_spike_counts = Vec::new();
+
+        for b in 0..total_batches {
+            let start_tick = b * ticks_per_batch;
+            let end_tick = start_tick + ticks_per_batch;
+            let batch_bitmask = &full_bitmask[start_tick..end_tick];
+
+            let input = RuntimeBatchInput {
+                input_bitmask: Some(batch_bitmask),
+                incoming_spikes: None,
+                incoming_spike_counts: &vec![0; ticks_per_batch],
+            };
+
+            let r = runtime.run_batch(input).expect("Batch failed");
+
+            total_generated += r.batch_result.generated_spikes_count as u64;
+            total_written += r.batch_result.output_spikes_written as u64;
+            total_dropped += r.batch_result.dropped_spikes_count as u64;
+
+            flat_output_spike_counts.extend_from_slice(&r.output_spike_counts);
+        }
+
+        let _ = std::fs::remove_file(temp_axic_path);
+
+        let nonzero_output_ticks =
+            flat_output_spike_counts.iter().filter(|&&c| c > 0).count() as u64;
+        let mut first_output_tick = -1i32;
+        let mut last_output_tick = -1i32;
+        let mut peak_output_per_tick = 0u64;
+        let mut sum_output_spikes = 0u64;
+
+        for (t, &count) in flat_output_spike_counts.iter().enumerate() {
+            if count > 0 {
+                if first_output_tick == -1 {
+                    first_output_tick = t as i32;
+                }
+                last_output_tick = t as i32;
+                if count as u64 > peak_output_per_tick {
+                    peak_output_per_tick = count as u64;
+                }
+                sum_output_spikes += count as u64;
+            }
+        }
+
+        let mean_output_per_nonzero_tick = if nonzero_output_ticks > 0 {
+            sum_output_spikes as f64 / nonzero_output_ticks as f64
+        } else {
+            0.0
+        };
+
+        let dropped_ratio = if total_generated > 0 {
+            total_dropped as f64 / total_generated as f64
+        } else {
+            0.0
+        };
+
+        let is_ignited = total_generated > 0;
+        let decays = is_ignited && (last_output_tick < 900);
+        let active_duration_ticks = if is_ignited {
+            (last_output_tick - first_output_tick + 1) as u32
+        } else {
+            0
+        };
+
+        let activity_status = if total_generated == 0 {
+            "no-response"
+        } else if last_output_tick < 900 {
+            "transient-response"
+        } else {
+            if total_dropped > 0 {
+                "runaway"
+            } else {
+                "sustained-activity"
+            }
+        };
+
+        writeln!(
+            damping_file,
+            "{},{:.2},{:.2},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}",
+            m.name,
+            m.density,
+            m.inhibitory_share,
+            m.max_sprouts,
+            m.whitelist_type,
+            report.total_somas,
+            report.total_synapses,
+            is_ignited,
+            decays,
+            active_duration_ticks,
+            nonzero_output_ticks,
+            first_output_tick,
+            last_output_tick,
+            total_generated,
+            total_written,
+            total_dropped,
+            dropped_ratio,
+            mean_output_per_nonzero_tick,
+            peak_output_per_tick,
+            activity_status
+        )
+        .unwrap();
+    }
+
+    println!("Legacy baseline connectivity damping test successfully completed.");
 }
