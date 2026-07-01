@@ -9,5 +9,6 @@ members = [
     "crates/compute-cuda",
     "crates/test-harness",
     "crates/compute",
+    "crates/topology",
 ]
 resolver = "2"
