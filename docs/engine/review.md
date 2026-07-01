@@ -852,34 +852,40 @@
 *Source items: 6 / Registered items: 6*
 
 - **REV-BAKER-CLI-001**: Окончательное Имя Бинарного Файла Утилиты
-  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L203)
+  - *Status*: Resolved (baker-cli v2.1) | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L203)
   - *Question / Problem*: - *Контекст*: В спецификации используется имя `baker-cli`.
     - *Вопрос*: Какое конечное имя бинарника будет утверждено для поставки — `baker-cli`, `axiengine-baker` или единый фасадный исполняемый файл `axiengine`?
+  - *Notes*: **[РЕШЕНО в baker-cli v2.1]**: Для Stage A принято конечное имя бинарного файла: `axi-baker` (крейт `baker-cli`).
 
 - **REV-BAKER-CLI-002**: Единая Схема Протокола JSON-lines для AxiCAD Bridge
-  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L207)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L207)
   - *Question / Problem*: - *Контекст*: Sidecar-режим генерирует однострочные события.
     - *Вопрос*: Требуется ли вынести общие DTO-структуры событий sidecar в отдельный крейт контрактов сопряжения с AxiCAD?
+  - *Notes*: **[ОТЛОЖЕНО]**: Поддержка sidecar-режима и протокола JSON-lines находится вне рамок Stage A.
 
 - **REV-BAKER-CLI-003**: Зависимости Подкоманды Инспектирования (`inspect`)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L211)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L211)
   - *Question / Problem*: - *Контекст*: Команда `inspect` читает структуру `.axic` архива.
     - *Вопрос*: Должна ли команда `inspect` обращаться исключительно к хелперам `baker` или может напрямую подключать легкие инспекционные методы `vfs`?
+  - *Notes*: **[ОТЛОЖЕНО]**: Подкоманда `inspect` перенесена в пост-Stage-A задачи.
 
 - **REV-BAKER-CLI-004**: Выделение Edge-Конвертора в Отдельный Бинарник
-  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L215)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L215)
   - *Question / Problem*: - *Контекст*: Подкоманда `edge` выполняет конвертацию моделей.
     - *Вопрос*: Целесообразно ли сохранять подкоманду `edge` в `baker-cli` или вынести ее в отдельный исполняемый файл `edge-cli`?
+  - *Notes*: **[ОТЛОЖЕНО]**: Оптимизация `edge-model` и подкоманда `edge` перенесены в пост-Stage-A задачи.
 
 - **REV-BAKER-CLI-005**: Точный API Отмены (Cancellation Token API) из Библиотеки `baker`
-  - *Status*: Open | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L219)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: - | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L219)
   - *Question / Problem*: - *Контекст*: CLI обрабатывает сигнал SIGINT как процессный останов до появления токена отмены.
     - *Вопрос*: Каким образом компилятор `baker` предоставит атомарные токены отмены для трансляции из `baker-cli`?
+  - *Notes*: **[ОТЛОЖЕНО]**: Интегрированная отмена по сигналам ОС прерванного завершения находится вне рамок Stage A.
 
 - **REV-BAKER-CLI-006**: Централизованное Фиксирование Версий Зависимостей (Workspace-Wide Pinning)
-  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: REV-WIRE-006 | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L223)
+  - *Status*: Resolved (baker-cli v2.1) | *Priority*: P2 | *Owner*: `baker-cli` | *Duplicate Of*: REV-WIRE-006 | *Source*: [baker_cli_spec.md](./spec_L4/baker_cli_spec.md#L223)
   - *Question / Problem*: - *Контекст*: Версии `clap`, `tracing`, `serde_json` зафиксированы в спецификации.
     - *Вопрос*: Требуется ли централизованный манифест версий зависимостей на уровне всего workspace для исключения дрифта сторонних CLI-крейтов?
+  - *Notes*: **[РЕШЕНО в baker-cli v2.1]**: Зафиксированы пиненные версии `clap`, `serde` в `Cargo.toml` бинарника.
 
 #### [baker_spec.md](./spec_L4/baker_spec.md)
 *Source items: 8 / Registered items: 8*

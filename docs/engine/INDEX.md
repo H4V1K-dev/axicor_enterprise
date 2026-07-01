@@ -131,7 +131,7 @@ graph LR
 |---|---|---|---|
 | `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Approved v2.3 / Implemented (Stage A+B1+B2)** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки, роста аксонов и формирования связей. |
 | `baker` | [baker_spec.md](spec_L4/baker_spec.md) | **Approved v2.2 / Implemented (Stage A+B)** | AOT компилятор и локальный упаковщик `.axic` через `vfs` без контроля политик загрузки boot. |
-| `baker-cli` | [baker_cli_spec.md](spec_L4/baker_cli_spec.md) | **Draft v2.0** | Консольная утилита и sidecar-интерфейс для запуска `baker`, вывода отчетов/прогресса и управления флагами. |
+| `baker-cli` | [baker_cli_spec.md](spec_L4/baker_cli_spec.md) | **Approved v2.1 / Ready for Implementation (Stage A)** | Простая консольная утилита для сборки локального `.axic` из конфигурационного TOML-файла шарда. |
 | `edge-model` | [edge_model_spec.md](spec_L4/edge_model_spec.md) | **Draft v2.0** | Оффлайн-конвертор десктопных моделей в edge-артефакты (WTA top-K срез, разделение SRAM/Flash, MMU padding). |
 | `weaver-daemon` | [weaver_daemon_spec.md](spec_L4/weaver_daemon_spec.md) | **Draft v2.0** | Изолированный OS-процесс Ночной Фазы (прунинг, спраутинг, столбовое уплотнение SoA в SHM). |
 
