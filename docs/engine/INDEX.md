@@ -1,6 +1,6 @@
 # AxiEngine — Спецификации (`INDEX.md`)
 
-> Версия: 3.5 | Дата: 2026-06-30
+> Версия: 3.6 | Дата: 2026-07-01
 
 ---
 
@@ -30,7 +30,7 @@ graph TD
         test_harness["test-harness (v2.2)"]
     end
     subgraph L4["Слой 4"]
-        topology["topology (v2.0)"]
+        topology["topology (v2.1)"]
         baker["baker (v2.0)"]
         baker_cli["baker-cli (v2.0)"]
         edge_model["edge-model (v2.0)"]
@@ -161,7 +161,7 @@ graph TD
 
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
-| `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Draft v2.0** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки и роста аксонов. |
+| `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Approved v2.1 / Ready for Implementation (Single-Shard Core)** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки и роста аксонов. |
 | `baker` | [baker_spec.md](spec_L4/baker_spec.md) | **Draft v2.0** | Оркестратор компиляции AOT, координация фаз сборки, генерация бинарных блобов по `layout` и упаковка `.axic`. |
 | `baker-cli` | [baker_cli_spec.md](spec_L4/baker_cli_spec.md) | **Draft v2.0** | Консольная утилита и sidecar-интерфейс для запуска `baker`, вывода отчетов/прогресса и управления флагами. |
 | `edge-model` | [edge_model_spec.md](spec_L4/edge_model_spec.md) | **Draft v2.0** | Оффлайн-конвертор десктопных моделей в edge-артефакты (WTA top-K срез, разделение SRAM/Flash, MMU padding). |

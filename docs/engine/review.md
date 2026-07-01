@@ -146,8 +146,8 @@
 - **Affected specs**: [ipc_spec.md](./spec_L2/ipc_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
 - **Notes**: Перенести бинарные описания структур заголовков в `layout`, а в `ipc` оставить управление жизненным циклом и кольцевыми буферами.
 
-### REV-TOPOLOGY-001: Владение и разметка артефактов Ghost-связей (`.gxi`, `.gxo`, `.ghosts`)
-- **ID**: REV-TOPOLOGY-001
+### REV-TOPOLOGY-006: Владение и разметка артефактов Ghost-связей (`.gxi`, `.gxo`, `.ghosts`)
+- **ID**: REV-TOPOLOGY-006
 - **Status**: Open
 - **Priority**: P1
 - **Owner candidate**: `layout` / `topology`
@@ -882,7 +882,7 @@
     - *Вопрос*: Каков обязательный минимальный перечень файлов внутри `.axic` архива, необходимый для работы компонента `boot`?
 
 - **REV-BAKER-002**: Статус и Владение Заголовками Файлов I/O (`.gxi`, `.gxo`, `.ghosts`)
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-TOPOLOGY-001 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L247)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-TOPOLOGY-006 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L247)
   - *Question / Problem*: - *Контекст*: Опциональные файлы входов/выходов и ghost-связей находятся в статусе ожидания (pending debt).
     - *Вопрос*: В каком крейте (`layout` или `wire`) должны объявляться C-ABI заголовки и структуры этих файлов?
 
@@ -968,27 +968,29 @@
 *Source items: 5 / Registered items: 5*
 
 - **REV-TOPOLOGY-001**: Унификация Маркеров Пустого Слота (`EMPTY_PIXEL` vs `PackedTarget::None`)
-  - *Status*: Open | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L239)
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L239)
   - *Question / Problem*: - *Контекст*: Дендритные слоты могут содержать как `None` (сырой нуль), так и `EMPTY_PIXEL` после прунинга.
     - *Вопрос*: Требуется ли принудительная унифицированная миграция всех `None` слотов в `EMPTY_PIXEL` на этапе загрузки шарда?
 
 - **REV-TOPOLOGY-002**: Локализация Деклараций DTO Трактов Редактора
-  - *Status*: Open | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L243)
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L243)
   - *Question / Problem*: - *Контекст*: Крейт `topology` принимает только подготовленные структурированные геометрии `ResolvedTractGeometry`.
     - *Вопрос*: Где именно должны жить оригинальные декларативные DTO документов трактов — в `config`, в `baker` или в отдельном крейте геометрических контрактов?
 
 - **REV-TOPOLOGY-003**: Отсутствие Поля Начального Веса `initial_synapse_weight` в Конфигурации
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: REV-CFG-005 | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L247)
+  - *Status*: Resolved | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: REV-CFG-005 | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L247)
   - *Question / Problem*: - *Контекст*: При заведении новых синапсов начальный вес рассчитывается с защитой DoA.
     - *Вопрос*: Каким образом параметры базового веса синапсов должны передаваться из TOML конфигурации в `topology`?
+  - *Notes*: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` перенесено в `config` DTO в секцию `GsopParams` и валидируется на уровне схемы. `topology` получает этот вес из `config::NeuronType`.
 
 - **REV-TOPOLOGY-004**: Разграничение Исполнения Уплотнения (Compaction Execution Ownership)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L251)
+  - *Status*: Resolved | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L251)
   - *Question / Problem*: - *Контекст*: `topology` формирует план уплотнения `CompactionPlan`.
     - *Вопрос*: Должна ли физическая переписка SoA-массивов памяти выполняться внутри `topology` или относиться к рантайм-компоненту `weaver-daemon`?
+  - *Notes*: **[РЕШЕНО]**: `topology` формирует исключительно `CompactionPlan` (инструкции переноса данных). Физическое переписывание SoA-массивов выполняется рантаймом / `weaver-daemon` и не входит в зону ответственности `topology`.
 
 - **REV-TOPOLOGY-005**: Структура Нейтрального Перехода GhostHandoverDraft
-  - *Status*: Open | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L255)
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L255)
   - *Question / Problem*: - *Контекст*: При выходе Ghost-аксона за границы шарда формируется промежуточный результат.
     - *Вопрос*: Какую именно форму имеет чистая структура `GhostHandoverDraft` до ее упаковки компонентом `weaver-daemon` в сетевой пакет `wire::AxonHandoverEvent`?
 
@@ -1170,7 +1172,7 @@
   - *Status*: Open | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L351)
 
 - **REV-BOOT-002**: **Окончательное владение файлами Ghost-связей**: Архитектурный слой для `.gxi`, `.gxo` и `.ghosts` не определен (layout vs topology).
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-TOPOLOGY-001 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L352)
+  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-TOPOLOGY-006 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L352)
 
 - **REV-BOOT-003**: **Разделение заголовка SHM**: Окончательное владение `ShmHeader`, `ShmState` и `EphysShm` находится на согласовании (layout vs ipc).
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-IPC-001 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L353)
