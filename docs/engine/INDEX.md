@@ -136,7 +136,7 @@ graph TD
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `layout` | [layout_spec.md](spec_L1/layout_spec.md) | **Approved v2.2** | C-ABI макеты физической памяти (`VariantParameters`), выравнивание плоскостей SoA и заголовки файлов. |
-| `config` | [config_spec.md](spec_L1/config_spec.md) | **Approved v2.1 / Ready for Implementation** | Serde/TOML DTO, парсинг и "Shift-Left" локальная валидация DSL (`model.toml`, `department.toml`, `shard.toml`). |
+| `config` | [config_spec.md](spec_L1/config_spec.md) | **Approved v2.1 / Implemented** | Serde/TOML DTO, парсинг и "Shift-Left" локальная валидация DSL (`model.toml`, `department.toml`, `shard.toml`). |
 | `wire` | [wire_spec.md](spec_L1/wire_spec.md) | **Draft v2.0** | C-ABI структуры сетевых и IPC пакетов, magic-константы, выравнивание, Little-Endian политика и `no-alloc` хелперы. |
 
 ### Слой 2 (Layer 2: Infrastructure & OS Isolation)

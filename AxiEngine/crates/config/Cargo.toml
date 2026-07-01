@@ -1,0 +1,12 @@
+[package]
+name = "config"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+toml = { version = "=0.8.23" }
+thiserror = { version = "=1.0.69" }
+types = { path = "../types" }
+physics = { path = "../physics" }

@@ -3,6 +3,7 @@ members = [
     "crates/types",
     "crates/physics",
     "crates/layout",
+    "crates/config",
     "crates/compute-api",
     "crates/compute-cpu",
     "crates/compute-cuda",
