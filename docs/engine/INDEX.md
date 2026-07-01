@@ -147,7 +147,7 @@ graph LR
 
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
-| `boot` | [boot_spec.md](spec_L6/boot_spec.md) | **Draft v1.0** | Инициализация окружения, монтирование VFS, проверка выравнивания и flash-копирование состояния в GPU. |
+| `boot` | [boot_spec.md](spec_L6/boot_spec.md) | **Approved v2.1 / Ready for Implementation (Stage A)** | Локальная загрузка `.axic`, валидация артефактов и подготовка compute upload bundle. |
 | `runtime` | [runtime_spec.md](spec_L6/runtime_spec.md) | **Draft v2.0** | Оркестратор вычислений шардов, Day/Night переходы, координация с `weaver-daemon` и сбои. |
 | `node` | [node_spec.md](spec_L6/node_spec.md) | **Draft v1.0** | Тонкий OS-демон: разбор CLI-аргументов, CPU affinity, Tokio-изоляция и graceful shutdown. |
 

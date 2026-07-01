@@ -1196,35 +1196,37 @@
 #### [boot_spec.md](./spec_L6/boot_spec.md)
 *Source items: 10 / Registered items: 10*
 
-- **REV-BOOT-001**: **Точный список обязательных файлов в `.axic`**: Точный список обязательных файлов в фазе `RequiredFilesResolved` не зафиксирован в спецификациях baker/vfs/config и может определяться динамически на основе манифеста.
-  - *Status*: Open | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L351)
+- **REV-BOOT-001**: **Точный список обязательных файлов в `.axic`**
+  - *Status*: Resolved (boot v2.1) | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L351)
+  - *Notes*: Решено в Stage A для локального архива. Минимальный обязательный список файлов фиксирован: `state.bin`, `axons.bin`, `paths.bin`, `variant_table.bin`. Дополнительные файлы игнорируются. Динамическая политика на основе манифеста остается Deferred.
 
-- **REV-BOOT-002**: **Окончательное владение файлами Ghost-связей**: Архитектурный слой для `.gxi`, `.gxo` и `.ghosts` не определен (layout vs topology).
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-TOPOLOGY-006 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L352)
+- **REV-BOOT-002**: **Окончательное владение файлами Ghost-связей**
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-TOPOLOGY-006 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L352)
 
-- **REV-BOOT-003**: **Разделение заголовка SHM**: Окончательное владение `ShmHeader`, `ShmState` и `EphysShm` находится на согласовании (layout vs ipc).
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-IPC-001 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L353)
+- **REV-BOOT-003**: **Разделение заголовка SHM**
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-IPC-001 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L353)
 
-- **REV-BOOT-004**: **Модель инициализации воркеров**: Решение о выборе между Моделью А (Send) и Моделью B (Thread-Affine) зависит от технических возможностей compute бэкендов.
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-COMPUTE-004 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L354)
+- **REV-BOOT-004**: **Модель инициализации воркеров**
+  - *Status*: Resolved (boot v2.1) | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L354)
+  - *Notes*: В Stage A вспомогательный helper-метод возвращает thread-affine `ShardEngine` вызывающему коду на том же потоке; отчуждение воркерам рантайма остается Deferred.
 
-- **REV-BOOT-005**: **Физическое размещение и контракт BootShardPlan / ShardBootPlan**: Окончательное определение места владения и контракта обмена планами между `boot` и `runtime`.
-  - *Status*: Open | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L355)
+- **REV-BOOT-005**: **Физическое размещение и контракт BootShardPlan / ShardBootPlan**
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L355)
 
-- **REV-BOOT-006**: **Инициализация сетевого рантайма**: Определить, должен ли `boot` возвращать живой `NetRuntime` или только спецификацию `NetInitPlan` (предпочтительно второе).
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-BOOT-005 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L356)
+- **REV-BOOT-006**: **Инициализация сетевого рантайма**
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-BOOT-005 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L356)
 
-- **REV-BOOT-007**: **RAM-диск на Windows**: Определение системного механизма памяти для Windows-платформ (virtual RAM-drive).
+- **REV-BOOT-007**: **RAM-диск на Windows**
   - *Status*: Deferred | *Priority*: Deferred | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L357)
 
-- **REV-BOOT-008**: **Точки интеграции службы чекпоинтов**: Правила восстановления из чекпоинта VRAM при холодном старте.
-  - *Status*: Duplicate Of | *Priority*: Deferred | *Owner*: `boot` | *Duplicate Of*: REV-NODE-004 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L358)
+- **REV-BOOT-008**: **Точки интеграции службы чекпоинтов**
+  - *Status*: Deferred | *Priority*: Deferred | *Owner*: `boot` | *Duplicate Of*: REV-NODE-004 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L358)
 
-- **REV-BOOT-009**: **Недостающие параметры TOML**: Определение полей `initial_synapse_weight`, а также физических координат сетевых сокетов.
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-CFG-005 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L359)
+- **REV-BOOT-009**: **Недостающие параметры TOML**
+  - *Status*: Resolved (Duplicate of REV-CFG-005) | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-CFG-005 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L359)
 
-- **REV-BOOT-010**: **Протоколы сетевого автообнаружения**: Начальная геометрия распределения соседей по зонам.
-  - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `boot` | *Duplicate Of*: REV-NET-006 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L360)
+- **REV-BOOT-010**: **Протоколы сетевого автообнаружения**
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `boot` | *Duplicate Of*: REV-NET-006 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L360)
 
 #### [node_spec.md](./spec_L6/node_spec.md)
 *Source items: 10 / Registered items: 10*
