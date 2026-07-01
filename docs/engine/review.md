@@ -1264,14 +1264,15 @@
 #### [runtime_spec.md](./spec_L6/runtime_spec.md)
 *Source items: 4 / Registered items: 4*
 
-- **REV-RUNTIME-001**: **Точная структура полезной нагрузки спайков**: Формат исходящего сетевого контекста доставки спайков не зафиксирован в рантайме. Временное решение: передавать данные пакета через интерфейс `NetRuntime` в виде обобщенных слайсов байт или абстрактного контракта обмена.
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: REV-COMPUTE-API-004 | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L481)
+- **REV-RUNTIME-001**: **Точная структура полезной нагрузки спайков**
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: REV-COMPUTE-API-004 | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L481)
 
-- **REV-RUNTIME-002**: **Механизм записи теневых чекпоинтов**: Архитектурные границы записи VRAM чекпоинтов на диск не утверждены. Не определено, должен ли рантайм генерировать событие внешней асинхронной записи, либо использовать специализированный системный сервис `CheckpointWriter`.
-  - *Status*: Duplicate Of | *Priority*: Deferred | *Owner*: `runtime` | *Duplicate Of*: REV-NODE-004 | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L482)
+- **REV-RUNTIME-002**: **Механизм записи теневых чекпоинтов**
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: Deferred | *Owner*: `runtime` | *Duplicate Of*: REV-NODE-004 | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L482)
 
-- **REV-RUNTIME-003**: **Окончательный выбор модели инициализации воркеров**: Решение о переходе на эксклюзивную Thread-Affine инициализацию (Модель B) будет принято после закрытия технических вопросов в спецификации `compute_spec.md`.
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: REV-COMPUTE-004 | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L483)
+- **REV-RUNTIME-003**: **Окончательный выбор модели инициализации воркеров**
+  - *Status*: Resolved (runtime v2.1) | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: - | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L483)
+  - *Notes*: Решено для Stage A. Воркер-потоки отсутствуют, готовый thread-affine `ShardEngine` передается оркестратору и выполняется на том же потоке управления.
 
-- **REV-RUNTIME-004**: **Синтаксис безопасного API применения ночных изменений**: Конкретные параметры метода `apply_night_delta` в `ShardEngine` остаются на стадии согласования с вычислительным слоем.
-  - *Status*: Open | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: - | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L484)
+- **REV-RUNTIME-004**: **Синтаксис безопасного API применения ночных изменений**
+  - *Status*: Deferred (Post-Stage-A) | *Priority*: P1 | *Owner*: `runtime` | *Duplicate Of*: - | *Source*: [runtime_spec.md](./spec_L6/runtime_spec.md#L484)
