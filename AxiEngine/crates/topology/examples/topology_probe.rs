@@ -517,8 +517,9 @@ fn main() {
         println!("   - {:?}: {}", reason, count);
     }
 
-    println!("\nCSV artifacts generated successfully:");
+    println!("\nArtifacts generated successfully:");
     println!("  - Somas log: {:?}", somas_csv_path);
     println!("  - Summary log: {:?}", summary_csv_path);
     println!("  - Axons log: {:?}", axons_csv_path);
+    println!("  - SVG visualization: {:?}", svg_path);
 }

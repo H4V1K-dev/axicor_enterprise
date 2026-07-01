@@ -342,6 +342,84 @@ pub fn validate_shard(config: &ShardConfig) -> Result<(), ConfigError> {
             )));
         }
 
+        // Growth parameters validation
+        let growth = &nt.growth;
+        if !growth.steering_fov_deg.is_finite()
+            || growth.steering_fov_deg <= 0.0
+            || growth.steering_fov_deg > 180.0
+        {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.steering_fov_deg must be finite and in range (0.0..=180.0]",
+                nt.name
+            )));
+        }
+        if !is_positive_finite_f32(growth.steering_radius_um) {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.steering_radius_um must be positive finite",
+                nt.name
+            )));
+        }
+        if !growth.steering_weight_inertia.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.steering_weight_inertia must be finite",
+                nt.name
+            )));
+        }
+        if !growth.steering_weight_sensor.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.steering_weight_sensor must be finite",
+                nt.name
+            )));
+        }
+        if !growth.steering_weight_jitter.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.steering_weight_jitter must be finite",
+                nt.name
+            )));
+        }
+        if !is_positive_finite_f32(growth.dendrite_radius_um) {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.dendrite_radius_um must be positive finite",
+                nt.name
+            )));
+        }
+        if !growth.growth_vertical_bias.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.growth_vertical_bias must be finite",
+                nt.name
+            )));
+        }
+        if !growth.type_affinity.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.type_affinity must be finite",
+                nt.name
+            )));
+        }
+        if !growth.sprouting_weight_distance.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.sprouting_weight_distance must be finite",
+                nt.name
+            )));
+        }
+        if !growth.sprouting_weight_power.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.sprouting_weight_power must be finite",
+                nt.name
+            )));
+        }
+        if !growth.sprouting_weight_explore.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.sprouting_weight_explore must be finite",
+                nt.name
+            )));
+        }
+        if !growth.sprouting_weight_type.is_finite() {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' growth.sprouting_weight_type must be finite",
+                nt.name
+            )));
+        }
+
         // Whitelist checks
         for target in &nt.growth.dendrite_whitelist {
             if !nt_set.contains(target.as_str()) {

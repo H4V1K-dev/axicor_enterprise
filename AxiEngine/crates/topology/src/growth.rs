@@ -17,6 +17,22 @@ fn deterministic_mix_salt(soma_id: u32, step_index: usize, candidate_index: usiz
     hash_val
 }
 
+/// Converts a floating-point growth parameter into a fixed-point Q16 `i64` value.
+///
+/// # Errors
+///
+/// Returns [`TopologyError::InvalidGrowthParameter`] if `val` is not finite or falls outside of integer bounds.
+fn to_fixed_point_q16(val: f32, variant_id: u8, field: &'static str) -> Result<i64, TopologyError> {
+    if !val.is_finite() {
+        return Err(TopologyError::InvalidGrowthParameter { variant_id, field });
+    }
+    let scaled = val as f64 * 65536.0;
+    if scaled < (i64::MIN as f64) || scaled > (i64::MAX as f64) {
+        return Err(TopologyError::InvalidGrowthParameter { variant_id, field });
+    }
+    Ok(scaled as i64)
+}
+
 /// Deterministically grows local axon paths within a single shard.
 pub fn grow_local_axons(input: &AxonGrowthInput) -> Result<LocalGrowthResult, TopologyError> {
     let config = input.config;
@@ -85,9 +101,21 @@ pub fn grow_local_axons(input: &AxonGrowthInput) -> Result<LocalGrowthResult, To
         }
 
         // Q16 fixed-point conversion
-        let inertia_q = (growth.steering_weight_inertia as f64 * 65536.0) as i64;
-        let vertical_q = (growth.growth_vertical_bias as f64 * 65536.0) as i64;
-        let jitter_q = (growth.steering_weight_jitter as f64 * 65536.0) as i64;
+        let inertia_q = to_fixed_point_q16(
+            growth.steering_weight_inertia,
+            soma.variant_id,
+            "steering_weight_inertia",
+        )?;
+        let vertical_q = to_fixed_point_q16(
+            growth.growth_vertical_bias,
+            soma.variant_id,
+            "growth_vertical_bias",
+        )?;
+        let jitter_q = to_fixed_point_q16(
+            growth.steering_weight_jitter,
+            soma.variant_id,
+            "steering_weight_jitter",
+        )?;
 
         let mut segments = Vec::new();
         let mut curr_x = sx;
@@ -110,9 +138,24 @@ pub fn grow_local_axons(input: &AxonGrowthInput) -> Result<LocalGrowthResult, To
                 let jitter_unit = (seed.random_u64(salt) >> 48) as i64;
 
                 let dot = d_prev.0 * dx + d_prev.1 * dy + d_prev.2 * dz;
-                let score_q = inertia_q * dot as i64
-                    + vertical_q * dz as i64
-                    + (jitter_q * jitter_unit) / 65535;
+                let term1 = inertia_q
+                    .checked_mul(dot as i64)
+                    .ok_or(TopologyError::CapacityOverflow)?;
+                let term2 = vertical_q
+                    .checked_mul(dz as i64)
+                    .ok_or(TopologyError::CapacityOverflow)?;
+                let jitter_prod = jitter_q
+                    .checked_mul(jitter_unit)
+                    .ok_or(TopologyError::CapacityOverflow)?;
+                let term3 = jitter_prod
+                    .checked_div(65535)
+                    .ok_or(TopologyError::CapacityOverflow)?;
+                let sum1 = term1
+                    .checked_add(term2)
+                    .ok_or(TopologyError::CapacityOverflow)?;
+                let score_q = sum1
+                    .checked_add(term3)
+                    .ok_or(TopologyError::CapacityOverflow)?;
 
                 candidates_with_score.push((dx, dy, dz, candidate_index, score_q));
             }

@@ -176,10 +176,11 @@ Silent drop (молчаливый пропуск размещения сомы) 
      Если `soma.variant_id as usize >= config.neuron_types.len()`, генерация аварийно завершается с ошибкой `TopologyError::UnknownNeuronType { variant_id: soma.variant_id }`.
      Иначе `source_type = &config.neuron_types[soma.variant_id as usize]`.
    - Параметры роста извлекаются из `source_type.growth`.
-   - Вещественные веса конвертируются в целочисленные fixed-point fixed-scale коэффициенты (Q16 формат, сдвиг на 16 бит):
-     - `inertia_q = (growth.steering_weight_inertia as f64 * 65536.0) as i64`
-     - `vertical_q = (growth.growth_vertical_bias as f64 * 65536.0) as i64`
-     - `jitter_q = (growth.steering_weight_jitter as f64 * 65536.0) as i64`
+   - Веса параметров роста конвертируются из `f32` в формат Q16 `i64` строго через валидирующий хелпер:
+     - `inertia_q = to_fixed_point_q16(growth.steering_weight_inertia)`
+     - `vertical_q = to_fixed_point_q16(growth.growth_vertical_bias)`
+     - `jitter_q = to_fixed_point_q16(growth.steering_weight_jitter)`
+     Если любое вещественное значение не является конечным (`is_finite()`) или при масштабировании на `65536.0` выходит за диапазон представления `i64`, генерация немедленно возвращает `TopologyError::InvalidGrowthParameter`.
    - Стартовая позиция аксона: воксель сомы `soma.position`.
    - Воксель сомы считается занятым origin-точкой пути (не может повторно посещаться).
    - Номер текущего шага `step_index` инициализируется равным `1`.
@@ -211,8 +212,9 @@ Silent drop (молчаливый пропуск размещения сомы) 
    - $dz_i$ — вертикальная координата шага кандидата, принимающая значения от -1 до 1.
    - $jitter\_unit = (\text{seed.random\_u64}(salt) \gg 48) \text{ as } i64$ — 16-битное беззнаковое целое число в диапазоне `0..=65535`, полученное из смесителя:
      `salt = deterministic_mix_salt(soma_id, step_index, candidate_index)`
+   - Все умножения, деления и сложения при вычислении `score_q` осуществляются через checked-инструкции в Rust (`checked_mul`, `checked_add`, `checked_div`). Любое арифметическое переполнение немедленно завершает всю генерацию шарда и возвращает ошибку `TopologyError::CapacityOverflow`.
    - Деление `(jitter_q * jitter_unit) / 65535` выполняется как целочисленное деление в Rust (truncating).
-   - Все расчеты выполняются в типе `i64`. Использование вещественной математики (float) в горячем цикле роста аксонов строго запрещено.
+   - Все расчеты в горячем цикле роста после прохождения AOT-границы выполняются строго в типе `i64`. Использование вещественной математики (float) строго запрещено.
 
 4. **Сортировка приоритетов кандидатов**:
    Все 26 кандидатов сортируются по следующим критериям:
@@ -271,6 +273,8 @@ pub enum TopologyError {
     CapacityOverflow,
     /// Обращение к неопределенному типу нейрона
     UnknownNeuronType { variant_id: u8 },
+    /// Неконсистентность параметров структурного роста (выход за пределы Q16/конечности)
+    InvalidGrowthParameter { variant_id: u8, field: &'static str },
 }
 
 // ==========================================
@@ -424,6 +428,11 @@ pub struct TopologyEngine;
 18. **Согласованность констант лимитов (`test_topology_layout_types_segment_limit_consistency`)**: Проверка совпадения значений максимального количества сегментов на этапе компиляции: `layout::MAX_SEGMENTS_PER_AXON - 1 == types::MAX_SEGMENT_OFFSET` (255).
 19. **Воспроизводимость путей роста (`test_topology_reproducible_growth_path`)**: Верификация 100% идентичности сгенерированных сегментов аксона при повторной трассировке с одинаковым `MasterSeed`.
 20. **Диагностический CSV роста (`test_topology_probe_growth_csv_format`)**: Верификация формата генерируемого диагностического CSV файла для путей аксонов: `soma_id,segment_offset,x,y,z`.
+21. **Ограничение максимальной длины аксона (`test_topology_max_segment_length_respected`)**: Проверка, что длина пути аксона не превышает лимит в 255 сегментов, и в случае достижения лимита устанавливается причина остановки `MaxLengthReached`.
+22. **Непрерывность смещений сегментов (`test_topology_segment_offset_contract`)**: Проверка, что смещение `segment_offset` для сегментов одного аксона увеличивается монотонно и последовательно без пропусков (начиная с 1).
+23. **Начало роста вне границ шарда (`test_topology_source_out_of_bounds_stop_reason`)**: Проверка, что если сома нейрона расположена за границами воксельного пространства шарда, то путь аксона пуст, а причина остановки устанавливается в `SourceOutOfBounds`.
+24. **Браковка некорректных параметров роста (`test_topology_invalid_growth_nan_rejected`)**: Проверка возврата ошибки `TopologyError::InvalidGrowthParameter` на этапе Q16-конверсии при обнаружении NaN или бесконечных величин в параметрах роста.
+25. **Защита от переполнения целочисленного score (`test_topology_score_overflow_rejected`)**: Проверка, что если параметры роста чрезвычайно велики (но проходят проверку на конечность), то при расчете `score_q` арифметическое переполнение отлавливается и возвращается ошибка `TopologyError::CapacityOverflow`.
 
 
 ---

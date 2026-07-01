@@ -42,4 +42,11 @@ pub enum TopologyError {
         /// The variant identifier that was not found in config.
         variant_id: u8,
     },
+    /// Growth parameter value is non-finite or out of safe integer boundaries.
+    InvalidGrowthParameter {
+        /// The variant identifier of the neuron type.
+        variant_id: u8,
+        /// The name of the parameter field.
+        field: &'static str,
+    },
 }

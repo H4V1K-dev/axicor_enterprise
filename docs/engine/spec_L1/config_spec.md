@@ -252,6 +252,14 @@ let v_seg = physics::compute_v_seg(
 - **Кривая Инерции**: Массив `inertia_curve` содержит ровно **8 элементов**.
 - **Адаптивная Утечка**: `adaptive_mode` принимает значения `0`, `1` или `2`. Значение `adaptive_leak_min_shift` может быть отрицательным (рантайм физика выполняет безопасный clamp).
 - **Валидация Вайтлистов (`dendrite_whitelist`)**: Если в `growth.dendrite_whitelist` указаны имена типов нейронов, каждый элемент списка обязан ссылаться на объявленное имя из `neuron_types`.
+- **Валидация Параметров Роста (`GrowthParams`)**:
+  - `steering_fov_deg`: конечное (finite) значение в диапазоне `(0.0..=180.0]`.
+  - `steering_radius_um`: конечное положительное значение `(> 0.0)`.
+  - `steering_weight_inertia`, `steering_weight_sensor`, `steering_weight_jitter`: конечные значения (finite).
+  - `dendrite_radius_um`: конечное положительное значение `(> 0.0)`.
+  - `growth_vertical_bias`: конечное значение (finite).
+  - `type_affinity`: конечное значение (finite).
+  - `sprouting_weight_distance`, `sprouting_weight_power`, `sprouting_weight_explore`, `sprouting_weight_type`: конечные значения (finite).
 - **Спонтанный Спайкинг**: `spontaneous_firing_period_ticks == 0` означает выключено. Значение `1` запрещено на уровне TOML DSL (вызывает ошибку валидации), минимально разрешенный период — `2` тика. Хотя низкоуровневые физические примитивы `physics` аппаратно поддерживают период 1 для гибкости расчетов, пользовательский DSL config намеренно вводит это ограничение для предотвращения истощения синапсов. Это не является архитектурным конфликтом: физика шире, config строже.
 - **Веса Синапсов**: Начальный вес синапсов `initial_synapse_weight` в `GsopParams` должен быть в диапазоне `0..=32767`.
 
@@ -332,6 +340,7 @@ pub fn load_shard_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<ShardC
 16. **Serde Range Rejection (`test_serde_u8_range_rejection`)**: Проверка, что значения $> 255$ для полей `synapse_refractory_period`, `d1_affinity`, `d2_affinity` отклоняются на этапе Serde десериализации.
 17. **Валидация Веса Синапсов (`test_initial_synapse_weight_validation`)**: Значение `initial_synapse_weight > 32767` в `GsopParams` отклоняется при валидации.
 18. **Предельная Плотность Слая (`test_density_out_of_bounds`)**: Значение `density > 1.0` в `LayerConfig` отклоняется при валидации.
+19. **Валидация Параметров Роста (`test_growth_params_validation`)**: Проверка отклонения NaN/Inf, невалидных углов fov и отрицательных радиусов в параметрах роста `GrowthParams`.
 
 ---
 

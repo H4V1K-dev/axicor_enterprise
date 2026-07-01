@@ -400,3 +400,37 @@ fn test_max_dendrites_field_rejected() {
     );
     assert!(parse_model_str(&bad_model).is_err());
 }
+
+// 20. Growth parameters validation tests
+#[test]
+fn test_growth_params_validation() {
+    // NaN in steering_weight_inertia rejected
+    let mut shard = parse_shard_str(VALID_SHARD_TOML).unwrap();
+    shard.neuron_types[0].growth.steering_weight_inertia = f32::NAN;
+    assert!(validate_shard(&shard).is_err());
+
+    // Inf in growth_vertical_bias rejected
+    let mut shard2 = parse_shard_str(VALID_SHARD_TOML).unwrap();
+    shard2.neuron_types[0].growth.growth_vertical_bias = f32::INFINITY;
+    assert!(validate_shard(&shard2).is_err());
+
+    // steering_fov_deg <= 0 rejected
+    let mut shard3 = parse_shard_str(VALID_SHARD_TOML).unwrap();
+    shard3.neuron_types[0].growth.steering_fov_deg = 0.0;
+    assert!(validate_shard(&shard3).is_err());
+
+    // steering_fov_deg > 180 rejected
+    let mut shard4 = parse_shard_str(VALID_SHARD_TOML).unwrap();
+    shard4.neuron_types[0].growth.steering_fov_deg = 180.1;
+    assert!(validate_shard(&shard4).is_err());
+
+    // steering_radius_um <= 0 rejected
+    let mut shard5 = parse_shard_str(VALID_SHARD_TOML).unwrap();
+    shard5.neuron_types[0].growth.steering_radius_um = -1.0;
+    assert!(validate_shard(&shard5).is_err());
+
+    // dendrite_radius_um <= 0 rejected
+    let mut shard6 = parse_shard_str(VALID_SHARD_TOML).unwrap();
+    shard6.neuron_types[0].growth.dendrite_radius_um = 0.0;
+    assert!(validate_shard(&shard6).is_err());
+}

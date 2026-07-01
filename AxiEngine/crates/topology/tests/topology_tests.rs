@@ -1222,3 +1222,184 @@ fn test_topology_fixed_point_steering_no_float_runtime() {
     let res = TopologyEngine::grow_local_axons(&input);
     assert!(res.is_ok());
 }
+
+#[test]
+fn test_topology_max_segment_length_respected() {
+    let mut type_a = make_dummy_neuron_type("TypeA");
+    type_a.growth.steering_weight_inertia = 0.0;
+    type_a.growth.steering_weight_jitter = 1.0;
+    type_a.growth.growth_vertical_bias = 0.0;
+    let neuron_types = vec![type_a];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    // Large shard so the axon doesn't hit boundaries
+    let config = make_basic_test_config(500, 500, 255, layers, neuron_types);
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(250, 250, 127, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(12345);
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    let axon = &res.axons[0];
+    assert_eq!(axon.segments.len(), 255);
+    assert_eq!(axon.stop_reason, AxonGrowthStopReason::MaxLengthReached);
+}
+
+#[test]
+fn test_topology_segment_offset_contract() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(50, 50, 50, layers, neuron_types);
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(25, 25, 25, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(7);
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    let axon = &res.axons[0];
+    assert!(!axon.segments.is_empty());
+    for (i, seg) in axon.segments.iter().enumerate() {
+        assert_eq!(seg.segment_offset, (i + 1) as u8);
+    }
+}
+
+#[test]
+fn test_topology_source_out_of_bounds_stop_reason() {
+    let neuron_types = vec![make_dummy_neuron_type("TypeA")];
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    // Max coordinates: 29x29x29
+    let config = make_basic_test_config(30, 30, 30, layers, neuron_types);
+    // Position at 40,40,40 is out of dimensions
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(40, 40, 40, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(11);
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input).unwrap();
+    let axon = &res.axons[0];
+    assert!(axon.segments.is_empty());
+    assert_eq!(axon.stop_reason, AxonGrowthStopReason::SourceOutOfBounds);
+}
+
+#[test]
+fn test_topology_invalid_growth_nan_rejected() {
+    let mut type_a = make_dummy_neuron_type("TypeA");
+    type_a.growth.steering_weight_inertia = f32::NAN;
+    let neuron_types = vec![type_a];
+
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(5, 5, 5, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(999);
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input);
+    assert_eq!(
+        res.err(),
+        Some(TopologyError::InvalidGrowthParameter {
+            variant_id: 0,
+            field: "steering_weight_inertia"
+        })
+    );
+}
+
+#[test]
+fn test_topology_score_overflow_rejected() {
+    let mut type_a = make_dummy_neuron_type("TypeA");
+    // Large weights that fit in Q16 but overflow when summed:
+    // 5.0e13 * 65536 = 3.27e18. Sum of three such terms overflows i64.
+    type_a.growth.steering_weight_inertia = 5.0e13;
+    type_a.growth.growth_vertical_bias = 5.0e13;
+    type_a.growth.steering_weight_jitter = 5.0e13;
+    let neuron_types = vec![type_a];
+
+    let layers = vec![LayerConfig {
+        name: "L1".to_string(),
+        height_pct: 1.0,
+        density: 0.1,
+        composition: vec![NeuronTypeDistribution {
+            type_name: "TypeA".to_string(),
+            share: 1.0,
+        }],
+    }];
+    let config = make_basic_test_config(10, 10, 10, layers, neuron_types);
+    let somas = vec![PlacedSoma {
+        soma_id: 0,
+        variant_id: 0,
+        position: types::PackedPosition::new(5, 5, 5, 0),
+    }];
+    let topology = SingleShardTopology { somas };
+    let seed = MasterSeed(999);
+    let input = AxonGrowthInput {
+        config: &config,
+        topology: &topology,
+        seed,
+    };
+
+    let res = TopologyEngine::grow_local_axons(&input);
+    assert_eq!(res.err(), Some(TopologyError::CapacityOverflow));
+}
