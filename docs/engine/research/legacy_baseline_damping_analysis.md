@@ -24,7 +24,23 @@ This document records the findings of the legacy baseline connectivity damping s
 5. **Max Sprouts Limit**:
    - Changing `max_sprouts` to `4` or `2` has no effect on network activity (it behaves identically to `8` sprouts). In the current pipeline, limiting sprouts only throttles growth rate but does not reduce the `total_synapses` successfully formed (`204,800` synapses). Therefore, `max_sprouts` is not a valid knob for network damping without separate validation of growth/synapse formation thresholds in `topology`.
 
+## Stability Band Mapping
+
+A 30-run grid search sweep across densities `[0.05..0.10]` and inhibitory shares `[0.20..0.30]` mapped the narrow boundary regime between transient extinction and infinite sustained activity:
+
+* **Sustained Propagation Minimum (Density >= 0.09)**:
+  - Below `density = 0.09`, all configurations decay immediately within **1 tick** after the pulse. The recurrent network is too sparse to propagate activity.
+* **Transition Bifurcation (Density = 0.09)**:
+  - `inhibitory_share <= 0.225` triggers **sustained-activity** (active to tick 999).
+  - `inhibitory_share >= 0.250` decays immediately within **5 ticks** or **1 tick**.
+* **Long-Lived Transients (Density = 0.10)**:
+  - `inhibitory_share = 0.200` triggers **sustained-activity** (active to tick 999).
+  - `inhibitory_share = 0.250` triggers a long-lived **transient-response** of **482 ticks** (active from tick 12 to 493).
+  - `inhibitory_share = 0.300` triggers a long-lived **transient-response** of **836 ticks** (active from tick 12 to 847).
+
 ## Conclusion & Next Steps
-To establish a stable "boundary regime" between transient and sustained activity, future research should explore the following parameters:
-- **Inhibitory Share**: `0.20..0.30`
-- **Soma Density**: `0.05..0.10`
+The precise stability boundary zone where the network transitions from immediate decay to infinite sustained activity is located at:
+- **Soma Density**: `0.09..0.10`
+- **Inhibitory Share**: `0.25..0.30`
+
+This parameter coordinate represents the critical damping region where the network can sustain long-lived transients, making it the primary target for biological baseline calibrations.

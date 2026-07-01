@@ -841,3 +841,184 @@ fn test_legacy_connectivity_damping() {
 
     println!("Legacy baseline connectivity damping test successfully completed.");
 }
+
+#[test]
+#[ignore]
+fn test_legacy_stability_band() {
+    let workspace = get_workspace_root();
+    let exc_toml_path = Path::new(
+        "W:\\Workspace\\axicor-master\\Axicor_Neuron-Lib\\Cortex\\L23\\spiny\\VISp23\\1.toml",
+    );
+    let inh_toml_path = Path::new(
+        "W:\\Workspace\\axicor-master\\Axicor_Neuron-Lib\\Cortex\\L23\\aspiny\\VISp23\\1.toml",
+    );
+
+    let exc_toml_str = fs::read_to_string(exc_toml_path).expect("Failed to read excitatory TOML");
+    let inh_toml_str = fs::read_to_string(inh_toml_path).expect("Failed to read inhibitory TOML");
+
+    let exc_file: LegacyNeuronFile =
+        toml::from_str(&exc_toml_str).expect("Failed to deserialize excitatory TOML");
+    let inh_file: LegacyNeuronFile =
+        toml::from_str(&inh_toml_str).expect("Failed to deserialize inhibitory TOML");
+
+    let exc_legacy = &exc_file.neuron_type[0];
+    let inh_legacy = &inh_file.neuron_type[0];
+
+    // Spontaneous is disabled
+    let exc_type = map_legacy_to_config(exc_legacy, true);
+    let inh_type = map_legacy_to_config(inh_legacy, true);
+
+    let artifacts_dir = workspace.join("artifacts");
+    create_dir_all(&artifacts_dir).unwrap();
+
+    let band_csv_path = artifacts_dir.join("legacy_baseline_stability_band.csv");
+    let mut band_file = File::create(&band_csv_path).unwrap();
+
+    writeln!(
+        band_file,
+        "density,inhibitory_share,total_somas,total_synapses,total_generated_spikes,nonzero_output_ticks,first_output_tick,last_output_tick,active_duration_ticks,mean_output_per_nonzero_tick,max_output_per_tick,activity_status"
+    ).unwrap();
+
+    let densities = vec![0.05, 0.06, 0.07, 0.08, 0.09, 0.10];
+    let inhibitory_shares = vec![0.20, 0.225, 0.25, 0.275, 0.30];
+    let total_ticks = 1000;
+
+    for &d in &densities {
+        for &inh_share in &inhibitory_shares {
+            let shard_config =
+                make_legacy_shard_config(exc_type.clone(), inh_type.clone(), d, inh_share, 8);
+
+            let baker_input = LocalShardBakeInput {
+                shard_config: &shard_config,
+                master_seed: MasterSeed(42),
+                voxel_size_um: 1.0,
+            };
+            let (artifacts, report) = bake_local_shard(&baker_input).expect("Baking failed");
+            let axic_data = pack_local_shard_artifacts(&artifacts).expect("Packaging failed");
+
+            let mut full_bitmask = vec![0u32; total_ticks];
+            full_bitmask[0] = 0b11; // 2 active axons
+
+            let temp_axic_path =
+                std::env::temp_dir().join(format!("legacy_band_d{:.2}_i{:.3}.axic", d, inh_share));
+            {
+                let mut f = File::create(&temp_axic_path).unwrap();
+                f.write_all(&axic_data).unwrap();
+            }
+
+            let boot_input = LocalShardComputeInput {
+                archive_path: temp_axic_path.clone(),
+                backend_preference: compute::BackendPreference::Cpu,
+                virtual_offset: 0,
+                total_ghosts: 0,
+            };
+            let (engine, _boot_bundle) =
+                bootstrap_local_shard_engine(&boot_input).expect("Bootstrap failed");
+
+            let mapped_somas: Vec<u32> = (0..report.total_somas).collect();
+            let runtime_config = LocalRuntimeConfig {
+                sync_batch_ticks: 100,
+                v_seg: 1,
+                dopamine: 0,
+                max_spikes_per_tick: 2000,
+                virtual_offset: 0,
+                num_virtual_axons: 32,
+                input_words_per_tick: 1,
+                mapped_soma_ids: mapped_somas,
+            };
+            let mut runtime =
+                LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
+
+            let total_batches = 10;
+            let ticks_per_batch = 100;
+
+            let mut total_generated = 0u64;
+            let mut total_dropped = 0u64;
+            let mut flat_output_spike_counts = Vec::new();
+
+            for b in 0..total_batches {
+                let start_tick = b * ticks_per_batch;
+                let end_tick = start_tick + ticks_per_batch;
+                let batch_bitmask = &full_bitmask[start_tick..end_tick];
+
+                let input = RuntimeBatchInput {
+                    input_bitmask: Some(batch_bitmask),
+                    incoming_spikes: None,
+                    incoming_spike_counts: &vec![0; ticks_per_batch],
+                };
+
+                let r = runtime.run_batch(input).expect("Batch failed");
+                total_generated += r.batch_result.generated_spikes_count as u64;
+                total_dropped += r.batch_result.dropped_spikes_count as u64;
+                flat_output_spike_counts.extend_from_slice(&r.output_spike_counts);
+            }
+
+            let _ = std::fs::remove_file(temp_axic_path);
+
+            let nonzero_output_ticks =
+                flat_output_spike_counts.iter().filter(|&&c| c > 0).count() as u64;
+            let mut first_output_tick = -1i32;
+            let mut last_output_tick = -1i32;
+            let mut peak_output_per_tick = 0u64;
+            let mut sum_output_spikes = 0u64;
+
+            for (t, &count) in flat_output_spike_counts.iter().enumerate() {
+                if count > 0 {
+                    if first_output_tick == -1 {
+                        first_output_tick = t as i32;
+                    }
+                    last_output_tick = t as i32;
+                    if count as u64 > peak_output_per_tick {
+                        peak_output_per_tick = count as u64;
+                    }
+                    sum_output_spikes += count as u64;
+                }
+            }
+
+            let mean_output_per_nonzero_tick = if nonzero_output_ticks > 0 {
+                sum_output_spikes as f64 / nonzero_output_ticks as f64
+            } else {
+                0.0
+            };
+
+            let is_ignited = total_generated > 0;
+            let active_duration_ticks = if is_ignited {
+                (last_output_tick - first_output_tick + 1) as u32
+            } else {
+                0
+            };
+
+            let activity_status = if total_generated == 0 {
+                "no-response"
+            } else if last_output_tick < 900 {
+                "transient-response"
+            } else {
+                if total_dropped > 0 {
+                    "runaway"
+                } else {
+                    "sustained-activity"
+                }
+            };
+
+            writeln!(
+                band_file,
+                "{:.2},{:.3},{},{},{},{},{},{},{},{:.6},{},{}",
+                d,
+                inh_share,
+                report.total_somas,
+                report.total_synapses,
+                total_generated,
+                nonzero_output_ticks,
+                first_output_tick,
+                last_output_tick,
+                active_duration_ticks,
+                mean_output_per_nonzero_tick,
+                peak_output_per_tick,
+                activity_status
+            )
+            .unwrap();
+        }
+    }
+
+    println!("Legacy baseline stability band test successfully completed.");
+}
