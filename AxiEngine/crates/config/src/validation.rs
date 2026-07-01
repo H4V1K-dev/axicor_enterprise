@@ -4,6 +4,9 @@ use crate::dto::*;
 use crate::error::ConfigError;
 use std::collections::HashSet;
 
+/// Maximum allowed value for initial_synapse_weight in GsopParams (Charge-scale).
+pub const MAX_INITIAL_SYNAPSE_WEIGHT_CHARGE: u16 = 32653;
+
 /// Helper to validate finite float strictly greater than zero.
 fn is_positive_finite_f64(x: f64) -> bool {
     x.is_finite() && x > 0.0
@@ -319,10 +322,10 @@ pub fn validate_shard(config: &ShardConfig) -> Result<(), ConfigError> {
         }
 
         // Synapse weight range validation
-        if nt.gsop.initial_synapse_weight > 32767 {
+        if nt.gsop.initial_synapse_weight > MAX_INITIAL_SYNAPSE_WEIGHT_CHARGE {
             return Err(ConfigError::ValidationError(format!(
-                "Neuron type '{}' initial_synapse_weight ({}) must be <= 32767",
-                nt.name, nt.gsop.initial_synapse_weight
+                "Neuron type '{}' initial_synapse_weight ({}) must be <= {}",
+                nt.name, nt.gsop.initial_synapse_weight, MAX_INITIAL_SYNAPSE_WEIGHT_CHARGE
             )));
         }
 

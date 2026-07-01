@@ -1666,10 +1666,16 @@ fn test_topology_formation_initial_weights() {
         seed: MasterSeed(42),
     };
     let plan1 = TopologyEngine::form_local_synapses(&input1).unwrap();
-    // Target 1 receives synapse from source 0 (inhibitory, weight = -100)
-    assert_eq!(plan1.rows[1].slots[0].weight, -100);
-    // Target 0 receives synapse from source 1 (excitatory, weight = 200)
-    assert_eq!(plan1.rows[0].slots[0].weight, 200);
+    // Target 1 receives synapse from source 0 (inhibitory, weight = -100 << 16)
+    let w0 = plan1.rows[1].slots[0].weight;
+    assert_eq!(w0, -(100 << 16));
+    // Verify weight_to_charge roundtrip
+    assert_eq!(physics::weight_to_charge(w0), -100);
+
+    // Target 0 receives synapse from source 1 (excitatory, weight = 200 << 16)
+    let w1 = plan1.rows[0].slots[0].weight;
+    assert_eq!(w1, 200 << 16);
+    assert_eq!(physics::weight_to_charge(w1), 200);
 
     // Case 2: initial weight is 0 -> corrected to MIN_WEIGHT_LIMIT (1)
     config.neuron_types[0].gsop.initial_synapse_weight = 0;

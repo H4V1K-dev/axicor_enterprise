@@ -324,7 +324,10 @@ fn test_serde_u8_range_rejection() {
 #[test]
 fn test_initial_synapse_weight_validation() {
     let mut shard = parse_shard_str(VALID_SHARD_TOML).unwrap();
-    shard.neuron_types[0].gsop.initial_synapse_weight = 32768;
+    shard.neuron_types[0].gsop.initial_synapse_weight = 32653;
+    assert!(validate_shard(&shard).is_ok());
+
+    shard.neuron_types[0].gsop.initial_synapse_weight = 32654;
     assert!(validate_shard(&shard).is_err());
 }
 

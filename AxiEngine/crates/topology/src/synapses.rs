@@ -244,17 +244,21 @@ pub fn form_local_synapses(
             }
 
             let source_type = &config.neuron_types[cand.source_type_id as usize];
-            let base_weight = source_type.gsop.initial_synapse_weight as i32;
-            let base_weight = if base_weight == 0 {
-                physics::MIN_WEIGHT_LIMIT
+            let initial = source_type.gsop.initial_synapse_weight as i32;
+            let base_mass = if initial > 0 {
+                initial
+                    .checked_shl(physics::MASS_TO_CHARGE_SHIFT)
+                    .ok_or(TopologyError::CapacityOverflow)?
             } else {
-                base_weight
+                physics::MIN_WEIGHT_LIMIT
             };
 
             let weight = if source_type.gsop.is_inhibitory {
-                -base_weight
+                base_mass
+                    .checked_neg()
+                    .ok_or(TopologyError::CapacityOverflow)?
             } else {
-                base_weight
+                base_mass
             };
 
             slots.push(FormedSynapse {

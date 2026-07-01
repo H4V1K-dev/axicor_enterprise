@@ -199,7 +199,7 @@
 - **Question / Problem**: Поле `initial_synapse_weight` внесено в тесты валидации, но в схеме `NeuronType` для него не определена конкретная секция (`gsop` или `membrane`).
 - **Why it matters**: Парсер `config` отклоняет валидные файлы конфигурации нейросетей при отсутствии этого поля.
 - **Affected specs**: [config_spec.md](./spec_L1/config_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [baker_spec.md](./spec_L4/baker_spec.md), [topology_spec.md](./spec_L4/topology_spec.md)
-- **Notes**: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` размещено в секции `[neuron_types.gsop]` (GsopParams) с валидацией `<= 32767`.
+- **Notes**: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` размещено в секции `[neuron_types.gsop]` (GsopParams) с валидацией `<= 32653` (в `config v2.3` лимит изменен с 32767 на 32653 для предотвращения переполнения при сдвиге в Mass Domain в крейте `topology`).
 
 
 ### REV-BOOT-005: Точки интеграции boot/runtime/node при инициализации сетевого рантайма
@@ -982,7 +982,7 @@
   - *Status*: Resolved | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: REV-CFG-005 | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L247)
   - *Question / Problem*: - *Контекст*: При заведении новых синапсов начальный вес рассчитывается с защитой DoA.
     - *Вопрос*: Каким образом параметры базового веса синапсов должны передаваться из TOML конфигурации в `topology`?
-  - *Notes*: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` перенесено в `config` DTO в секцию `GsopParams` и валидируется на уровне схемы. `topology` получает этот вес из `config::NeuronType`. В `topology v2.3` дополнительно зафиксировано: знак веса определяется по полю `is_inhibitory` исходного типа нейрона, а при значении `0` вес автоматически подтягивается до `MIN_WEIGHT_LIMIT = 1` для предотвращения неявных неактивных связей. Также параметр `voxel_size_um` (размер вокселя в микрометрах) передается в `topology` явно через структуру `SynapseFormationInput`, а не считывается из `ShardConfig`, так как он является внешним параметром симуляционной модели.
+  - *Notes*: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` перенесено в `config` DTO в секцию `GsopParams` и валидируется на уровне схемы (лимит `<= 32653` в `config v2.3`). `topology` получает этот вес из `config::NeuronType` и переводит из Charge Domain (`u16`) в Mass Domain (`i32` со сдвигом влево на `MASS_TO_CHARGE_SHIFT` = 16 бит). В `topology v2.3` дополнительно зафиксировано: знак веса определяется по полю `is_inhibitory` исходного типа нейрона, а при значении `0` вес автоматически подтягивается до `MIN_WEIGHT_LIMIT = 1` для предотвращения неявных неактивных связей. Также параметр `voxel_size_um` (размер вокселя в микрометрах) передается в `topology` явно через структуру `SynapseFormationInput`, а не считывается из `ShardConfig`, так как он является внешним параметром симуляционной модели.
 
 - **REV-TOPOLOGY-004**: Разграничение Исполнения Уплотнения (Compaction Execution Ownership)
   - *Status*: Resolved | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L251)

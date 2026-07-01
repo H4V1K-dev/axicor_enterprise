@@ -261,7 +261,7 @@ let v_seg = physics::compute_v_seg(
   - `type_affinity`: конечное значение (finite).
   - `sprouting_weight_distance`, `sprouting_weight_power`, `sprouting_weight_explore`, `sprouting_weight_type`: конечные значения (finite).
 - **Спонтанный Спайкинг**: `spontaneous_firing_period_ticks == 0` означает выключено. Значение `1` запрещено на уровне TOML DSL (вызывает ошибку валидации), минимально разрешенный период — `2` тика. Хотя низкоуровневые физические примитивы `physics` аппаратно поддерживают период 1 для гибкости расчетов, пользовательский DSL config намеренно вводит это ограничение для предотвращения истощения синапсов. Это не является архитектурным конфликтом: физика шире, config строже.
-- **Веса Синапсов**: Начальный вес синапсов `initial_synapse_weight` в `GsopParams` должен быть в диапазоне `0..=32767`.
+- **Веса Синапсов**: Начальный вес синапсов `initial_synapse_weight` в `GsopParams` задается в Charge-scale единицах и должен быть в диапазоне `0..=32653`. При формировании связи это значение переводится в Mass Domain через сдвиг влево на `MASS_TO_CHARGE_SHIFT` (16 бит), что дает значение, не превышающее `MAX_WEIGHT_LIMIT` = 2_140_000_000.
 
 ---
 
@@ -338,7 +338,7 @@ pub fn load_shard_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<ShardC
 14. **Переполнение UV Проекции Пина (`test_pin_uv_overflow_rejected`)**: Условие `local_u + u_width > 1.0` вызывает ошибку.
 15. **Входящий Сокет при Ghost Capacity 0 (`test_input_socket_zero_ghost_capacity_rejected`)**: Отклонение входящего сокета при `ghost_capacity == 0`.
 16. **Serde Range Rejection (`test_serde_u8_range_rejection`)**: Проверка, что значения $> 255$ для полей `synapse_refractory_period`, `d1_affinity`, `d2_affinity` отклоняются на этапе Serde десериализации.
-17. **Валидация Веса Синапсов (`test_initial_synapse_weight_validation`)**: Значение `initial_synapse_weight > 32767` в `GsopParams` отклоняется при валидации.
+17. **Валидация Веса Синапсов (`test_initial_synapse_weight_validation`)**: Значение `initial_synapse_weight > 32653` в `GsopParams` отклоняется при валидации.
 18. **Предельная Плотность Слая (`test_density_out_of_bounds`)**: Значение `density > 1.0` в `LayerConfig` отклоняется при валидации.
 19. **Валидация Параметров Роста (`test_growth_params_validation`)**: Проверка отклонения NaN/Inf, невалидных углов fov и отрицательных радиусов в параметрах роста `GrowthParams`.
 
@@ -365,7 +365,7 @@ pub fn load_shard_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<ShardC
    - *Решение*: Разрешается любой текстовый слаг по regex `^[a-zA-Z0-9_-]+$`. UUID v4 не требуется на уровне TOML.
 
 5. **[RESOLVED] Размещение и Тестирование `initial_synapse_weight` в TOML-схеме (REV-CFG-005)**:
-   - *Решение*: Поле `initial_synapse_weight` добавлено в секцию `GsopParams` (`initial_synapse_weight: u16`) в `NeuronType`. Валидация контролирует значение по порогу `<= 32767`.
+   - *Решение*: Поле `initial_synapse_weight` добавлено в секцию `GsopParams` (`initial_synapse_weight: u16`) в `NeuronType`. Валидация контролирует значение по порогу `<= 32653` (Charge-scale), гарантируя непопадание в переполнение при сдвиге в Mass Domain.
 
 6. **[RESOLVED] Крайний Случай DDS Heartbeat (REV-CFG-006)**:
    - *Решение*: Спонтанный период `spontaneous_firing_period_ticks == 1` запрещен, так как спайкинг на каждом тике ломает синаптический рефрактерный период. Минимально допустимый период — `2` тика. Хотя низкоуровневые физические примитивы `physics` аппаратно поддерживают период 1 для гибкости расчетов, пользовательский DSL config намеренно вводит это ограничение для предотвращения истощения синапсов. Это не является архитектурным конфликтом: физика шире, config строже.
