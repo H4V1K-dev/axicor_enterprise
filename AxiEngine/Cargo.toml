@@ -11,5 +11,6 @@ members = [
     "crates/compute",
     "crates/topology",
     "crates/baker",
+    "crates/vfs",
 ]
 resolver = "2"

@@ -1,0 +1,10 @@
+[package]
+name = "vfs"
+version = "0.1.0"
+edition = "2021"
+description = "Layer 2 Virtual File System and Archive Container isolation for AxiEngine"
+
+[dependencies]
+memmap2 = "=0.9.10"
+thiserror = "=1.0.69"
+types = { path = "../types" }
