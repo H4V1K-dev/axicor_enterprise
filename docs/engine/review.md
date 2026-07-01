@@ -1238,34 +1238,44 @@
 *Source items: 10 / Registered items: 10*
 
 - **REV-NODE-001**: **Спецификация команд CLI:** Требуется детализировать синтаксис дополнительных команд командной строки (например, `print-plan`, `validate`, `run` как подкоманды `clap` vs флаги).
-  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L367)
+  - *Status*: Resolved (node v2.1) | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L367)
+  - *Notes*: **[РЕШЕНО в node v2.1]**: Для Stage A зафиксирована простая CLI-схема запуска локальной симуляции `axi-node run-local --archive <PATH> ...`.
 
 - **REV-NODE-002**: **Инициализация NetRuntime:** Определить, должен ли крейт `node` напрямую вызывать фабрику инициализации сети или же логику инициализации следует вынести в отдельный промежуточный крейт композиции.
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `node` | *Duplicate Of*: REV-BOOT-005 | *Source*: [node_spec.md](./spec_L6/node_spec.md#L368)
+  - *Status*: Deferred | *Priority*: P1 | *Owner*: `node` | *Duplicate Of*: REV-BOOT-005 | *Source*: [node_spec.md](./spec_L6/node_spec.md#L368)
+  - *Notes*: **[ОТЛОЖЕНО]**: Сетевой рантайм `net` и межшардовое взаимодействие вынесены за рамки Stage A.
 
 - **REV-NODE-003**: **Модель владения weaver-daemon:** Определить финальную схему жизненного цикла демона координации: запуск в качестве дочернего процесса самой нодой с отслеживанием PID vs управление внешним супервизором OS (systemd/kubernetes) с проксированием команд.
   - *Status*: Deferred | *Priority*: Deferred | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L369)
+  - *Notes*: **[ОТЛОЖЕНО]**: Координация ночного демона `weaver-daemon` вынесена за рамки Stage A.
 
 - **REV-NODE-004**: **Контракт Checkpoint Service:** Сформировать точный интерфейс взаимодействия ноды со службой записи чекпоинтов (gRPC-клиент, запись в локальный RAM-диск с последующим сбросом или выделенный thread-writer).
   - *Status*: Deferred | *Priority*: Deferred | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L370)
+  - *Notes*: **[ОТЛОЖЕНО]**: Интеграция службы сохранения чекпоинтов вынесена за рамки Stage A.
 
 - **REV-NODE-005**: **CPU Affinity Platform Crate:** Выбрать стабильную мультиплатформенную библиотеку для управления привязкой потоков к ядрам процессора и настройки приоритетов процессов на Linux и Windows (например, `raw-cpuid`, `affinity` или платформозависимые OS-API).
-  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L371)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L371)
+  - *Notes*: **[ОТЛОЖЕНО]**: Настройка привязки CPU Affinity вынесена за рамки Stage A.
 
 - **REV-NODE-006**: **Версия библиотеки Tracing:** Согласовать и зафиксировать единую версию `tracing`/`tracing-subscriber` на уровне всего workspace для предотвращения конфликтов дублирования глобального диспетчера логов.
-  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L372)
+  - *Status*: Resolved (node v2.1) | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L372)
+  - *Notes*: **[РЕШЕНО в node v2.1]**: Для минимизации сторонних зависимостей и конфликтов логирования в Stage A `node` использует только стандартные потоки вывода ОС.
 
 - **REV-NODE-007**: **Реэкспорт BackendPreference:** Подтвердить, что `BackendPreference` импортируется нодой через реэкспорт из `boot`, полностью исключая прямую зависимость от `compute`.
-  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L373)
+  - *Status*: Resolved (node v2.1) | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L373)
+  - *Notes*: **[РЕШЕНО в node v2.1]**: В `node` используется `compute::BackendPreference`, реэкспортированный из `boot`.
 
 - **REV-NODE-008**: **Системные режимы OS:** Необходимость поддержки специфических режимов запуска процесса, таких как служба Windows (Windows Service) или демон systemd (уведомления через `sd_notify`).
-  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L374)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L374)
+  - *Notes*: **[ОТЛОЖЕНО]**: Поддержка системных демонов OS вынесена за рамки Stage A.
 
 - **REV-NODE-009**: **Контрольный веб-интерфейс:** В чьей зоне ответственности находится запуск HTTP/RPC сервера управления/здоровья (healthcheck): запускается ли он внутри `node` через Tokio или полностью делегирован рантайму `net`.
-  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L375)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L375)
+  - *Notes*: **[ОТЛОЖЕНО]**: Запуск HTTP/RPC сервера управления вынесен за рамки Stage A.
 
 - **REV-NODE-010**: **Типизация сетевых ошибок при инициализации:** Согласовать конкретный тип ошибки инициализации сетевого рантайма (например, `net::NetError` or специализированный `net::NetInitError`) и интегрировать его в `NodeError` вместо промежуточных текстовых представлений.
-  - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L376)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L376)
+  - *Notes*: **[ОТЛОЖЕНО]**: Обработка ошибок сетевой инициализации вынесена за рамки Stage A.
 
 #### [runtime_spec.md](./spec_L6/runtime_spec.md)
 *Source items: 4 / Registered items: 4*
