@@ -994,6 +994,14 @@
   - *Question / Problem*: - *Контекст*: При выходе Ghost-аксона за границы шарда формируется промежуточный результат.
     - *Вопрос*: Какую именно форму имеет чистая структура `GhostHandoverDraft` до ее упаковки компонентом `weaver-daemon` в сетевой пакет `wire::AxonHandoverEvent`?
 
+- **REV-TOPOLOGY-007**: Детерминированная плавающая арифметика в Steering Model
+  - *Status*: Resolved (topology v2.2) | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md) (§5.5)
+  - *Question / Problem*: Использование `f32` весов из `GrowthParams` может приводить к платформо-зависимым расхождениям в потиковом росте аксонов при компиляции под разные архитектуры (x86_64 vs AArch64).
+    - *Вопрос*: Как гарантировать побитовый детерминизм вещественных вычислений Score?
+  - *Resolution*: Утвержден полный переход на целочисленнуюfixed-point fixed-scale арифметику (Q16 формат, тип `i64`). Веса `GrowthParams` переводятся во внутреннее fixed-point представление на AOT-границе, а горячий выбор направления Moore neighborhood выполняется исключительно в целых числах. Вещественная математика, тригонометрия и нормализация векторов исключены из горячего рантайма. Для tie-break используется лексикографический Moore-индекс.
+
+
+
 #### [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
 *Source items: 7 / Registered items: 7*
 
