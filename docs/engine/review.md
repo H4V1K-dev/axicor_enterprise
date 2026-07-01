@@ -548,44 +548,52 @@
 *Source items: 8 / Registered items: 8*
 
 - **REV-VFS-001**: Версионирование Бинарного Формата `.axic`
-  - *Status*: Open | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L231)
+  - *Status*: Resolved (vfs v2.1) | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L231)
   - *Question / Problem*: - *Контекст*: В текущей спецификации зафиксирована версия `1`.
     - *Вопрос*: Сохраняется ли версия `1` для первого Rust-переписывания, или требуется инкремент версии?
+  - *Notes*: **[РЕШЕНО в vfs v2.1]**: Сохраняется версия бинарного формата `.axic` version = 1.
 
 - **REV-VFS-002**: Объем Отображения mmap (Whole Archive vs Sub-File Views)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L235)
+  - *Status*: Resolved (vfs v2.1) | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L235)
   - *Question / Problem*: - *Контекст*: Сейчас `vfs` отображает весь архив целиком и возвращает срезы `&[u8]`.
     - *Вопрос*: Требуется ли поддержка независимых подфайловых отображений (Sub-File Mmap Views) для каждого файла отдельно?
+  - *Notes*: **[РЕШЕНО в vfs v2.1]**: В Stage A отображается только архив целиком через read-only mmap.
 
 - **REV-VFS-003**: Адекватность Выравнивания для Платформы Windows
-  - *Status*: Open | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L239)
+  - *Status*: Resolved (vfs v2.1) | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L239)
   - *Question / Problem*: - *Контекст*: Размер `ARCHIVE_PAYLOAD_ALIGNMENT` равен 4096 байтам, но граница выделения памяти (Allocation Granularity) на Windows равна 64 КБ (65536 байт).
     - *Вопрос*: Требуется ли увеличить выравнивание полезной нагрузки до 64 КБ для поддержки независимого sub-file mmap на Windows?
+  - *Notes*: **[РЕШЕНО в vfs v2.1]**: Выравнивание полезной нагрузки фиксируется на уровне 4096 байт для Stage A. Подфайловое независимое отображение (sub-file mmap) на 64 КБ отложено.
 
 - **REV-VFS-004**: Контрольные Суммы Элементов TOC (SHA256 / CRC32)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L243)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L243)
   - *Question / Problem*: - *Контекст*: Сейчас TOC хранит только смещение и размер.
     - *Вопрос*: Требуется ли добавить контрольные суммы (CRC32 или SHA256) для каждого файла в TOC для верификации целостности реестра артефактов?
+  - *Notes*: **[ОТЛОЖЕНО]**: Контрольные суммы и криптографическая проверка не входят в Stage A.
 
 - **REV-VFS-005**: Политика Сжатия Файлов в Архиве
-  - *Status*: Duplicate Of | *Priority*: P0 | *Owner*: `vfs` | *Duplicate Of*: REV-LAYOUT-001 | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L247)
+  - *Status*: Resolved (vfs v2.1) | *Priority*: P0 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L247)
   - *Question / Problem*: - *Контекст*: Сжатие файлов делает невозможным прямой Zero-Copy access через mmap без декомпрессии в кучу.
     - *Вопрос*: Запрещается ли сжатие окончательно, или допускается опциональный алгоритм (например, zstd) для некритичных артефактов?
+  - *Notes*: **[РЕШЕНО в vfs v2.1]**: Сжатие строго запрещено для Stage A для обеспечения прямого Zero-Copy доступа.
 
 - **REV-VFS-006**: Размещение Низкоуровневого Упаковщика (`AxicPacker`)
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: REV-COMPUTE-API-002 | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L251)
+  - *Status*: Resolved (vfs v2.1) | *Priority*: P1 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L251)
   - *Question / Problem*: - *Контекст*: Сейчас примитивы упаковки находятся в `vfs`.
     - *Вопрос*: Сохраняется ли `AxicPacker` в `vfs`, или он полностью переносится в `baker`, оставляя за `vfs` только структуры формата?
+  - *Notes*: **[РЕШЕНО в vfs v2.1]**: Низкоуровневый упаковщик `AxicPacker` остается в `vfs`. `baker` лишь вызывает `pack_entries(entries)`.
 
 - **REV-VFS-007**: Минимальный Обязательный Набор Файлов Загрузочного Архива
-  - *Status*: Open | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L255)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L255)
   - *Question / Problem*: - *Контекст*: Модуль `boot` проверяет состав файлов перед запуском.
     - *Вопрос*: Какой точный минимальный список файлов (`.state`, `.axons`, `model.toml` и т.д.) является обязательным для признания `.axic` архива валидным к загрузке?
+  - *Notes*: **[ОТЛОЖЕНО]**: Отложено до этапа проектирования пакетов в `boot` и `baker`. `vfs` не диктует политику обязательных файлов.
 
 - **REV-VFS-008**: Владелец Экспорта Манифеста в SHM / Temp
-  - *Status*: Open | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L259)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `vfs` | *Duplicate Of*: - | *Source*: [vfs_spec.md](./spec_L2/vfs_spec.md#L259)
   - *Question / Problem*: - *Контекст*: Файл манифеста экспортируется в временную директорию ОС или SHM при старте.
     - *Вопрос*: К какому крейту относится логика экспорта манифеста из сырых байтов `vfs` — `boot` или `ipc`?
+  - *Notes*: **[ОТЛОЖЕНО]**: Отложено до этапа `boot`/`ipc`. `vfs` возвращает только сырые байты.
 
 ### §5.3. Слой L3 (Compute Abstractions & Backends)
 

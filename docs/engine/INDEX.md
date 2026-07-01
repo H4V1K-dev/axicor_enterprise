@@ -28,7 +28,7 @@ graph LR
     end
     subgraph L2["Layer 2"]
         ipc["ipc (v2.0)"]
-        vfs["vfs (v2.0)"]
+        vfs["vfs (v2.1)"]
     end
     subgraph L3["Layer 3"]
         compute_api["compute-api (v2.2)"]
@@ -112,7 +112,7 @@ graph LR
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `ipc` | [ipc_spec.md](spec_L2/ipc_spec.md) | **Draft v2.0** | Жизненный цикл SHM/mmap, атомарные переходы Ночной Фазы (CAS), двойной буфер Swapchain и изоляция OS системных вызовов. |
-| `vfs` | [vfs_spec.md](spec_L2/vfs_spec.md) | **Draft v2.0** | Контейнерный формат `.axic`, оглавление TOC, Read-Only mmap отображение, нормализация путей и примитивы экстракции. |
+| `vfs` | [vfs_spec.md](spec_L2/vfs_spec.md) | **Approved v2.1 / Ready for Implementation (Stage A)** | Контейнерный формат `.axic`, оглавление TOC, Read-Only mmap отображение, нормализация путей, примитивы упаковки и Read-Only доступа. |
 
 ### Слой 3 (Layer 3: Hardware Acceleration & Compute Abstraction)
 
