@@ -202,16 +202,16 @@
 - **Notes**: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` размещено в секции `[neuron_types.gsop]` (GsopParams) с валидацией `<= 32767`.
 
 
-### REV-BOOT-005: Точки интеграции boot/runtime/node при материализации сетевого рантайма
+### REV-BOOT-005: Точки интеграции boot/runtime/node при инициализации сетевого рантайма
 - **ID**: REV-BOOT-005
 - **Status**: Open
 - **Priority**: P1
 - **Owner candidate**: `boot` / `node`
 - **Source**: [boot_spec.md](./spec_L6/boot_spec.md#L356) (§8.6) vs [node_spec.md](./spec_L6/node_spec.md#L368) (§8.2)
-- **Question / Problem**: Не определено, должен ли `boot` возвращать материализованный живой `NetRuntime` или только декларативный план `NetInitPlan` для последующей сборки в `node`.
+- **Question / Problem**: Не определено, должен ли `boot` возвращать инициализированный живой `NetRuntime` или только декларативный план `NetInitPlan` для последующей сборки в `node`.
 - **Why it matters**: Нарушает разделение ответственности между загрузчиком ресурсов (`boot`) и процессным оркестратором (`node`).
 - **Affected specs**: [boot_spec.md](./spec_L6/boot_spec.md), [node_spec.md](./spec_L6/node_spec.md), [net_spec.md](./spec_L5/net_spec.md)
-- **Notes**: Утвердить, что `boot` возвращает `NetInitPlan`, а материализацию выполняет `node`.
+- **Notes**: Утвердить, что `boot` возвращает `NetInitPlan`, а инициализацию выполняет `node`.
 
 ---
 
@@ -968,9 +968,10 @@
 *Source items: 5 / Registered items: 5*
 
 - **REV-TOPOLOGY-001**: Унификация Маркеров Пустого Слота (`EMPTY_PIXEL` vs `PackedTarget::None`)
-  - *Status*: Deferred (Post-Stage-A) | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L239)
+  - *Status*: Resolved (topology v2.3) | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L239)
   - *Question / Problem*: - *Контекст*: Дендритные слоты могут содержать как `None` (сырой нуль), так и `EMPTY_PIXEL` после прунинга.
     - *Вопрос*: Требуется ли принудительная унифицированная миграция всех `None` слотов в `EMPTY_PIXEL` на этапе загрузки шарда?
+  - *Resolution*: Утвержден единый стандарт: на уровне DTO планов топологии (LocalSynapsePlan) пустые слоты отсутствуют (хранятся только живые сформированные синапсы). При записи плана в SoA-массивы (зона baker/weaver) неиспользованные слоты дендритов инициализируются сырым нулем 0, а маркер `EMPTY_PIXEL` (`0xFFFF_FFFF`) используется исключительно как tombstone (надгробие) для ранее существовавших, но удаленных связей. Оба состояния классифицируются как неактивные через `PackedTarget::is_inactive()`.
 
 - **REV-TOPOLOGY-002**: Локализация Деклараций DTO Трактов Редактора
   - *Status*: Deferred (Post-Stage-A) | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L243)
@@ -981,7 +982,7 @@
   - *Status*: Resolved | *Priority*: P1 | *Owner*: `topology` | *Duplicate Of*: REV-CFG-005 | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L247)
   - *Question / Problem*: - *Контекст*: При заведении новых синапсов начальный вес рассчитывается с защитой DoA.
     - *Вопрос*: Каким образом параметры базового веса синапсов должны передаваться из TOML конфигурации в `topology`?
-  - *Notes*: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` перенесено в `config` DTO в секцию `GsopParams` и валидируется на уровне схемы. `topology` получает этот вес из `config::NeuronType`.
+  - *Notes*: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` перенесено в `config` DTO в секцию `GsopParams` и валидируется на уровне схемы. `topology` получает этот вес из `config::NeuronType`. В `topology v2.3` дополнительно зафиксировано: знак веса определяется по полю `is_inhibitory` исходного типа нейрона, а при значении `0` вес автоматически подтягивается до `MIN_WEIGHT_LIMIT = 1` для предотвращения неявных неактивных связей. Также параметр `voxel_size_um` (размер вокселя в микрометрах) передается в `topology` явно через структуру `SynapseFormationInput`, а не считывается из `ShardConfig`, так как он является внешним параметром симуляционной модели.
 
 - **REV-TOPOLOGY-004**: Разграничение Исполнения Уплотнения (Compaction Execution Ownership)
   - *Status*: Resolved | *Priority*: P2 | *Owner*: `topology` | *Duplicate Of*: - | *Source*: [topology_spec.md](./spec_L4/topology_spec.md#L251)
@@ -1191,7 +1192,7 @@
 - **REV-BOOT-005**: **Физическое размещение и контракт BootShardPlan / ShardBootPlan**: Окончательное определение места владения и контракта обмена планами между `boot` и `runtime`.
   - *Status*: Open | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: - | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L355)
 
-- **REV-BOOT-006**: **Материализация сетевого рантайма**: Определить, должен ли `boot` возвращать живой `NetRuntime` или только спецификацию `NetInitPlan` (предпочтительно второе).
+- **REV-BOOT-006**: **Инициализация сетевого рантайма**: Определить, должен ли `boot` возвращать живой `NetRuntime` или только спецификацию `NetInitPlan` (предпочтительно второе).
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `boot` | *Duplicate Of*: REV-BOOT-005 | *Source*: [boot_spec.md](./spec_L6/boot_spec.md#L356)
 
 - **REV-BOOT-007**: **RAM-диск на Windows**: Определение системного механизма памяти для Windows-платформ (virtual RAM-drive).
@@ -1212,7 +1213,7 @@
 - **REV-NODE-001**: **Спецификация команд CLI:** Требуется детализировать синтаксис дополнительных команд командной строки (например, `print-plan`, `validate`, `run` как подкоманды `clap` vs флаги).
   - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L367)
 
-- **REV-NODE-002**: **Материализация NetRuntime:** Определить, должен ли крейт `node` напрямую вызывать фабрику инициализации сети или же логику материализации следует вынести в отдельный промежуточный крейт композиции.
+- **REV-NODE-002**: **Инициализация NetRuntime:** Определить, должен ли крейт `node` напрямую вызывать фабрику инициализации сети или же логику инициализации следует вынести в отдельный промежуточный крейт композиции.
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `node` | *Duplicate Of*: REV-BOOT-005 | *Source*: [node_spec.md](./spec_L6/node_spec.md#L368)
 
 - **REV-NODE-003**: **Модель владения weaver-daemon:** Определить финальную схему жизненного цикла демона координации: запуск в качестве дочернего процесса самой нодой с отслеживанием PID vs управление внешним супервизором OS (systemd/kubernetes) с проксированием команд.
@@ -1236,7 +1237,7 @@
 - **REV-NODE-009**: **Контрольный веб-интерфейс:** В чьей зоне ответственности находится запуск HTTP/RPC сервера управления/здоровья (healthcheck): запускается ли он внутри `node` через Tokio или полностью делегирован рантайму `net`.
   - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L375)
 
-- **REV-NODE-010**: **Типизация сетевых ошибок при материализации:** Согласовать конкретный тип ошибки материализации сетевого рантайма (например, `net::NetError` или специализированный `net::NetInitError`) и интегрировать его в `NodeError` вместо промежуточных текстовых представлений.
+- **REV-NODE-010**: **Типизация сетевых ошибок при инициализации:** Согласовать конкретный тип ошибки инициализации сетевого рантайма (например, `net::NetError` or специализированный `net::NetInitError`) и интегрировать его в `NodeError` вместо промежуточных текстовых представлений.
   - *Status*: Open | *Priority*: P2 | *Owner*: `node` | *Duplicate Of*: - | *Source*: [node_spec.md](./spec_L6/node_spec.md#L376)
 
 #### [runtime_spec.md](./spec_L6/runtime_spec.md)
