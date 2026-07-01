@@ -1,0 +1,17 @@
+[package]
+name = "runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+compute = { path = "../compute" }
+compute-api = { path = "../compute-api" }
+types = { path = "../types" }
+thiserror = "=1.0.69"
+
+[dev-dependencies]
+boot = { path = "../boot" }
+baker = { path = "../baker" }
+config = { path = "../config" }
+layout = { path = "../layout" }
+bytemuck = "=1.25.0"

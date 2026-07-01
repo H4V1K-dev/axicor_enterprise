@@ -14,12 +14,15 @@ compute-cpu = { path = "../compute-cpu", optional = true }
 compute = { path = "../compute", optional = true, default-features = false }
 baker = { path = "../baker", optional = true }
 config = { path = "../config", optional = true }
+boot = { path = "../boot", optional = true }
+runtime = { path = "../runtime", optional = true }
 bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"], optional = true }
 
 [features]
 default = ["cpu", "mock", "abi"]
 cpu = ["dep:compute-cpu"]
 baker-probe = ["dep:baker", "dep:config", "dep:bytemuck", "cpu"]
+full-chain-probe = ["dep:baker", "dep:config", "dep:bytemuck", "cpu", "facade", "dep:boot", "dep:runtime"]
 mock = []
 abi = []
 cuda = []

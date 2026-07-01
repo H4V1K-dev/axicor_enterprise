@@ -72,6 +72,8 @@ pub struct LocalRuntimeConfig {
     pub dopamine: i16,
     /// Максимальное число спайков, обрабатываемое за один тик.
     pub max_spikes_per_tick: u32,
+    /// Глобальное смещение виртуальных аксонов.
+    pub virtual_offset: u32,
     /// Число виртуальных/входных аксонов.
     pub num_virtual_axons: u32,
     /// Количество слов маски входных каналов на один тик.

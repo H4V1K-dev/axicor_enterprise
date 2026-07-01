@@ -259,6 +259,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime"
+version = "0.1.0"
+dependencies = [
+ "baker",
+ "boot",
+ "bytemuck",
+ "compute",
+ "compute-api",
+ "config",
+ "layout",
+ "thiserror",
+ "types",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -325,12 +340,14 @@ name = "test-harness"
 version = "0.1.0"
 dependencies = [
  "baker",
+ "boot",
  "bytemuck",
  "compute",
  "compute-api",
  "compute-cpu",
  "config",
  "layout",
+ "runtime",
  "types",
 ]
 
