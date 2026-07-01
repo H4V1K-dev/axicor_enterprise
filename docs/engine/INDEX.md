@@ -41,7 +41,7 @@ graph LR
     subgraph L4["Layer 4"]
         topology["topology (v2.2)"]
         baker["baker (v2.1)"]
-        baker_cli["baker-cli (v2.0)"]
+        baker_cli["baker-cli (v2.1)"]
         edge_model["edge-model (v2.0)"]
         weaver_daemon["weaver-daemon (v2.0)"]
     end
