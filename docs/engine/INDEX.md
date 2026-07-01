@@ -151,6 +151,12 @@ graph LR
 | `runtime` | [runtime_spec.md](spec_L6/runtime_spec.md) | **Approved v2.1 / Implemented (Stage A)** | Локальный дневной цикл вычислений одного шарда симуляции, управление хост-буферами и жизненным циклом движка. |
 | `node` | [node_spec.md](spec_L6/node_spec.md) | **Approved v2.1 / Implemented (Stage A)** | CLI-приложение запуска локальной симуляции одного шарда из контейнера `.axic`. |
 
+### Слой 7 (Layer 7: UI & IDE)
+
+| Крейт / Проект | Спецификация | Статус | Назначение |
+|---|---|---|---|
+| `axicad-editor` | [axicad_editor_direction.md](spec_L7/axicad_editor_direction.md) | **Draft v1.0** | Направление разработки, оценка стеков и архитектура визуализатора/IDE AxiCAD. |
+
 ---
 
 ## §3. Реестры
