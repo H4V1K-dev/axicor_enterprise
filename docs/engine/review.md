@@ -199,7 +199,7 @@
 - **Question / Problem**: Поле `initial_synapse_weight` внесено в тесты валидации, но в схеме `NeuronType` для него не определена конкретная секция (`gsop` или `membrane`).
 - **Why it matters**: Парсер `config` отклоняет валидные файлы конфигурации нейросетей при отсутствии этого поля.
 - **Affected specs**: [config_spec.md](./spec_L1/config_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [baker_spec.md](./spec_L4/baker_spec.md), [topology_spec.md](./spec_L4/topology_spec.md)
-- **Notes**: **[РЕШЕНО в config v2.1]**: Поле `initial_synapse_weight: u16` размещено в секции `[neuron_types.gsop]` (GsopParams) с валидацией `<= 32653` (в `config v2.3` лимит изменен с 32767 на 32653 для предотвращения переполнения при сдвиге в Mass Domain в крейте `topology`).
+- **Notes**: **[РЕШЕНО в config v2.1 / topology v2.3]**: Поле `initial_synapse_weight: u16` размещено в секции `[neuron_types.gsop]` (GsopParams) с валидацией `<= 32653`. Значение задается и хранится в конфигурации как Charge-scale, а при формировании связей в `topology` переводится в Mass Domain через сдвиг влево `initial << MASS_TO_CHARGE_SHIFT`.
 
 
 ### REV-BOOT-005: Точки интеграции boot/runtime/node при инициализации сетевого рантайма
@@ -877,9 +877,10 @@
 *Source items: 7 / Registered items: 7*
 
 - **REV-BAKER-001**: Минимальный Набор Файлов Архива для Загрузки Рантаймом (`boot`)
-  - *Status*: Open | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L243)
+  - *Status*: Deferred | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L243)
   - *Question / Problem*: - *Контекст*: Компилятор генерирует дампы состояния, аксонов и путей.
     - *Вопрос*: Каков обязательный минимальный перечень файлов внутри `.axic` архива, необходимый для работы компонента `boot`?
+  - *Notes*: Отложено (Deferred) до этапа интеграции с VFS/`.axic` и `boot`, не блокирует Stage A.
 
 - **REV-BAKER-002**: Статус и Владение Заголовками Файлов I/O (`.gxi`, `.gxo`, `.ghosts`)
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-TOPOLOGY-006 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L247)
@@ -887,14 +888,16 @@
     - *Вопрос*: В каком крейте (`layout` или `wire`) должны объявляться C-ABI заголовки и структуры этих файлов?
 
 - **REV-BAKER-003**: Формат Хранения и Передачи Геометрии Трактов
-  - *Status*: Open | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L251)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L251)
   - *Question / Problem*: - *Контекст*: `baker` передает в `topology` подготовленную структуру `ResolvedTractGeometry`.
     - *Вопрос*: В каком формате хранится геометрия трактов редактора и как именно выполняется ее первичный резолвинг?
+  - *Notes*: Отложено (Deferred/Partial). В рамках Stage A компилируются только локальные `.paths`. Маршрутизация трактов между шардами отложена до мультишардовой фазы.
 
 - **REV-BAKER-004**: Инжекция Поля Начального Веса `initial_synapse_weight`
-  - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-CFG-005 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L255)
+  - *Status*: Resolved | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-CFG-005 + REV-TOPOLOGY-003 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L255)
   - *Question / Problem*: - *Контекст*: Поле начального веса учитывается в `VariantParameters`, но временно отсутствует в TOML-схемах `config`.
     - *Вопрос*: Каким образом значение базового синаптического веса передается из конфигурации проекта в макеты `layout`?
+  - *Notes*: **[РЕШЕНО в config v2.1 / topology v2.3]**: Поле `initial_synapse_weight: u16` перенесено в `config::NeuronType` и сдвигается в `topology` в Mass Domain (`i32`). Крейт `baker` считывает веса напрямую из плана `FormedSynapse.weight` и заносит в `.state` без изменений.
 
 - **REV-BAKER-005**: Централизованное Фиксирование Версий Внешних Зависимостей (Workspace-Wide Pinning)
   - *Status*: Duplicate Of | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: REV-WIRE-006 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L259)
@@ -902,14 +905,16 @@
     - *Вопрос*: Требуется ли централизованный манифест версий зависимостей на уровне всего workspace для исключения дрифта сторонних крейтов?
 
 - **REV-BAKER-006**: Схема Событий Прогресса Компиляции (Progress Event Schema)
-  - *Status*: Open | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L263)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L263)
   - *Question / Problem*: - *Контекст*: Внешние GUI-инструменты требуют пошагового отслеживания прогресса сборки.
     - *Вопрос*: Должна ли общая схема событий прогресса объявляться в `baker` или относиться к `baker-cli` / AxiCAD SDK?
+  - *Notes*: Отложено (Deferred). Прогресс сборки не входит в задачи Stage A.
 
 - **REV-BAKER-007**: Управление Промежуточными Кекпоинтами Сборки
-  - *Status*: Open | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L267)
+  - *Status*: Deferred | *Priority*: P2 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L267)
   - *Question / Problem*: - *Контекст*: При сборке больших проектов кеширование промежуточных шардов ускоряет повторную компиляцию.
     - *Вопрос*: Выполняется ли кеширование промежуточных результатов внутри `baker` или полностью управляется кешем артефактов AxiCAD?
+  - *Notes*: Отложено (Deferred). Кэширование промежуточных состояний не требуется для Stage A.
 
 #### [edge_model_spec.md](./spec_L4/edge_model_spec.md)
 *Source items: 10 / Registered items: 10*
