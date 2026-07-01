@@ -433,3 +433,32 @@ fn test_runtime_stage_a_compute_error_to_faulted() {
 
     let _ = remove_file(path);
 }
+
+#[test]
+fn test_runtime_run_batch_with_ticks() {
+    let (engine, path) = create_test_engine_and_path();
+    let config = make_test_runtime_config();
+    let mut runtime = LocalRuntime::new(engine, config).unwrap();
+
+    // Check run_empty_batch_with_ticks with 5 ticks (different from sync_batch_ticks = 2)
+    let res = runtime.run_empty_batch_with_ticks(5);
+    assert!(res.is_ok());
+    let report = res.unwrap();
+    assert_eq!(report.ticks_executed, 5);
+    assert_eq!(runtime.stats().current_tick, 5);
+
+    // Check run_batch_with_ticks with 3 ticks
+    let counts = vec![0, 0, 0];
+    let input = RuntimeBatchInput {
+        input_bitmask: None,
+        incoming_spikes: None,
+        incoming_spike_counts: &counts,
+    };
+    let res2 = runtime.run_batch_with_ticks(3, input);
+    assert!(res2.is_ok());
+    let report2 = res2.unwrap();
+    assert_eq!(report2.ticks_executed, 3);
+    assert_eq!(runtime.stats().current_tick, 8);
+
+    let _ = remove_file(path);
+}

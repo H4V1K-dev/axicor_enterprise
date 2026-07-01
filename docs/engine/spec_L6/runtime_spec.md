@@ -214,8 +214,21 @@ impl LocalRuntime {
         input: RuntimeBatchInput<'_>,
     ) -> Result<RuntimeBatchReport, RuntimeError>;
 
+    /// Выполняет один биологический батч с входными сигналами и заданным числом тиков.
+    pub fn run_batch_with_ticks(
+        &mut self,
+        sync_ticks: u32,
+        input: RuntimeBatchInput<'_>,
+    ) -> Result<RuntimeBatchReport, RuntimeError>;
+
     /// Выполняет один батч без входных сигналов (холостой тик).
     pub fn run_empty_batch(&mut self) -> Result<RuntimeBatchReport, RuntimeError>;
+
+    /// Выполняет один батч без входных сигналов и с заданным числом тиков.
+    pub fn run_empty_batch_with_ticks(
+        &mut self,
+        sync_ticks: u32,
+    ) -> Result<RuntimeBatchReport, RuntimeError>;
 
     /// Идемпотентно останавливает рантайм, вызывая teardown движка.
     pub fn shutdown(&mut self) -> Result<(), RuntimeError>;

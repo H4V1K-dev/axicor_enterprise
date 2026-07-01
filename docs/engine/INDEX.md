@@ -131,7 +131,7 @@ graph LR
 |---|---|---|---|
 | `topology` | [topology_spec.md](spec_L4/topology_spec.md) | **Approved v2.3 / Implemented (Stage A+B1+B2)** | Чистый алгоритмический крейт пространственной геометрии, детерминированного размещения сом, пространственной сетки, роста аксонов и формирования связей. |
 | `baker` | [baker_spec.md](spec_L4/baker_spec.md) | **Approved v2.2 / Implemented (Stage A+B)** | AOT компилятор и локальный упаковщик `.axic` через `vfs` без контроля политик загрузки boot. |
-| `baker-cli` | [baker_cli_spec.md](spec_L4/baker_cli_spec.md) | **Approved v2.1 / Ready for Implementation (Stage A)** | Простая консольная утилита для сборки локального `.axic` из конфигурационного TOML-файла шарда. |
+| `baker-cli` | [baker_cli_spec.md](spec_L4/baker_cli_spec.md) | **Approved v2.1 / Implemented (Stage A)** | Простая консольная утилита для сборки локального `.axic` из конфигурационного TOML-файла шарда. |
 | `edge-model` | [edge_model_spec.md](spec_L4/edge_model_spec.md) | **Draft v2.0** | Оффлайн-конвертор десктопных моделей в edge-артефакты (WTA top-K срез, разделение SRAM/Flash, MMU padding). |
 | `weaver-daemon` | [weaver_daemon_spec.md](spec_L4/weaver_daemon_spec.md) | **Draft v2.0** | Изолированный OS-процесс Ночной Фазы (прунинг, спраутинг, столбовое уплотнение SoA в SHM). |
 
@@ -149,7 +149,7 @@ graph LR
 |---|---|---|---|
 | `boot` | [boot_spec.md](spec_L6/boot_spec.md) | **Approved v2.1 / Implemented (Stage A)** | Локальная загрузка `.axic`, валидация артефактов и подготовка compute upload bundle. |
 | `runtime` | [runtime_spec.md](spec_L6/runtime_spec.md) | **Approved v2.1 / Implemented (Stage A)** | Локальный дневной цикл вычислений одного шарда симуляции, управление хост-буферами и жизненным циклом движка. |
-| `node` | [node_spec.md](spec_L6/node_spec.md) | **Approved v2.1 / Ready for Implementation (Stage A)** | CLI-приложение запуска локальной симуляции одного шарда из контейнера `.axic`. |
+| `node` | [node_spec.md](spec_L6/node_spec.md) | **Approved v2.1 / Implemented (Stage A)** | CLI-приложение запуска локальной симуляции одного шарда из контейнера `.axic`. |
 
 ---
 
@@ -157,3 +157,13 @@ graph LR
 
 - **Инварианты и ошибки**: [troubleshooting.md](troubleshooting.md)
 - **Вопросы и замечания к ревью**: [review.md](review.md)
+
+---
+
+## §4. Диагностика и Тестирование E2E
+
+Для запуска сквозного проверочного сценария (AOT сборка -> симуляция -> экспорт CSV/JSON):
+```bash
+cargo test -p test-harness --features local-engine-e2e-smoke --test local_engine_e2e_smoke -- --ignored --nocapture
+```
+Результаты прогона экспортируются в [artifacts/local_engine_e2e/](file:///w:/Workspace/AxiEngine/artifacts/local_engine_e2e/).

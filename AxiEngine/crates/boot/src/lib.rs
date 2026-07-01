@@ -11,3 +11,4 @@ pub use constants::{
 pub use dto::{LocalShardBootBundle, LocalShardBootInput, LocalShardComputeInput};
 pub use error::BootError;
 pub use loader::{bootstrap_local_shard_engine, load_local_shard_archive};
+pub use compute::BackendPreference;

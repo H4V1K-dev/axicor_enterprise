@@ -45,6 +45,16 @@ impl LocalRuntime {
         &mut self,
         input: RuntimeBatchInput<'_>,
     ) -> Result<RuntimeBatchReport, RuntimeError> {
+        let sync_ticks = self.config.sync_batch_ticks;
+        self.run_batch_with_ticks(sync_ticks, input)
+    }
+
+    /// Coordinates synchronous execution of a day batch with a custom tick count.
+    pub fn run_batch_with_ticks(
+        &mut self,
+        sync_ticks: u32,
+        input: RuntimeBatchInput<'_>,
+    ) -> Result<RuntimeBatchReport, RuntimeError> {
         if self.state != RuntimeState::Running {
             return Err(RuntimeError::InvalidState {
                 from: self.state,
@@ -53,7 +63,6 @@ impl LocalRuntime {
         }
 
         // Check for biological tick overflow
-        let sync_ticks = self.config.sync_batch_ticks;
         let tick_base = self.current_tick;
         if self.current_tick.checked_add(sync_ticks as u64).is_none() {
             return Err(RuntimeError::TickOverflow {
@@ -204,13 +213,22 @@ impl LocalRuntime {
 
     /// Coordinates a batch run without any input signals.
     pub fn run_empty_batch(&mut self) -> Result<RuntimeBatchReport, RuntimeError> {
-        let zeroed_counts = vec![0; self.config.sync_batch_ticks as usize];
+        let sync_ticks = self.config.sync_batch_ticks;
+        self.run_empty_batch_with_ticks(sync_ticks)
+    }
+
+    /// Coordinates a batch run without any input signals using a custom tick count.
+    pub fn run_empty_batch_with_ticks(
+        &mut self,
+        sync_ticks: u32,
+    ) -> Result<RuntimeBatchReport, RuntimeError> {
+        let zeroed_counts = vec![0; sync_ticks as usize];
         let input = RuntimeBatchInput {
             input_bitmask: None,
             incoming_spikes: None,
             incoming_spike_counts: &zeroed_counts,
         };
-        self.run_batch(input)
+        self.run_batch_with_ticks(sync_ticks, input)
     }
 
     /// Shutdown the runtime orchestrator and clean up engine resources.

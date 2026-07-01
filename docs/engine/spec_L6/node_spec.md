@@ -107,9 +107,10 @@ axi-node run-local --archive <PATH> --ticks <U64> --batch-ticks <U32> --max-spik
      - `final_runtime_state`
      - `backend_kind`
    - Если передан `--csv-dir`, в указанную директорию экспортируются CSV-файлы:
-     - `batches.csv` (детализация по батчам)
-     - `outputs.csv` (детализация по тикам)
-     - `output_spikes.csv` (сырые выходные спайки)
+     - `node_batches.csv` (детализация по батчам)
+     - `node_outputs.csv` (детализация по тикам)
+     - `node_output_spikes.csv` (сырые выходные спайки)
+     - `node_summary.csv` (итоговый отчет в формате ключ-значение)
 
 ---
 
