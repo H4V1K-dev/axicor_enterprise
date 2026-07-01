@@ -15,6 +15,7 @@ dependencies = [
  "thiserror",
  "topology",
  "types",
+ "vfs",
 ]
 
 [[package]]

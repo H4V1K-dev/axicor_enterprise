@@ -10,6 +10,7 @@ physics = { path = "../physics" }
 layout = { path = "../layout" }
 config = { path = "../config" }
 topology = { path = "../topology" }
+vfs = { path = "../vfs" }
 bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"] }
 thiserror = "=1.0.69"
 

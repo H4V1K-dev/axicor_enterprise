@@ -236,3 +236,52 @@ pub fn bake_local_shard(
 
     Ok((artifacts, report))
 }
+
+/// Packs compiled local shard binary artifacts into a single `.axic` archive buffer.
+///
+/// # Errors
+///
+/// Returns a [`BakerError`] if VFS packaging fails.
+pub fn pack_local_shard_artifacts(artifacts: &LocalShardArtifacts) -> Result<Vec<u8>, BakerError> {
+    use crate::dto::{
+        AXONS_ARCHIVE_PATH, PATHS_ARCHIVE_PATH, STATE_ARCHIVE_PATH, VARIANT_TABLE_ARCHIVE_PATH,
+    };
+    use vfs::ArchiveEntry;
+
+    let variant_table_bytes = bytemuck::cast_slice(&artifacts.variant_table);
+
+    let entries = [
+        ArchiveEntry {
+            path: STATE_ARCHIVE_PATH,
+            bytes: &artifacts.state_blob,
+        },
+        ArchiveEntry {
+            path: AXONS_ARCHIVE_PATH,
+            bytes: &artifacts.axons_blob,
+        },
+        ArchiveEntry {
+            path: PATHS_ARCHIVE_PATH,
+            bytes: &artifacts.paths_blob,
+        },
+        ArchiveEntry {
+            path: VARIANT_TABLE_ARCHIVE_PATH,
+            bytes: variant_table_bytes,
+        },
+    ];
+
+    let packed = vfs::pack_entries(&entries)?;
+    Ok(packed)
+}
+
+/// Bakes local shard topology and directly compiles it into an `.axic` container buffer.
+///
+/// # Errors
+///
+/// Returns a [`BakerError`] if baking or VFS packaging fails.
+pub fn bake_local_shard_axic(
+    input: &LocalShardBakeInput,
+) -> Result<(Vec<u8>, LocalShardBakeReport), BakerError> {
+    let (artifacts, report) = bake_local_shard(input)?;
+    let axic_bytes = pack_local_shard_artifacts(&artifacts)?;
+    Ok((axic_bytes, report))
+}

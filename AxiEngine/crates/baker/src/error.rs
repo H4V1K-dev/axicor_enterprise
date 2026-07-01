@@ -14,4 +14,8 @@ pub enum BakerError {
     /// Layout alignment and sizing errors.
     #[error("Layout capacity/alignment error")]
     LayoutError,
+
+    /// VFS archive packaging errors.
+    #[error("VFS archive packaging error: {0}")]
+    VfsError(#[from] vfs::VfsError),
 }

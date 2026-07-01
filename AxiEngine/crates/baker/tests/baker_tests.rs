@@ -5,8 +5,9 @@ use config::{
 use layout::{
     align_to_padded_n, calculate_paths_file_size, calculate_paths_matrix_offset,
     calculate_state_blob_size, AxonsFileHeader, BurstHeads8, PathsFileHeader, StateFileHeader,
-    MAX_DENDRITES, MAX_SEGMENTS_PER_AXON, VARIANT_LUT_LEN,
+    VariantParameters, MAX_DENDRITES, MAX_SEGMENTS_PER_AXON, VARIANT_LUT_LEN,
 };
+use std::io::Write;
 use types::{MasterSeed, PackedPosition, AXON_SENTINEL};
 
 fn make_dummy_neuron_type(name: &str) -> NeuronType {
@@ -340,4 +341,197 @@ fn test_baker_stage_a_compute_upload_compatible() {
     // Run compute_api::validate_upload to ensure size and alignment compatibility
     let res = compute_api::validate_upload(&spec, &upload);
     assert!(res.is_ok());
+}
+
+#[test]
+fn test_baker_stage_b_pack_artifacts_to_axic() {
+    let config = make_baker_test_setup();
+    let input = LocalShardBakeInput {
+        shard_config: &config,
+        master_seed: MasterSeed(42),
+        voxel_size_um: 1.0,
+    };
+    let (artifacts, _) = bake_local_shard(&input).unwrap();
+    let res = baker::pack_local_shard_artifacts(&artifacts);
+    assert!(res.is_ok());
+    let packed = res.unwrap();
+    assert!(!packed.is_empty());
+}
+
+#[test]
+fn test_baker_stage_b_axic_roundtrip_with_vfs() {
+    use baker::{
+        AXONS_ARCHIVE_PATH, PATHS_ARCHIVE_PATH, STATE_ARCHIVE_PATH, VARIANT_TABLE_ARCHIVE_PATH,
+    };
+    use std::fs::remove_file;
+    use std::io::Write;
+
+    let config = make_baker_test_setup();
+    let input = LocalShardBakeInput {
+        shard_config: &config,
+        master_seed: MasterSeed(42),
+        voxel_size_um: 1.0,
+    };
+    let (artifacts, _) = bake_local_shard(&input).unwrap();
+    let packed = baker::pack_local_shard_artifacts(&artifacts).unwrap();
+
+    let mut temp = std::env::temp_dir();
+    let rand = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    temp.push(format!("roundtrip_{}.axic", rand));
+
+    {
+        let mut file = std::fs::File::create(&temp).unwrap();
+        file.write_all(&packed).unwrap();
+    }
+
+    let archive = vfs::AxicArchive::open(&temp).unwrap();
+
+    assert_eq!(
+        archive.require_file(STATE_ARCHIVE_PATH).unwrap(),
+        &artifacts.state_blob[..]
+    );
+    assert_eq!(
+        archive.require_file(AXONS_ARCHIVE_PATH).unwrap(),
+        &artifacts.axons_blob[..]
+    );
+    assert_eq!(
+        archive.require_file(PATHS_ARCHIVE_PATH).unwrap(),
+        &artifacts.paths_blob[..]
+    );
+    assert_eq!(
+        archive.require_file(VARIANT_TABLE_ARCHIVE_PATH).unwrap(),
+        bytemuck::cast_slice(&artifacts.variant_table)
+    );
+
+    remove_file(temp).unwrap();
+}
+
+#[test]
+fn test_baker_stage_b_variant_table_bytes() {
+    let config = make_baker_test_setup();
+    let input = LocalShardBakeInput {
+        shard_config: &config,
+        master_seed: MasterSeed(42),
+        voxel_size_um: 1.0,
+    };
+    let (artifacts, _) = bake_local_shard(&input).unwrap();
+    let packed = baker::pack_local_shard_artifacts(&artifacts).unwrap();
+
+    let mut temp = std::env::temp_dir();
+    let rand = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    temp.push(format!("vt_test_{}.axic", rand));
+
+    {
+        let mut file = std::fs::File::create(&temp).unwrap();
+        file.write_all(&packed).unwrap();
+    }
+
+    let archive = vfs::AxicArchive::open(&temp).unwrap();
+    let vt_bytes = archive
+        .require_file(baker::VARIANT_TABLE_ARCHIVE_PATH)
+        .unwrap();
+    let vt: &[VariantParameters; VARIANT_LUT_LEN] = bytemuck::from_bytes(vt_bytes);
+
+    assert_eq!(
+        vt[0].rest_potential,
+        artifacts.variant_table[0].rest_potential
+    );
+    assert_eq!(
+        vt[1].rest_potential,
+        artifacts.variant_table[1].rest_potential
+    );
+    assert_eq!(vt[2].rest_potential, 0);
+
+    std::fs::remove_file(temp).unwrap();
+}
+
+#[test]
+fn test_baker_stage_b_deterministic_axic_output() {
+    let config = make_baker_test_setup();
+    let input = LocalShardBakeInput {
+        shard_config: &config,
+        master_seed: MasterSeed(42),
+        voxel_size_um: 1.0,
+    };
+    let (artifacts, _) = bake_local_shard(&input).unwrap();
+    let packed1 = baker::pack_local_shard_artifacts(&artifacts).unwrap();
+    let packed2 = baker::pack_local_shard_artifacts(&artifacts).unwrap();
+    assert_eq!(packed1, packed2);
+}
+
+#[test]
+fn test_baker_stage_b_bake_local_shard_axic_success() {
+    let config = make_baker_test_setup();
+    let input = LocalShardBakeInput {
+        shard_config: &config,
+        master_seed: MasterSeed(42),
+        voxel_size_um: 1.0,
+    };
+    let (packed, report) = baker::bake_local_shard_axic(&input).unwrap();
+    assert!(report.total_somas > 0);
+    assert!(report.total_axons > 0);
+
+    let mut temp = std::env::temp_dir();
+    let rand = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    temp.push(format!("bake_axic_{}.axic", rand));
+
+    {
+        let mut file = std::fs::File::create(&temp).unwrap();
+        file.write_all(&packed).unwrap();
+    }
+
+    let archive = vfs::AxicArchive::open(&temp).unwrap();
+    assert!(archive.contains(baker::STATE_ARCHIVE_PATH));
+    assert!(archive.contains(baker::AXONS_ARCHIVE_PATH));
+    assert!(archive.contains(baker::PATHS_ARCHIVE_PATH));
+    assert!(archive.contains(baker::VARIANT_TABLE_ARCHIVE_PATH));
+
+    std::fs::remove_file(temp).unwrap();
+}
+
+#[test]
+fn test_baker_stage_b_archive_paths_are_stable() {
+    let config = make_baker_test_setup();
+    let input = LocalShardBakeInput {
+        shard_config: &config,
+        master_seed: MasterSeed(42),
+        voxel_size_um: 1.0,
+    };
+    let (artifacts, _) = bake_local_shard(&input).unwrap();
+    let packed = baker::pack_local_shard_artifacts(&artifacts).unwrap();
+
+    let mut temp = std::env::temp_dir();
+    let rand = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    temp.push(format!("paths_test_{}.axic", rand));
+
+    {
+        let mut file = std::fs::File::create(&temp).unwrap();
+        file.write_all(&packed).unwrap();
+    }
+
+    let archive = vfs::AxicArchive::open(&temp).unwrap();
+    let paths: Vec<&str> = archive.list_files().collect();
+    assert_eq!(
+        paths,
+        vec![
+            baker::AXONS_ARCHIVE_PATH,
+            baker::PATHS_ARCHIVE_PATH,
+            baker::STATE_ARCHIVE_PATH,
+            baker::VARIANT_TABLE_ARCHIVE_PATH,
+        ]
+    );
+
+    std::fs::remove_file(temp).unwrap();
 }
