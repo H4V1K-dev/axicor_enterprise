@@ -1,8 +1,8 @@
 # spec_baker
 
-> Версия спеки: 2.1  
+> Версия спеки: 2.2  
 > Дата: 2026-07-01  
-> Статус: Approved / Ready for Implementation (Stage A: Local Shard Artifacts)
+> Статус: Approved / Ready for Implementation (Stage B: Local .axic Packaging)
 
 ---
 
@@ -14,7 +14,7 @@
 | **Слой** | Слой 4 — Geometry, Growth & Connectome Generation (`L4`) |
 | **Тип** | Library (`lib`) |
 | **no_std** | Нет (`false`) — требуется доступ к системному аллокатору, временным структурам памяти и отчетности |
-| **Описание** | Оркестратор компиляции Ahead-of-Time (AOT Compile Orchestrator) для AxiEngine. В рамках Stage A крейт принимает валидированный `ShardConfig`, seed и voxel size, запускает пайплайн генерации локальной топологии (`topology`) и осуществляет сборку локального single-shard набора артефактов в памяти без использования VFS/`.axic` контейнеров. |
+| **Описание** | Оркестратор компиляции Ahead-of-Time (AOT Compile Orchestrator) для AxiEngine. В рамках Stage A крейт принимает конфигурацию шарда, seed и voxel size, запускает пайплайн генерации локальной топологии (`topology`) и осуществляет сборку локального single-shard набора артефактов в памяти. Stage B добавляет возможность упаковки этих сгенерированных артефактов в монолитный ROM-контейнер формата `.axic` через крейт `vfs`. |
 
 ---
 
@@ -29,10 +29,11 @@
 | `config` (Слой 1) | `ShardConfig`, `NeuronType`, `validate_shard` | Валидация анатомии шарда и доступ к профилям типов нейронов. |
 | `physics` (Слой 0) | Хелперы деривации констант (`compile_dds_heartbeat`, `MASS_TO_CHARGE_SHIFT`, `MIN_WEIGHT_LIMIT`) | Деривация физических параметров и констант весов. |
 | `topology` | `generate_single_shard_topology`, `grow_local_axons`, `form_local_synapses`, DTO структуры результатов | Вызов алгоритмов размещения сом, роста аксонов и формирования локальных синаптических связей. |
+| `vfs` (Слой 2) | `ArchiveEntry`, `pack_entries`, `VfsError` | Низкоуровневая упаковка готовых байтовых артефактов в `.axic`. |
 
 ---
 
-## §3. Scope Stage A (Локальные артефакты шарда)
+## §3. Scope Stage A (Локальные артефакты шарда в памяти)
 
 ### §3.1. Реализовано в Stage A
 - Компиляция локального single-shard набора артефактов в памяти.
@@ -42,7 +43,6 @@
 - Возврат отчета компиляции и сырых бинарных буферов.
 
 ### §3.2. Deferred (Отложено для будущих стадий)
-- Упаковка контейнера `.axic` и вызовы `vfs`.
 - Проверка границ файловой системы (`Path Containment`) и сохранение на диск.
 - Мультишардовая сборка, ghost/handover связи, маршрутизация трактов (`tract routing`).
 - Распределенное выполнение компиляции.
@@ -51,8 +51,33 @@
 
 ---
 
-## §4. Конвейер Компиляции Stage A (Compile Pipeline)
+## §3.3. Scope Stage B (Локальная упаковка .axic)
 
+### §3.3.1. Реализовано в Stage B
+- Сериализация таблицы `variant_table` как raw C-ABI bytes через `bytemuck::cast_slice`.
+- Сборка `.axic` из 4 логических archive paths:
+  - `state.bin`
+  - `axons.bin`
+  - `paths.bin`
+  - `variant_table.bin`
+- Вызов `vfs::pack_entries` для упаковки набора файлов в памяти.
+- Возврат результирующего `Vec<u8>` буфера с байтами архива.
+- Детерминированный порядок файлов в оглавлении TOC делегируется внутренним правилам сортировки в `vfs`.
+
+### §3.3.2. Deferred (Отложено для будущих стадий)
+- Запись упакованного `.axic` на диск хоста.
+- Выбор обязательного boot-набора файлов (Boot Required Policy).
+- Сборка файла метаданных `manifest.toml`.
+- Обход директорий хостовой файловой системы (Directory Walking).
+- Мультишардовый макет пакетов (Multi-shard package layout).
+- Сжатие данных и вычисление контрольных сумм элементов (Compression / Checksums).
+- Экспорт содержимого архива в SHM / Temp директории.
+
+---
+
+## §4. Конвейеры Компиляции и Упаковки (Compile & Pack Pipelines)
+
+### §4.1. Сборка локального шарда в памяти (Stage A)
 В рамках Stage A сборка шарда выполняется в строго последовательном конвейере в памяти:
 
 ```mermaid
@@ -64,14 +89,16 @@ graph TD
     Phase4 --> Out["Output: LocalShardArtifacts, LocalShardBakeReport"]
 ```
 
-### §4.1. Описание этапов конвейера
-1. **Валидация конфигурации шарда**: Входной `ShardConfig` валидируется через `config::validate_shard`.
-2. **Генерация локальной топологии**: Последовательно вызываются:
-   - `TopologyEngine::generate_single_shard_topology` (Stage A)
-   - `TopologyEngine::grow_local_axons` (Stage B1)
-   - `TopologyEngine::form_local_synapses` (Stage B2)
-3. **Сборка таблицы VariantParameters**: Для каждого из `neuron_types` (до 16 типов) заполняется структура `layout::VariantParameters`.
-4. **Построение бинарных блобов**: На основе выравниваний и смещений `layout` в памяти формируются результирующие байтовые массивы для `.state`, `.axons` и `.paths` файлов.
+### §4.2. Упаковка локального шарда в .axic (Stage B)
+В рамках Stage B сгенерированные артефакты упаковываются в архив:
+
+```mermaid
+graph TD
+    InB["Input: LocalShardArtifacts"] --> PhaseB1["1. Serialize variant_table using bytemuck"]
+    PhaseB1 --> PhaseB2["2. Prepare ArchiveEntry structures"]
+    PhaseB2 --> PhaseB3["3. Invoke vfs::pack_entries"]
+    PhaseB3 --> OutB["Output: Axic Archive Bytes (Vec-u8)"]
+```
 
 ---
 
@@ -116,16 +143,28 @@ pub enum BakerError {
     TopologyError(#[from] topology::TopologyError),
     #[error("Layout layout capacity/arithmetic error")]
     LayoutError,
+    #[error("VFS archive packaging error: {0}")]
+    VfsError(#[from] vfs::VfsError),
 }
 ```
 
-### §5.2. Точка входа
+### §5.2. Точки входа
 
 ```rust
-/// Выполняет сборку локального шарда из предоставленной конфигурации.
+/// Выполняет сборку локального шарда из предоставленной конфигурации в память.
 pub fn bake_local_shard(
     input: &LocalShardBakeInput,
 ) -> Result<(LocalShardArtifacts, LocalShardBakeReport), BakerError>;
+
+/// Упаковывает скомпилированные бинарные артефакты шарда в .axic архив буфер.
+pub fn pack_local_shard_artifacts(
+    artifacts: &LocalShardArtifacts,
+) -> Result<Vec<u8>, BakerError>;
+
+/// Склеенный вызов: компилирует шард и сразу упаковывает его в .axic контейнер.
+pub fn bake_local_shard_axic(
+    input: &LocalShardBakeInput,
+) -> Result<(Vec<u8>, LocalShardBakeReport), BakerError>;
 ```
 
 ---
@@ -182,6 +221,16 @@ pub fn bake_local_shard(
 
 ---
 
+## §8.1. Требуемые Инварианты Stage B
+
+- **INV-BAKER-B01**: `baker` не определяет бинарный формат `.axic`, а вызывает только `vfs::pack_entries`.
+- **INV-BAKER-B02**: `.axic` содержит ровно 4 файла Stage B: `state.bin`, `axons.bin`, `paths.bin`, `variant_table.bin`.
+- **INV-BAKER-B03**: Байты `state.bin`, `axons.bin`, `paths.bin` byte-exact равны соответствующим полям `LocalShardArtifacts`.
+- **INV-BAKER-B04**: Содержимое `variant_table.bin` byte-exact равно `bytemuck::cast_slice(&artifacts.variant_table)`.
+- **INV-BAKER-B05**: Повторная упаковка одинаковых артефактов `LocalShardArtifacts` дает byte-exact одинаковый `.axic` архив (детерминированность упаковщика).
+
+---
+
 ## §9. Обязательные тесты Stage A
 
 1. **Компиляция валидного шарда (`test_baker_stage_a_success`)**: Проверка успешной сборки локального шарда и возврата корректных размеров буферов для `.state`, `.axons` и `.paths`.
@@ -189,3 +238,14 @@ pub fn bake_local_shard(
 3. **Корректность инициализации SoA-весов (`test_baker_stage_a_state_weights_in_mass_domain`)**: Проверка того, что записанные в `.state` веса связей находятся в Mass Domain (соответствуют сдвинутым значениям).
 4. **Детерминизм вывода (`test_baker_stage_a_deterministic_output`)**: Проверка побайтового совпадения сгенерированных блобов при использовании одинакового `MasterSeed`.
 5. **Маппинг путей в `.paths` (`test_baker_stage_a_paths_origin_and_segments`)**: Проверка того, что слот 0 содержит позицию сомы, слоты 1..segments_count содержат координаты сегментов, а оставшиеся заполнены нулями.
+
+---
+
+## §9.1. Обязательные тесты Stage B
+
+1. **Упаковка артефактов в .axic (`test_baker_stage_b_pack_artifacts_to_axic`)**: Проверка корректного вызова `pack_local_shard_artifacts` на базе сгенерированных `LocalShardArtifacts` без ошибок.
+2. **Полный раундтрип с VFS (`test_baker_stage_b_axic_roundtrip_with_vfs`)**: Упаковка артефактов в `.axic`, запись во временный файл, чтение через `vfs::AxicArchive` и сверка побайтового соответствия извлеченных файлов.
+3. **Совпадение байт таблицы вариантов (`test_baker_stage_b_variant_table_bytes`)**: Извлеченный из архива файл `variant_table.bin` при приведении обратно к типу массива `[VariantParameters; 16]` совпадает с оригинальной LUT таблицей.
+4. **Детерминированность вывода .axic (`test_baker_stage_b_deterministic_axic_output`)**: Проверка, что повторный запуск упаковщика на одних и тех же артефактах возвращает идентичный байтовый буфер.
+5. **Сквозное компилирование и упаковка (`test_baker_stage_b_bake_local_shard_axic_success`)**: Проверка успешной компиляции шарда и автоматической упаковки в `.axic` через `bake_local_shard_axic`.
+6. **Стабильность логических путей файлов (`test_baker_stage_b_archive_paths_are_stable`)**: Проверка того, что список путей в TOC архива равен в точности `["axons.bin", "paths.bin", "state.bin", "variant_table.bin"]` (в лексикографическом порядке).

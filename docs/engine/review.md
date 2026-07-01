@@ -882,13 +882,13 @@
     - *Вопрос*: Требуется ли централизованный манифест версий зависимостей на уровне всего workspace для исключения дрифта сторонних CLI-крейтов?
 
 #### [baker_spec.md](./spec_L4/baker_spec.md)
-*Source items: 7 / Registered items: 7*
+*Source items: 8 / Registered items: 8*
 
 - **REV-BAKER-001**: Минимальный Набор Файлов Архива для Загрузки Рантаймом (`boot`)
   - *Status*: Deferred | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L243)
   - *Question / Problem*: - *Контекст*: Компилятор генерирует дампы состояния, аксонов и путей.
     - *Вопрос*: Каков обязательный минимальный перечень файлов внутри `.axic` архива, необходимый для работы компонента `boot`?
-  - *Notes*: Отложено (Deferred) до этапа интеграции с VFS/`.axic` и `boot`, не блокирует Stage A.
+  - *Notes*: Отложено (Deferred). Выбор обязательного boot-набора файлов, манифест `manifest.toml` и мультишардовый layout остаются вне рамок Stage B.
 
 - **REV-BAKER-002**: Статус и Владение Заголовками Файлов I/O (`.gxi`, `.gxo`, `.ghosts`)
   - *Status*: Duplicate Of | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: REV-TOPOLOGY-006 | *Source*: [baker_spec.md](./spec_L4/baker_spec.md#L247)
@@ -923,6 +923,12 @@
   - *Question / Problem*: - *Контекст*: При сборке больших проектов кеширование промежуточных шардов ускоряет повторную компиляцию.
     - *Вопрос*: Выполняется ли кеширование промежуточных результатов внутри `baker` или полностью управляется кешем артефактов AxiCAD?
   - *Notes*: Отложено (Deferred). Кэширование промежуточных состояний не требуется для Stage A.
+
+- **REV-BAKER-008**: Локальная Упаковка `.axic` и Вызовы `vfs`
+  - *Status*: Resolved (baker v2.2) | *Priority*: P1 | *Owner*: `baker` | *Duplicate Of*: - | *Source*: [baker_spec.md](./spec_L4/baker_spec.md)
+  - *Question / Problem*: - *Контекст*: Требуется интеграция компилятора `baker` с библиотекой `vfs` для упаковки артефактов.
+    - *Вопрос*: Как именно выполняется упаковка сгенерированных бинарных файлов в монолитный архив?
+  - *Notes*: **[РЕШЕНО в baker v2.2]**: Stage B решает ранее отложенную задачу упаковки `.axic` и вызовов `vfs` только для локального single-shard контейнера. Сборка `.axic` формируется из 4 логических файлов (`state.bin`, `axons.bin`, `paths.bin`, `variant_table.bin`) через вызов `vfs::pack_entries`. Сохранение на диск, boot-политики и multi-shard package layout остаются Deferred.
 
 #### [edge_model_spec.md](./spec_L4/edge_model_spec.md)
 *Source items: 10 / Registered items: 10*
