@@ -581,6 +581,7 @@
     const datasetA = { summary: null, batches: [], outputs: [], spikes: [], summaryFile: null };
     const datasetB = { summary: null, batches: [], outputs: [], spikes: [], summaryFile: null };
     let sweepDataset = [];
+    let isStimulusSweep = false;
     let sweepSortCol = 'status';
     let sweepSortAsc = true;
     let sweepSearchQuery = '';
@@ -829,21 +830,42 @@
       const text = await file.text();
       const parsed = parseCSV(text);
       
-      sweepDataset = parsed.map(r => ({
-        threshold: Number(r.threshold),
-        initial_synapse_weight: Number(r.initial_synapse_weight),
-        spontaneous_firing_period_ticks: Number(r.spontaneous_firing_period_ticks),
-        max_spikes_per_tick: Number(r.max_spikes_per_tick),
-        generated: Number(r.generated),
-        written: Number(r.written),
-        dropped: Number(r.dropped),
-        dropped_ratio: Number(r.dropped_ratio),
-        saturation: Number(r.saturation),
-        nonzero_ticks: Number(r.nonzero_ticks),
-        wall_time: Number(r.wall_time),
-        status: r.status ? r.status.trim() : 'silent'
-      }));
+      isStimulusSweep = parsed.length > 0 && parsed[0].stimulus_pattern !== undefined;
       
+      if (isStimulusSweep) {
+        sweepDataset = parsed.map(r => ({
+          stimulus_pattern: r.stimulus_pattern || '',
+          threshold: Number(r.threshold),
+          initial_synapse_weight: Number(r.initial_synapse_weight),
+          spontaneous_firing_period_ticks: 0,
+          max_spikes_per_tick: 1000,
+          generated: Number(r.total_generated_spikes || 0),
+          written: Number(r.total_output_spikes_written || 0),
+          dropped: Number(r.total_dropped_spikes || 0),
+          dropped_ratio: Number(r.dropped_ratio || 0),
+          saturation: Number(r.output_saturation || r.saturation || 0),
+          nonzero_ticks: Number(r.nonzero_output_ticks || r.nonzero_ticks || 0),
+          wall_time: Number(r.wall_time_us || r.wall_time || 0),
+          status: r.status ? r.status.trim() : 'no-response'
+        }));
+      } else {
+        sweepDataset = parsed.map(r => ({
+          threshold: Number(r.threshold),
+          initial_synapse_weight: Number(r.initial_synapse_weight),
+          spontaneous_firing_period_ticks: Number(r.spontaneous_firing_period_ticks || 0),
+          max_spikes_per_tick: Number(r.max_spikes_per_tick || 0),
+          generated: Number(r.generated || 0),
+          written: Number(r.written || 0),
+          dropped: Number(r.dropped || 0),
+          dropped_ratio: Number(r.dropped_ratio || 0),
+          saturation: Number(r.saturation || 0),
+          nonzero_ticks: Number(r.nonzero_ticks || 0),
+          wall_time: Number(r.wall_time || 0),
+          status: r.status ? r.status.trim() : 'silent'
+        }));
+      }
+      
+      adjustSweepUIForMode();
       populateFilterOptions();
       updateDashboard();
     });
@@ -1090,8 +1112,53 @@
       }
     }
 
+    function adjustSweepUIForMode() {
+      const xSel = document.getElementById('heatmap-x-select');
+      const ySel = document.getElementById('heatmap-y-select');
+      if (!xSel || !ySel) return;
+      
+      const periodLabel = isStimulusSweep ? "Stimulus Pattern" : "Spontaneous Period";
+      const periodValue = isStimulusSweep ? "stimulus_pattern" : "spontaneous_firing_period_ticks";
+      
+      const updateOptions = (sel) => {
+        const savedVal = sel.value;
+        sel.innerHTML = `
+          <option value="threshold">Threshold</option>
+          <option value="initial_synapse_weight">Synapse Weight</option>
+          <option value="${periodValue}">${periodLabel}</option>
+          <option value="max_spikes_per_tick">Max Spikes/Tick</option>
+        `;
+        if (savedVal === "spontaneous_firing_period_ticks" && isStimulusSweep) {
+          sel.value = "stimulus_pattern";
+        } else if (savedVal === "stimulus_pattern" && !isStimulusSweep) {
+          sel.value = "spontaneous_firing_period_ticks";
+        } else {
+          // Check if option exists, otherwise select default
+          const exists = Array.from(sel.options).some(opt => opt.value === savedVal);
+          sel.value = exists ? savedVal : (sel.id === 'heatmap-x-select' ? periodValue : 'threshold');
+        }
+      };
+      
+      updateOptions(xSel);
+      updateOptions(ySel);
+      
+      const periodFilterLabel = document.querySelector('#filter-period-box span');
+      if (periodFilterLabel) {
+        periodFilterLabel.textContent = isStimulusSweep ? "Stimulus:" : "Period:";
+      }
+      
+      const spontTh = document.querySelector('th[data-sort="spontaneous_firing_period_ticks"]') || document.querySelector('th[data-sort="stimulus_pattern"]');
+      if (spontTh) {
+        spontTh.setAttribute('data-sort', isStimulusSweep ? 'stimulus_pattern' : 'spontaneous_firing_period_ticks');
+        spontTh.textContent = isStimulusSweep ? 'Stimulus ↕' : 'Spont. Period ↕';
+      }
+    }
+
     function populateFilterOptions() {
-      const getUnique = (key) => Array.from(new Set(sweepDataset.map(r => r[key]))).sort((a, b) => a - b);
+      const getUnique = (key) => Array.from(new Set(sweepDataset.map(r => r[key]))).sort((a, b) => {
+        if (typeof a === 'string') return a.localeCompare(b);
+        return a - b;
+      });
       
       const setOptions = (elId, values) => {
         const el = document.getElementById(elId);
@@ -1101,7 +1168,11 @@
       
       setOptions('filter-threshold', getUnique('threshold'));
       setOptions('filter-weight', getUnique('initial_synapse_weight'));
-      setOptions('filter-period', getUnique('spontaneous_firing_period_ticks'));
+      if (isStimulusSweep) {
+        setOptions('filter-period', getUnique('stimulus_pattern'));
+      } else {
+        setOptions('filter-period', getUnique('spontaneous_firing_period_ticks'));
+      }
       setOptions('filter-maxspikes', getUnique('max_spikes_per_tick'));
     }
 
@@ -1118,17 +1189,17 @@
 
       toggleFilterBox('threshold', 'filter-threshold-box');
       toggleFilterBox('initial_synapse_weight', 'filter-weight-box');
-      toggleFilterBox('spontaneous_firing_period_ticks', 'filter-period-box');
+      toggleFilterBox(isStimulusSweep ? 'stimulus_pattern' : 'spontaneous_firing_period_ticks', 'filter-period-box');
       toggleFilterBox('max_spikes_per_tick', 'filter-maxspikes-box');
     }
 
     function renderSweepOverview() {
       document.getElementById('sweep-total-configs').textContent = sweepDataset.length;
       
-      const silent = sweepDataset.filter(r => r.status === 'silent').length;
-      const healthy = sweepDataset.filter(r => r.status === 'healthy-ish').length;
+      const silent = sweepDataset.filter(r => r.status === 'silent' || r.status === 'no-response').length;
+      const healthy = sweepDataset.filter(r => r.status === 'healthy-ish' || r.status === 'responsive').length;
       const bottleneck = sweepDataset.filter(r => r.status === 'bottleneck').length;
-      const overheated = sweepDataset.filter(r => r.status === 'overheated').length;
+      const overheated = sweepDataset.filter(r => r.status === 'overheated' || r.status === 'runaway').length;
       
       document.getElementById('sweep-silent-count').textContent = silent;
       document.getElementById('sweep-healthy-count').textContent = healthy;
@@ -1144,8 +1215,14 @@
 
       updateFilterVisibility(xParam, yParam);
 
-      const xValues = Array.from(new Set(sweepDataset.map(r => r[xParam]))).sort((a, b) => a - b);
-      const yValues = Array.from(new Set(sweepDataset.map(r => r[yParam]))).sort((a, b) => a - b);
+      const xValues = Array.from(new Set(sweepDataset.map(r => r[xParam]))).sort((a, b) => {
+        if (typeof a === 'string') return a.localeCompare(b);
+        return a - b;
+      });
+      const yValues = Array.from(new Set(sweepDataset.map(r => r[yParam]))).sort((a, b) => {
+        if (typeof a === 'string') return a.localeCompare(b);
+        return a - b;
+      });
 
       let min = Infinity;
       let max = -Infinity;
@@ -1162,6 +1239,7 @@
         'threshold': 'Thresh',
         'initial_synapse_weight': 'Weight',
         'spontaneous_firing_period_ticks': 'Spont Ticks',
+        'stimulus_pattern': 'Stimulus',
         'max_spikes_per_tick': 'Max/Tick'
       };
       
@@ -1173,13 +1251,16 @@
       const tbody = document.getElementById('heatmap-tbody');
       tbody.innerHTML = '';
 
-      const statusScores = { 'silent': 0, 'overheated': 1, 'bottleneck': 2, 'healthy-ish': 3 };
-      const scoreToStatus = ['silent', 'overheated', 'bottleneck', 'healthy-ish'];
+      const statusScores = { 'silent': 0, 'no-response': 0, 'overheated': 1, 'runaway': 1, 'bottleneck': 2, 'healthy-ish': 3, 'responsive': 3 };
+      const scoreToStatus = ['no-response', 'runaway', 'bottleneck', 'responsive'];
       const statusColors = {
         'silent': 'background: rgba(30, 41, 59, 0.7); color: #94a3b8; border: 1px solid rgba(255,255,255,0.03);',
+        'no-response': 'background: rgba(30, 41, 59, 0.7); color: #94a3b8; border: 1px solid rgba(255,255,255,0.03);',
         'overheated': 'background: rgba(225, 29, 72, 0.2); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.4);',
+        'runaway': 'background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4);',
         'bottleneck': 'background: rgba(217, 119, 6, 0.2); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.4);',
-        'healthy-ish': 'background: rgba(5, 150, 105, 0.2); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.4);'
+        'healthy-ish': 'background: rgba(5, 150, 105, 0.2); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.4);',
+        'responsive': 'background: rgba(5, 150, 105, 0.2); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.4);'
       };
 
       yValues.forEach(yVal => {
@@ -1320,10 +1401,11 @@
       const search = sweepSearchQuery.toLowerCase().trim();
       const filtered = sweepDataset.filter(r => {
         if (!search) return true;
+        const periodVal = isStimulusSweep ? r.stimulus_pattern : r.spontaneous_firing_period_ticks.toString();
         return (
           r.threshold.toString().includes(search) ||
           r.initial_synapse_weight.toString().includes(search) ||
-          r.spontaneous_firing_period_ticks.toString().includes(search) ||
+          periodVal.toLowerCase().includes(search) ||
           r.max_spikes_per_tick.toString().includes(search) ||
           r.status.toLowerCase().includes(search)
         );
@@ -1334,7 +1416,7 @@
         let valB = b[sweepSortCol];
         
         if (sweepSortCol === 'status') {
-          const statusScores = { 'silent': 0, 'overheated': 1, 'bottleneck': 2, 'healthy-ish': 3 };
+          const statusScores = { 'silent': 0, 'no-response': 0, 'overheated': 1, 'runaway': 1, 'bottleneck': 2, 'healthy-ish': 3, 'responsive': 3 };
           valA = statusScores[a.status];
           valB = statusScores[b.status];
         }
@@ -1348,9 +1430,12 @@
 
       const statusBadgeClasses = {
         'silent': 'bg-slate-800 text-slate-400 border border-slate-700/60',
+        'no-response': 'bg-slate-800 text-slate-400 border border-slate-700/60',
+        'responsive': 'bg-emerald-500/10 text-emerald-450 border border-emerald-500/20',
         'overheated': 'bg-rose-500/10 text-rose-450 border border-rose-500/20',
         'bottleneck': 'bg-amber-500/10 text-amber-450 border border-amber-500/20',
-        'healthy-ish': 'bg-emerald-500/10 text-emerald-450 border border-emerald-500/20'
+        'healthy-ish': 'bg-emerald-500/10 text-emerald-450 border border-emerald-500/20',
+        'runaway': 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
       };
 
       sorted.forEach(r => {
@@ -1359,11 +1444,12 @@
         
         const ratioColor = r.dropped_ratio > 0.5 ? 'text-rose-400' : 'text-emerald-400';
         const satColor = r.saturation < 0.2 ? 'text-amber-400' : 'text-emerald-400';
+        const periodVal = isStimulusSweep ? r.stimulus_pattern : r.spontaneous_firing_period_ticks;
         
         tr.innerHTML = `
           <td class="py-2.5 px-3">${r.threshold}</td>
           <td class="py-2.5 px-3">${r.initial_synapse_weight}</td>
-          <td class="py-2.5 px-3">${r.spontaneous_firing_period_ticks}</td>
+          <td class="py-2.5 px-3">${periodVal}</td>
           <td class="py-2.5 px-3">${r.max_spikes_per_tick}</td>
           <td class="py-2.5 px-3 text-right">${r.generated.toLocaleString()}</td>
           <td class="py-2.5 px-3 text-right">${r.written.toLocaleString()}</td>

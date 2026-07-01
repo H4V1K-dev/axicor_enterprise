@@ -160,6 +160,45 @@ async function captureSweep(page, workspaceRoot, outputName) {
     await page.screenshot({ path: screenshotPath, fullPage: true });
 }
 
+async function captureStimulusSweep(page, workspaceRoot, outputName) {
+    const sweepFile = path.join(workspaceRoot, 'artifacts', 'stimulus_sweep_summary.csv');
+    if (!fs.existsSync(sweepFile)) {
+        console.warn(`Warning: File does not exist, skipping stimulus sweep capture: ${sweepFile}`);
+        return;
+    }
+
+    const screenshotsDir = path.join(workspaceRoot, 'artifacts/axi-viewer-screenshots');
+    
+    console.log('Loading stimulus sweep dataset...');
+    const indexUrl = 'file://' + path.resolve(__dirname, 'index.html');
+    await page.goto(indexUrl);
+
+    console.log('Switching to Parameter Sweep mode...');
+    await page.click('#btn-sweep-mode');
+
+    console.log('Uploading stimulus_sweep_summary.csv...');
+    const fileInput = await page.locator('#sweepInput');
+    await fileInput.setInputFiles(sweepFile);
+    await page.evaluate(() => {
+        const input = document.getElementById('sweepInput');
+        const event = new Event('change', { bubbles: true });
+        input.dispatchEvent(event);
+    });
+
+    console.log('Waiting for stimulus sweep heatmap to render...');
+    await page.waitForFunction(() => {
+        const container = document.getElementById('sweepDashboardContainer');
+        return container && !container.classList.contains('opacity-40');
+    }, { timeout: 10000 });
+
+    // Wait for layouts and visual stability
+    await page.waitForTimeout(1500);
+
+    const screenshotPath = path.join(screenshotsDir, outputName);
+    console.log(`Taking screenshot: ${screenshotPath}`);
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+}
+
 (async () => {
     const workspaceRoot = path.resolve(__dirname, '../..');
     
@@ -208,6 +247,13 @@ async function captureSweep(page, workspaceRoot, outputName) {
         page,
         workspaceRoot,
         'sweep_e2e_dashboard.png'
+    );
+
+    // 5. Capture stimulus sweep
+    await captureStimulusSweep(
+        page,
+        workspaceRoot,
+        'stimulus_sweep_e2e_dashboard.png'
     );
 
     console.log('Success! Closing browser.');
