@@ -1,0 +1,16 @@
+{
+  "name": "axi-viewer",
+  "version": "1.0.0",
+  "description": "Browser-first dev viewer for AxiEngine simulation telemetry",
+  "main": "index.html",
+  "scripts": {
+    "start": "serve -p 3000 .",
+    "capture": "node capture.js"
+  },
+  "devDependencies": {
+    "chart.js": "=4.4.3",
+    "html2canvas": "=1.4.1",
+    "playwright": "=1.45.0",
+    "serve": "=14.2.3"
+  }
+}

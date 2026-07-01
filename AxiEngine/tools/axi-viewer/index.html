@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>axi-viewer - Dev Telemetry Microscope</title>
+  <!-- Tailwind CSS Local -->
+  <script src="tailwind.js"></script>
+  <!-- Chart.js Local -->
+  <script src="node_modules/chart.js/dist/chart.umd.js"></script>
+  <!-- html2canvas Local -->
+  <script src="node_modules/html2canvas/dist/html2canvas.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'Segoe UI', 'Arial', 'sans-serif'],
+            display: ['Inter', 'Segoe UI', 'Arial', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+    }
+    .glass-card {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+    <div class="flex items-center space-x-3">
+      <div class="h-9 w-9 bg-gradient-to-tr from-cyan-500 to-indigo-600 rounded-lg flex items-center justify-center font-display font-bold text-white text-lg tracking-wider">
+        AV
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-xl font-display font-bold tracking-tight text-white">axi-viewer</h1>
+          <span id="dataset-badge" class="px-2 py-0.5 text-xs font-semibold rounded hidden"></span>
+        </div>
+        <p class="text-xs text-slate-400">Dev Telemetry Microscope</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-3">
+      <button id="exportPngBtn" class="px-4 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-medium text-sm rounded-lg shadow-lg hover:shadow-cyan-500/20 transition duration-150 ease-in-out disabled:opacity-50" disabled>
+        Export PNG Screenshot
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+
+    <!-- Upload and File Status Banner -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- File Picker Card -->
+      <div class="glass-card p-6 rounded-2xl flex flex-col justify-between space-y-4 col-span-1">
+        <div>
+          <h2 class="text-lg font-display font-semibold text-white">Load Telemetry Folder</h2>
+          <p class="text-xs text-slate-400 mt-1">Select an exported simulation directory containing CSV/JSON outputs.</p>
+        </div>
+        <div>
+          <label class="w-full flex flex-col items-center px-4 py-6 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-xl border-2 border-dashed border-slate-700 hover:border-cyan-500 cursor-pointer transition duration-150">
+            <svg class="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9l-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+            </svg>
+            <span class="mt-2 text-sm font-medium text-center">Choose Artifacts Folder / Files</span>
+            <!-- folderInput is clicked when label is clicked (first nested input) -->
+            <input type="file" id="folderInput" multiple webkitdirectory directory class="hidden" />
+            <!-- dirInput is the file input used for Playwright fallback and manual file selection -->
+            <input type="file" id="dirInput" multiple class="hidden" />
+          </label>
+          <div class="text-center mt-2">
+            <button type="button" id="fileFallbackBtn" class="text-xs text-cyan-400 hover:text-cyan-300 underline focus:outline-none">
+              Or select individual files
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- File Checklist Card -->
+      <div class="glass-card p-6 rounded-2xl col-span-2 flex flex-col justify-between">
+        <div>
+          <h2 class="text-lg font-display font-semibold text-white">File Status Indicator</h2>
+          <p class="text-xs text-slate-400 mt-1">Status of required artifacts in the loaded directory.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
+          <div class="flex items-center space-x-2 py-2 px-3 bg-slate-900/40 rounded-lg border border-slate-800">
+            <span id="status-summary" class="h-2 w-2 rounded-full bg-slate-500"></span>
+            <span class="text-slate-300 font-mono text-xs">summary.json/csv</span>
+          </div>
+          <div class="flex items-center space-x-2 py-2 px-3 bg-slate-900/40 rounded-lg border border-slate-800">
+            <span id="status-batches" class="h-2 w-2 rounded-full bg-slate-500"></span>
+            <span class="text-slate-300 font-mono text-xs">node_batches.csv</span>
+          </div>
+          <div class="flex items-center space-x-2 py-2 px-3 bg-slate-900/40 rounded-lg border border-slate-800">
+            <span id="status-outputs" class="h-2 w-2 rounded-full bg-slate-500"></span>
+            <span class="text-slate-300 font-mono text-xs">node_outputs.csv</span>
+          </div>
+          <div class="flex items-center space-x-2 py-2 px-3 bg-slate-900/40 rounded-lg border border-slate-800">
+            <span id="status-spikes" class="h-2 w-2 rounded-full bg-slate-500"></span>
+            <span class="text-slate-300 font-mono text-xs">node_output_spikes.csv</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Dashboard Visuals (Initially Hidden / Overlay shown) -->
+    <div id="dashboardContainer" class="space-y-6 opacity-40 transition-opacity duration-300">
+      
+      <!-- Summary Cards Grid -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <!-- Hardware -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Active Backend</div>
+          <div id="val-backend" class="text-2xl font-bold text-cyan-400 mt-1 font-display">-</div>
+        </div>
+        <!-- Total Ticks -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Total Ticks</div>
+          <div id="val-ticks" class="text-2xl font-bold text-white mt-1 font-display">-</div>
+        </div>
+        <!-- Total Batches -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Total Batches</div>
+          <div id="val-batches" class="text-2xl font-bold text-white mt-1 font-display">-</div>
+        </div>
+        <!-- Wall Clock Time -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Wall Time</div>
+          <div id="val-wall-time" class="text-2xl font-bold text-indigo-400 mt-1 font-display">-</div>
+        </div>
+        <!-- Total Generated Spikes -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Generated Spikes</div>
+          <div id="val-spikes" class="text-2xl font-bold text-emerald-400 mt-1 font-display">-</div>
+        </div>
+        <!-- Dropped Spikes -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Dropped Spikes</div>
+          <div id="val-dropped-spikes" class="text-2xl font-bold text-rose-400 mt-1 font-display">-</div>
+        </div>
+        <!-- Output Saturation -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Output Saturation</div>
+          <div id="val-saturation" class="text-2xl font-bold text-amber-400 mt-1 font-display">-</div>
+        </div>
+        <!-- Dropped Ratio -->
+        <div class="glass-card p-4 rounded-xl">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-display">Dropped Ratio</div>
+          <div id="val-dropped-ratio" class="text-2xl font-bold text-orange-400 mt-1 font-display">-</div>
+        </div>
+      </div>
+
+      <!-- Telemetry Charts -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Batch execution time -->
+        <div class="glass-card p-6 rounded-2xl flex flex-col">
+          <div class="mb-4">
+            <h3 class="text-md font-display font-semibold text-white">Batch Execution Duration</h3>
+            <p class="text-xs text-slate-400">Duration in microseconds per batch index.</p>
+          </div>
+          <div class="relative flex-1 min-h-[260px] flex items-center justify-center">
+            <canvas id="batchTimeChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Spikes over time -->
+        <div class="glass-card p-6 rounded-2xl flex flex-col">
+          <div class="mb-4">
+            <h3 class="text-md font-display font-semibold text-white">Spikes Allocation metrics</h3>
+            <p class="text-xs text-slate-400">Biological spikes count (Generated, Output, Dropped) per batch.</p>
+          </div>
+          <div class="relative flex-1 min-h-[260px] flex items-center justify-center">
+            <canvas id="spikesChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Spike Raster Plot (Full Width) -->
+      <div class="glass-card p-6 rounded-2xl flex flex-col">
+        <div class="mb-4">
+          <h3 class="text-md font-display font-semibold text-white">Spike Raster Plot</h3>
+          <p class="text-xs text-slate-400">Individual soma spike events mapped across tick indices.</p>
+        </div>
+        <div class="relative min-h-[320px] flex items-center justify-center">
+          <canvas id="rasterChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Simple Footer -->
+  <footer class="border-t border-slate-800/60 bg-slate-950/20 py-4 px-6 text-center text-xs text-slate-500 font-mono">
+    axi-viewer | Read-Only Diagnostic Tool
+  </footer>
+
+  <!-- Script logic -->
+  <script>
+    // Elements references
+    const folderInput = document.getElementById('folderInput');
+    const dirInput = document.getElementById('dirInput');
+    const fileFallbackBtn = document.getElementById('fileFallbackBtn');
+    const exportPngBtn = document.getElementById('exportPngBtn');
+    const dashboardContainer = document.getElementById('dashboardContainer');
+
+    const statusSummary = document.getElementById('status-summary');
+    const statusBatches = document.getElementById('status-batches');
+    const statusOutputs = document.getElementById('status-outputs');
+    const statusSpikes = document.getElementById('status-spikes');
+
+    // Values references
+    const valBackend = document.getElementById('val-backend');
+    const valTicks = document.getElementById('val-ticks');
+    const valBatches = document.getElementById('val-batches');
+    const valWallTime = document.getElementById('val-wall-time');
+    const valSpikes = document.getElementById('val-spikes');
+    const valDroppedSpikes = document.getElementById('val-dropped-spikes');
+    const valSaturation = document.getElementById('val-saturation');
+    const valDroppedRatio = document.getElementById('val-dropped-ratio');
+
+    // Charts holders
+    let batchTimeChart = null;
+    let spikesChart = null;
+    let rasterChart = null;
+
+    // Helper: Parse CSV content
+    function parseCSV(text) {
+      const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+      if (lines.length === 0) return [];
+      const headers = lines[0].split(',').map(h => h.trim());
+      const data = [];
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        const obj = {};
+        headers.forEach((h, index) => {
+          const val = values[index];
+          // Try to convert to float or int if possible
+          if (val === undefined) {
+            obj[h] = null;
+          } else if (val === '') {
+            obj[h] = '';
+          } else if (!isNaN(val)) {
+            obj[h] = Number(val);
+          } else {
+            obj[h] = val;
+          }
+        });
+        data.push(obj);
+      }
+      return data;
+    }
+
+    // Set up file fallback click handler
+    if (fileFallbackBtn && dirInput) {
+      fileFallbackBtn.addEventListener('click', () => {
+        dirInput.click();
+      });
+    }
+
+    // Processing files logic
+    const processFiles = async (files) => {
+      console.log("Processing files count: " + files.length);
+      files.forEach(f => console.log("File loaded: " + f.name));
+      if (files.length === 0) return;
+
+      // Find required files
+      let summaryFile = files.find(f => f.name.endsWith('summary.json') || f.name === 'node_summary.csv');
+      let batchesFile = files.find(f => f.name === 'node_batches.csv');
+      let outputsFile = files.find(f => f.name === 'node_outputs.csv');
+      let spikesFile = files.find(f => f.name === 'node_output_spikes.csv');
+
+      // Update indicators
+      updateStatusIndicator(statusSummary, !!summaryFile);
+      updateStatusIndicator(statusBatches, !!batchesFile);
+      updateStatusIndicator(statusOutputs, !!outputsFile);
+      updateStatusIndicator(statusSpikes, !!spikesFile);
+
+      let parsedSummary = {};
+      let parsedBatches = [];
+      let parsedOutputs = [];
+      let parsedSpikes = [];
+
+      // 1. Process summary
+      if (summaryFile) {
+        const text = await summaryFile.text();
+        if (summaryFile.name.endsWith('.json')) {
+          try {
+            parsedSummary = JSON.parse(text);
+          } catch(err) {
+            console.error("Failed to parse summary JSON", err);
+          }
+        } else {
+          // Parse summary CSV
+          const rows = parseCSV(text);
+          rows.forEach(r => {
+            if (r.key !== undefined) {
+              const val = r.value;
+              parsedSummary[r.key] = isNaN(val) ? val : Number(val);
+            }
+          });
+        }
+      }
+
+      // 2. Process batches
+      if (batchesFile) {
+        const text = await batchesFile.text();
+        parsedBatches = parseCSV(text);
+      }
+
+      // 3. Process outputs
+      if (outputsFile) {
+        const text = await outputsFile.text();
+        parsedOutputs = parseCSV(text);
+      }
+
+      // 4. Process spikes
+      if (spikesFile) {
+        const text = await spikesFile.text();
+        parsedSpikes = parseCSV(text);
+      }
+
+      // Populate interface
+      populateDashboard(parsedSummary, parsedBatches, parsedOutputs, parsedSpikes, summaryFile);
+    };
+
+    // Bind change listeners to both inputs
+    if (folderInput) {
+      folderInput.addEventListener('change', async (e) => {
+        await processFiles(Array.from(e.target.files));
+      });
+    }
+
+    if (dirInput) {
+      dirInput.addEventListener('change', async (e) => {
+        await processFiles(Array.from(e.target.files));
+      });
+    }
+
+    function updateStatusIndicator(el, success) {
+      if (success) {
+        el.className = "h-2 w-2 rounded-full bg-emerald-500 shadow-md shadow-emerald-500/20";
+      } else {
+        el.className = "h-2 w-2 rounded-full bg-rose-500 shadow-md shadow-rose-500/20";
+      }
+    }
+
+    function populateDashboard(summary, batches, outputs, spikes, summaryFile) {
+      // 1. Set summary metrics
+      valBackend.textContent = summary.backend_kind || (summary.backend_preference ? summary.backend_preference.toUpperCase() : "CPU");
+      valTicks.textContent = summary.total_ticks !== undefined ? summary.total_ticks : (batches.reduce((acc, curr) => acc + (curr.tick_count || 0), 0));
+      valBatches.textContent = summary.total_batches !== undefined ? summary.total_batches : batches.length;
+      
+      const wallTime = summary.wall_time_us;
+      valWallTime.textContent = wallTime ? (wallTime >= 1000000 ? `${(wallTime / 1000000).toFixed(2)} s` : `${(wallTime / 1000).toFixed(1)} ms`) : "-";
+
+      const totalGenSpikes = summary.total_generated_spikes !== undefined ? summary.total_generated_spikes : (batches.reduce((acc, curr) => acc + (curr.generated_spikes_count || 0), 0));
+      valSpikes.textContent = totalGenSpikes.toLocaleString();
+
+      const totalDroppedSpikes = summary.total_dropped_spikes !== undefined ? summary.total_dropped_spikes : (batches.reduce((acc, curr) => acc + (curr.dropped_spikes_count || 0), 0));
+      valDroppedSpikes.textContent = totalDroppedSpikes.toLocaleString();
+
+      const totalWrittenSpikes = summary.total_output_spikes_written !== undefined ? summary.total_output_spikes_written : (batches.reduce((acc, curr) => acc + (curr.output_spikes_written || 0), 0));
+
+      let saturationStr = "-";
+      let droppedRatioStr = "-";
+      if (totalGenSpikes > 0) {
+        saturationStr = `${((totalWrittenSpikes / totalGenSpikes) * 100).toFixed(2)}%`;
+        droppedRatioStr = `${((totalDroppedSpikes / totalGenSpikes) * 100).toFixed(2)}%`;
+      } else {
+        saturationStr = "0.00%";
+        droppedRatioStr = "0.00%";
+      }
+      valSaturation.textContent = saturationStr;
+      valDroppedRatio.textContent = droppedRatioStr;
+
+      // Dataset Badge display
+      const datasetBadge = document.getElementById('dataset-badge');
+      if (summaryFile) {
+        const pathOrName = (summaryFile.webkitRelativePath || summaryFile.name).toLowerCase();
+        let displayName = "";
+        let badgeClasses = "";
+        
+        if (pathOrName.includes("active")) {
+          displayName = "Active Dataset";
+          badgeClasses = "px-2 py-0.5 text-xs font-semibold rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20";
+        } else if (pathOrName.includes("baseline") || pathOrName.includes("local_engine_e2e")) {
+          displayName = "Baseline Dataset";
+          badgeClasses = "px-2 py-0.5 text-xs font-semibold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+        } else {
+          displayName = summaryFile.name;
+          badgeClasses = "px-2 py-0.5 text-xs font-semibold rounded bg-slate-800 text-slate-300 border border-slate-700";
+        }
+        
+        datasetBadge.textContent = displayName;
+        datasetBadge.className = badgeClasses;
+        datasetBadge.classList.remove('hidden');
+      } else {
+        datasetBadge.classList.add('hidden');
+      }
+
+      // Enable panels styling
+      dashboardContainer.classList.remove('opacity-40');
+      exportPngBtn.disabled = false;
+
+      // 2. Render Batch execution time chart
+      renderBatchTimeChart(batches);
+
+      // 3. Render Spikes allocation metrics
+      renderSpikesChart(batches);
+
+      // 4. Render Spike Raster plot
+      renderRasterChart(spikes);
+    }
+
+    function renderBatchTimeChart(batches) {
+      if (batchTimeChart) batchTimeChart.destroy();
+
+      const labels = batches.map(b => `Batch ${b.batch_idx}`);
+      const durations = batches.map(b => b.backend_execution_time_us);
+
+      const ctx = document.getElementById('batchTimeChart').getContext('2d');
+      batchTimeChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Backend Time (us)',
+            data: durations,
+            borderColor: '#22d3ee',
+            backgroundColor: 'rgba(34, 211, 238, 0.1)',
+            borderWidth: 2,
+            tension: 0.15,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+          }
+        }
+      });
+    }
+
+    function renderSpikesChart(batches) {
+      if (spikesChart) spikesChart.destroy();
+
+      const labels = batches.map(b => `B${b.batch_idx}`);
+      const generated = batches.map(b => b.generated_spikes_count);
+      const output = batches.map(b => b.output_spikes_written);
+      const dropped = batches.map(b => b.dropped_spikes_count);
+
+      const ctx = document.getElementById('spikesChart').getContext('2d');
+      spikesChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Generated',
+              data: generated,
+              backgroundColor: '#10b981'
+            },
+            {
+              label: 'Written (Output)',
+              data: output,
+              backgroundColor: '#6366f1'
+            },
+            {
+              label: 'Dropped',
+              data: dropped,
+              backgroundColor: '#ef4444'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#f8fafc' } }
+          },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+          }
+        }
+      });
+    }
+
+    function renderRasterChart(spikes) {
+      if (rasterChart) rasterChart.destroy();
+
+      // Convert spikes to scatter format
+      // node_output_spikes contains: batch_idx, tick_index, slot, soma_id
+      const dataset = spikes.map(s => ({
+        x: s.tick_index,
+        y: s.soma_id
+      }));
+
+      const ctx = document.getElementById('rasterChart').getContext('2d');
+      rasterChart = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+          datasets: [{
+            label: 'Spike Events',
+            data: dataset,
+            backgroundColor: '#f59e0b',
+            pointRadius: 4,
+            pointHoverRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Simulation Tick Index', color: '#94a3b8' },
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#94a3b8' }
+            },
+            y: {
+              title: { display: true, text: 'Neuron Soma ID', color: '#94a3b8' },
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#94a3b8' }
+            }
+          }
+        }
+      });
+    }
+
+    // Export PNG handler using html2canvas
+    exportPngBtn.addEventListener('click', () => {
+      // Capture dashboardContainer
+      const element = document.body;
+      html2canvas(element, {
+        backgroundColor: '#0f172a',
+        scale: 2 // Higher quality
+      }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = 'axi-viewer-dashboard.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    });
+  </script>
+</body>
+</html>

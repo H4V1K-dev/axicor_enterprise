@@ -1,4 +1,6 @@
 # --- Axicor Custom Ignores ---
+**/node_modules
+AxiEngine/tools/axi-viewer/tailwind.js
 Axicor-Models
 AxiEngine/artifacts/
 GEMINI.md
