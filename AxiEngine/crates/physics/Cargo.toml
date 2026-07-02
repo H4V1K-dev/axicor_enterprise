@@ -2,6 +2,7 @@
 name = "physics"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Layer 0 core domain mathematics and physics primitives for AxiEngine"
 
 [dependencies]

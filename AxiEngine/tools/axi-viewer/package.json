@@ -2,6 +2,7 @@
   "name": "axi-viewer",
   "version": "1.0.0",
   "description": "Browser-first dev viewer for AxiEngine simulation telemetry",
+  "license": "AGPL-3.0-only",
   "main": "index.html",
   "scripts": {
     "start": "serve -p 3000 .",

@@ -2,6 +2,7 @@
 name = "types"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Layer 0 foundational vocabulary and packed ABI contracts for AxiEngine"
 
 [dependencies]
