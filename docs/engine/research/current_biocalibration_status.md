@@ -61,11 +61,17 @@ Status: active research index, not a final report.
 5. **EPHYS_PROBE_01**: какой именно старый контекст дал sawtooth-график с привыканием.
 6. **Переход к популяции**: когда одиночный нейрон будет достаточно понятен, нужно проверить перенос на мини-сеть.
 
-## 7. Следующий осмысленный эксперимент
+## 7. Активные и следующие исследования
 
-Следующий эксперимент должен быть зарегистрирован отдельной активной папкой по правилам [RULES.md](RULES.md).
+### [Active] MVP CPU Replay v1 (`archive/_active/mvp_cpu_replay_v1/`)
 
-Предпочтительный следующий шаг:
+- **Вопрос**: Можем ли изолированно воспроизвести MVP CPU tick-loop 1:1.
+- **Зачем**: Нужен технический baseline перед изменением физики.
+- **Что подтвердит**: Побитовое совпадение перенесенной логики с MVP-поведением на fixtures.
+- **Что ослабит**: Расхождения в state planes, которые нельзя объяснить адаптацией контрактов.
+- **Planned outputs**: README, test-only runner, parity tests, mismatch report.
+
+### Следующий шаг
 
 ```text
 full-neuron-replay-314900022-v1
@@ -77,6 +83,7 @@ full-neuron-replay-314900022-v1
 
 ## 8. Ключевые архивы
 
+- [MVP CPU Replay v1 (Active)](archive/_active/mvp_cpu_replay_v1/README.md)
 - [Legacy baseline import](archive/2026-07-01_legacy_baseline_import/README.md)
 - [Biocalibration bootstrap](archive/2026-07-02_biocalibration_bootstrap/README.md)
 - [Идеи полной физики нейрона](archive/2026-07-02_biocalibration_bootstrap/full_neuron_physics_ideas_v1.md)
