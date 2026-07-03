@@ -3,12 +3,12 @@
 #![cfg(feature = "mvp-cpu-replay")]
 
 use layout::{
-    compute_state_offsets, BurstHeads8, AXONS_FILE_VERSION, AXONS_MAGIC, STATE_FILE_VERSION,
-    STATE_MAGIC,
+    compute_state_offsets, BurstHeads8, VariantParameters, AXONS_FILE_VERSION, AXONS_MAGIC,
+    STATE_FILE_VERSION, STATE_MAGIC, VARIANT_LUT_LEN,
 };
 use test_harness::{
-    cpu_apply_spike_batch, cpu_extract_telemetry, cpu_inject_inputs, cpu_propagate_axons,
-    cpu_record_outputs, MvpAxonBuffer, MvpStateBuffer,
+    cpu_apply_gsop, cpu_apply_spike_batch, cpu_extract_telemetry, cpu_inject_inputs,
+    cpu_propagate_axons, cpu_record_outputs, cpu_sort_and_prune, MvpAxonBuffer, MvpStateBuffer,
 };
 use types::AXON_SENTINEL;
 
@@ -301,4 +301,581 @@ fn test_cpu_inject_inputs_short_bitmask() {
     // tid 32..63 (missing word 1) safely skipped by safety guard without panic
     assert_eq!(heads[32].h0, AXON_SENTINEL);
     assert_eq!(heads[63].h0, AXON_SENTINEL);
+}
+
+#[test]
+fn test_cpu_sort_and_prune_threshold_kills() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+
+    // prune_threshold = 10 -> threshold_mass = 10 << 16 = 655360
+    let prune_threshold = 10i16;
+
+    // Slot 0: weight below threshold_mass (9 << 16 = 589824) -> should be killed
+    state_buf.write_dendrite_target(0, 0, 100);
+    state_buf.write_dendrite_weight(0, 0, 9 << 16);
+    state_buf.write_dendrite_timer(0, 0, 5);
+
+    // Slot 1: weight at threshold_mass (10 << 16 = 655360) -> kept
+    state_buf.write_dendrite_target(1, 0, 200);
+    state_buf.write_dendrite_weight(1, 0, 10 << 16);
+    state_buf.write_dendrite_timer(1, 0, 3);
+
+    cpu_sort_and_prune(&mut state_buf, prune_threshold);
+
+    // Slot 0 becomes the surviving slot 1 (target 200, weight 10 << 16)
+    assert_eq!(state_buf.read_dendrite_target(0, 0), 200);
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 10 << 16);
+    assert_eq!(state_buf.read_dendrite_timer(0, 0), 3);
+
+    // Slot 1 becomes killed dead slot (target 0, weight 0, timer 0)
+    assert_eq!(state_buf.read_dendrite_target(1, 0), 0);
+    assert_eq!(state_buf.read_dendrite_weight(1, 0), 0);
+    assert_eq!(state_buf.read_dendrite_timer(1, 0), 0);
+}
+
+#[test]
+fn test_cpu_sort_and_prune_sort_desc_by_abs_weight() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+
+    state_buf.write_dendrite_target(0, 0, 1);
+    state_buf.write_dendrite_weight(0, 0, 500 << 16);
+
+    state_buf.write_dendrite_target(1, 0, 2);
+    state_buf.write_dendrite_weight(1, 0, -(800 << 16)); // Negative strong weight
+
+    state_buf.write_dendrite_target(2, 0, 3);
+    state_buf.write_dendrite_weight(2, 0, 200 << 16);
+
+    cpu_sort_and_prune(&mut state_buf, 0);
+
+    // Sorted descending by abs(weight): -800 (800), 500 (500), 200 (200)
+    assert_eq!(state_buf.read_dendrite_target(0, 0), 2);
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), -(800 << 16)); // Negative sign preserved
+
+    assert_eq!(state_buf.read_dendrite_target(1, 0), 1);
+    assert_eq!(state_buf.read_dendrite_weight(1, 0), 500 << 16);
+
+    assert_eq!(state_buf.read_dendrite_target(2, 0), 3);
+    assert_eq!(state_buf.read_dendrite_weight(2, 0), 200 << 16);
+
+    assert_eq!(state_buf.read_dendrite_target(3, 0), 0);
+}
+
+#[test]
+fn test_cpu_sort_and_prune_burst_reset_preserves_type_and_spike_bit() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+
+    // 0xFF = 1111_1111 (spike bit 0 = 1, burst bits 1..3 = 111, type bits 4..7 = 1111)
+    state_buf.write_soma_flags(0, 0xFF);
+
+    cpu_sort_and_prune(&mut state_buf, 0);
+
+    // 0xFF & 0xF1 = 0xF1 (1111_0001) -> burst bits reset to 0, spike & type preserved
+    assert_eq!(state_buf.read_soma_flags(0), 0xF1);
+}
+
+#[test]
+fn test_cpu_sort_and_prune_empty_array() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+
+    cpu_sort_and_prune(&mut state_buf, 10);
+
+    for slot in 0..128 {
+        assert_eq!(state_buf.read_dendrite_target(slot, 0), 0);
+        assert_eq!(state_buf.read_dendrite_weight(slot, 0), 0);
+        assert_eq!(state_buf.read_dendrite_timer(slot, 0), 0);
+    }
+}
+
+#[test]
+fn test_cpu_sort_and_prune_full_array_no_prune() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+
+    // Fill all 128 slots with increasing weights
+    for slot in 0..128 {
+        state_buf.write_dendrite_target(slot, 0, (slot + 1) as u32);
+        state_buf.write_dendrite_weight(slot, 0, ((slot + 1) as i32) * (10 << 16));
+    }
+
+    cpu_sort_and_prune(&mut state_buf, 0);
+
+    // Slot 0 should have highest weight (128 * (10 << 16))
+    assert_eq!(state_buf.read_dendrite_target(0, 0), 128);
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 128 * (10 << 16));
+
+    // Slot 127 should have lowest weight (1 * (10 << 16))
+    assert_eq!(state_buf.read_dendrite_target(127, 0), 1);
+    assert_eq!(state_buf.read_dendrite_weight(127, 0), 1 * (10 << 16));
+}
+
+#[test]
+fn test_cpu_sort_and_prune_multi_tid_independence() {
+    let padded_n = 64;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+
+    // tid 0: slot 0 weight below threshold -> killed
+    state_buf.write_dendrite_target(0, 0, 10);
+    state_buf.write_dendrite_weight(0, 0, 1 << 16);
+
+    // tid 1: slot 0 weight above threshold -> kept
+    state_buf.write_dendrite_target(0, 1, 20);
+    state_buf.write_dendrite_weight(0, 1, 50 << 16);
+
+    cpu_sort_and_prune(&mut state_buf, 10);
+
+    // tid 0 pruned
+    assert_eq!(state_buf.read_dendrite_target(0, 0), 0);
+
+    // tid 1 preserved independently
+    assert_eq!(state_buf.read_dendrite_target(0, 1), 20);
+    assert_eq!(state_buf.read_dendrite_weight(0, 1), 50 << 16);
+}
+
+fn test_variant_table() -> [VariantParameters; VARIANT_LUT_LEN] {
+    [VariantParameters {
+        threshold: 1000,
+        rest_potential: -70000,
+        leak_shift: 6,
+        homeostasis_penalty: 50,
+        spontaneous_firing_period_ticks: 0,
+        initial_synapse_weight: 100,
+        gsop_potentiation: 128,
+        gsop_depression: 64,
+        homeostasis_decay: 1,
+        refractory_period: 2,
+        synapse_refractory_period: 0,
+        signal_propagation_length: 5,
+        is_inhibitory: 0,
+        inertia_curve: [128; 8],
+        ahp_amplitude: 0,
+        _pad1: [0; 6],
+        adaptive_leak_min_shift: 0,
+        adaptive_leak_gain: 0,
+        adaptive_mode: 0,
+        _leak_pad: [0; 3],
+        d1_affinity: 64,
+        d2_affinity: 64,
+        heartbeat_m: 0,
+    }; VARIANT_LUT_LEN]
+}
+
+#[test]
+fn test_cpu_apply_gsop_non_spiking_unchanged() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x00);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h0 = 5;
+    axon_buf.write_head(0, head);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 100000);
+}
+
+#[test]
+fn test_cpu_apply_gsop_active_ltp_exact() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    // Active head: h0=5, seg=2 -> h0 - seg = 3 <= prop(5)
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h0 = 5;
+    axon_buf.write_head(0, head);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    // Exact LTP delta: pot=128, inertia=128, burst=1 -> delta = (128 * 128 * 1) >> 7 = 128
+    // 100000 + 128 = 100128
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 100128);
+}
+
+#[test]
+fn test_cpu_apply_gsop_inactive_ltd_exact() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    // Exact LTD delta: dep=64, inertia=128, burst=1 -> delta = -64
+    // 100000 - 64 = 99936
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 99936);
+}
+
+#[test]
+fn test_cpu_apply_gsop_d1_exact() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h0 = 5;
+    axon_buf.write_head(0, head);
+
+    // Positive dopamine 100 boosts D1 potentiation: pot_mod = (100 * 64) >> 7 = 50
+    // final_pot = 128 + 50 = 178 -> delta = 178 -> 100000 + 178 = 100178
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 100);
+
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 100178);
+}
+
+#[test]
+fn test_cpu_apply_gsop_d2_exact() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    // Positive dopamine 100 suppresses D2 depression: dep_mod = (100 * 64) >> 7 = 50
+    // final_dep = 64 - 50 = 14 -> delta = -14 -> 100000 - 14 = 99986
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 100);
+
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 99986);
+}
+
+#[test]
+fn test_cpu_apply_gsop_variant_id_selection() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf = MvpAxonBuffer::new(total_axons);
+    let mut variants = test_variant_table();
+
+    // Set variant 1 with double potentiation
+    variants[1].gsop_potentiation = 256;
+
+    // soma_flags = (1 << 4) | 0x01 = 0x11 -> var_id = 1
+    state_buf.write_soma_flags(0, 0x11);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h0 = 5;
+    axon_buf.write_head(0, head);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    // Variant 1 pot=256 -> delta = (256 * 128) >> 7 = 256 -> 100000 + 256 = 100256
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 100256);
+}
+
+#[test]
+fn test_cpu_apply_gsop_top_clamp() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 2_139_999_950);
+
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h0 = 5;
+    axon_buf.write_head(0, head);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    // 2_139_999_950 + 128 = 2_140_000_078 -> clamped to 2_140_000_000
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 2_140_000_000);
+}
+
+#[test]
+fn test_cpu_apply_gsop_bottom_clamp() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 10); // Small initial weight
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    // 10 - 64 = -54 -> clamped to 0
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 0);
+}
+
+#[test]
+fn test_cpu_apply_gsop_timer_before_zero_target() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+
+    // Slot 0: timer > 0 and target = 0 (timer check must come before target == 0 break!)
+    state_buf.write_dendrite_timer(0, 0, 5);
+    state_buf.write_dendrite_target(0, 0, 0);
+
+    // Slot 1: valid target and weight
+    state_buf.write_dendrite_target(1, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(1, 0, 100000);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    // Slot 0 skipped via timer > 0 continue without breaking loop; Slot 1 processed (depressed to 99936)
+    assert_eq!(state_buf.read_dendrite_weight(1, 0), 99936);
+}
+
+#[test]
+fn test_cpu_apply_gsop_zero_weight_continues() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+
+    // Slot 0: target valid, but weight = 0 (must continue, not break!)
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 0);
+
+    // Slot 1: target valid, weight = 100000
+    state_buf.write_dendrite_target(1, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(1, 0, 100000);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    // Slot 0 remains 0; Slot 1 processed (depressed to 99936)
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 0);
+    assert_eq!(state_buf.read_dendrite_weight(1, 0), 99936);
+}
+
+#[test]
+fn test_cpu_apply_gsop_active_tail_hit_via_h7() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    // Set active head hit on h7, h0..h6 remain sentinel
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h7 = 5;
+    axon_buf.write_head(0, head);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    // Active hit via h7 potentiates weight to 100128
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 100128);
+}
+
+#[test]
+fn test_cpu_apply_gsop_timer_skip() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_timer(0, 0, 3);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    state_buf.write_dendrite_target(1, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(1, 0, 100000);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 100000);
+    assert_eq!(state_buf.read_dendrite_weight(1, 0), 99936);
+}
+
+#[test]
+fn test_cpu_apply_gsop_zero_target_break() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+
+    state_buf.write_dendrite_target(0, 0, 0);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    state_buf.write_dendrite_target(1, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(1, 0, 100000);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    assert_eq!(state_buf.read_dendrite_weight(1, 0), 100000);
+}
+
+#[test]
+fn test_cpu_apply_gsop_raw_id_zero_break() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+
+    state_buf.write_dendrite_target(0, 0, 5 << 24);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    state_buf.write_dendrite_target(1, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(1, 0, 100000);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    assert_eq!(state_buf.read_dendrite_weight(1, 0), 100000);
+}
+
+#[test]
+fn test_cpu_apply_gsop_out_of_range_axon_continue() {
+    let padded_n = 16;
+    let total_axons = 10;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+
+    state_buf.write_dendrite_target(0, 0, (1 << 24) | 999);
+    state_buf.write_dendrite_weight(0, 0, 100000);
+
+    state_buf.write_dendrite_target(1, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(1, 0, 100000);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 100000);
+    assert!(state_buf.read_dendrite_weight(1, 0) < 100000);
+}
+
+#[test]
+fn test_cpu_apply_gsop_negative_weight_keeps_sign() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf = MvpAxonBuffer::new(total_axons);
+    let variants = test_variant_table();
+
+    state_buf.write_soma_flags(0, 0x01);
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, -100000);
+
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h0 = 5;
+    axon_buf.write_head(0, head);
+
+    cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
+
+    let new_weight = state_buf.read_dendrite_weight(0, 0);
+    assert_eq!(new_weight, -100128);
+}
+
+#[test]
+fn test_cpu_apply_gsop_dopamine_d1_d2_modulation() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let variants = test_variant_table();
+
+    let mut state_buf_base = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf_base = MvpAxonBuffer::new(total_axons);
+    state_buf_base.write_soma_flags(0, 0x01);
+    state_buf_base.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf_base.write_dendrite_weight(0, 0, 100000);
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h0 = 5;
+    axon_buf_base.write_head(0, head);
+    cpu_apply_gsop(&mut state_buf_base, &axon_buf_base, &variants, 0);
+
+    let mut state_buf_dopa = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_buf_dopa = MvpAxonBuffer::new(total_axons);
+    state_buf_dopa.write_soma_flags(0, 0x01);
+    state_buf_dopa.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf_dopa.write_dendrite_weight(0, 0, 100000);
+    axon_buf_dopa.write_head(0, head);
+    cpu_apply_gsop(&mut state_buf_dopa, &axon_buf_dopa, &variants, 100);
+
+    assert!(state_buf_dopa.read_dendrite_weight(0, 0) > state_buf_base.read_dendrite_weight(0, 0));
+}
+
+#[test]
+fn test_cpu_apply_gsop_burst_multiplier() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let variants = test_variant_table();
+
+    let mut state_single = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_single = MvpAxonBuffer::new(total_axons);
+    state_single.write_soma_flags(0, 0x01);
+    state_single.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_single.write_dendrite_weight(0, 0, 100000);
+    let mut head = BurstHeads8::empty(AXON_SENTINEL);
+    head.h0 = 5;
+    axon_single.write_head(0, head);
+    cpu_apply_gsop(&mut state_single, &axon_single, &variants, 0);
+
+    let mut state_burst = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_burst = MvpAxonBuffer::new(total_axons);
+    state_burst.write_soma_flags(0, 0x07);
+    state_burst.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_burst.write_dendrite_weight(0, 0, 100000);
+    axon_burst.write_head(0, head);
+    cpu_apply_gsop(&mut state_burst, &axon_burst, &variants, 0);
+
+    let delta_single = state_single.read_dendrite_weight(0, 0) - 100000;
+    let delta_burst = state_burst.read_dendrite_weight(0, 0) - 100000;
+
+    assert_eq!(delta_single, 128);
+    assert_eq!(delta_burst, 384);
 }

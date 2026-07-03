@@ -5,8 +5,8 @@
 
 use layout::{
     calculate_state_blob_size, compute_state_offsets, AxonsFileHeader, BurstHeads8,
-    StateFileHeader, StateOffsets, AXONS_FILE_VERSION, AXONS_MAGIC, MAX_DENDRITES,
-    STATE_FILE_VERSION, STATE_MAGIC,
+    StateFileHeader, StateOffsets, VariantParameters, AXONS_FILE_VERSION, AXONS_MAGIC,
+    MAX_DENDRITES, STATE_FILE_VERSION, STATE_MAGIC, VARIANT_LUT_LEN,
 };
 use types::AXON_SENTINEL;
 
@@ -574,4 +574,198 @@ pub fn cpu_extract_telemetry(soma_flags: &[u8], out_ids: &mut [u32]) -> u32 {
         }
     }
     count as u32
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MvpDendriteSlot {
+    target: u32,
+    weight: i32,
+    timer: u8,
+}
+
+/// Prunes weak/dead dendrite synapses and sorts active synapses by weight magnitude in descending order.
+///
+/// For each neuron `tid` in `0..padded_n`:
+/// 1. Resets burst count bits `1..=3` in `soma_flags[tid]` (`flag & 0xF1`).
+/// 2. Reads 128 dendrite slots at column index `slot * padded_n + tid`.
+/// 3. Retains slots where `target != 0` AND `weight.unsigned_abs() >= ((prune_threshold.unsigned_abs() as u32) << 16)`.
+/// 4. Sorts active slots to the front in descending order of absolute weight (`abs(weight)`).
+/// 5. Writes back target, weight, and timer planes to the `MvpStateBuffer`.
+pub fn cpu_sort_and_prune(state_buf: &mut MvpStateBuffer, prune_threshold: i16) {
+    let padded_n = state_buf.padded_n();
+    let threshold_mass = (prune_threshold.unsigned_abs() as u32) << 16;
+
+    for tid in 0..padded_n {
+        let flag = state_buf.read_soma_flags(tid);
+        state_buf.write_soma_flags(tid, flag & 0xF1);
+
+        let mut slots = [MvpDendriteSlot {
+            target: 0,
+            weight: 0,
+            timer: 0,
+        }; MAX_DENDRITES];
+
+        #[allow(clippy::needless_range_loop)]
+        for slot in 0..MAX_DENDRITES {
+            let target = state_buf.read_dendrite_target(slot, tid);
+            let weight = state_buf.read_dendrite_weight(slot, tid);
+            let timer = state_buf.read_dendrite_timer(slot, tid);
+
+            if target != 0 && weight.unsigned_abs() >= threshold_mass {
+                slots[slot] = MvpDendriteSlot {
+                    target,
+                    weight,
+                    timer,
+                };
+            }
+        }
+
+        slots.sort_unstable_by(|a, b| {
+            let a_alive = a.target != 0;
+            let b_alive = b.target != 0;
+
+            if a_alive && !b_alive {
+                std::cmp::Ordering::Less
+            } else if !a_alive && b_alive {
+                std::cmp::Ordering::Greater
+            } else if a_alive && b_alive {
+                b.weight.unsigned_abs().cmp(&a.weight.unsigned_abs())
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+
+        #[allow(clippy::needless_range_loop)]
+        for slot in 0..MAX_DENDRITES {
+            state_buf.write_dendrite_target(slot, tid, slots[slot].target);
+            state_buf.write_dendrite_weight(slot, tid, slots[slot].weight);
+            state_buf.write_dendrite_timer(slot, tid, slots[slot].timer);
+        }
+    }
+}
+
+/// Applies Global Synaptic Optimization Protocol (GSOP) plastic weight updates to spiking somas.
+///
+/// For each spiking neuron `tid` (`soma_flags & 0x01 != 0`):
+/// 1. Reads burst count multiplier `(flags >> 1) & 0x07` (minimum 1).
+/// 2. Reads profile `var_id = (flags >> 4) & 0x0F` from `variant_table`.
+/// 3. Iterates over 128 dendrite slots:
+///    - Skips if dendrite timer > 0.
+///    - Breaks if `target_packed == 0` (hardware trap).
+///    - Skips if weight == 0.
+///    - Extracts `seg_idx = target_packed >> 24` and `raw_id = target_packed & 0x00FFFFFF`.
+///    - Breaks if `raw_id == 0` (zero-index trap).
+///    - Computes `axon_id = raw_id - 1`, skipping if `axon_id >= total_axons`.
+///    - Checks active tail hit across all 8 axon heads using `wrapping_sub(seg_idx) <= prop`.
+///    - Calculates inertia rank `(abs_w >> 28).min(7)` and applies dopamine modulation (D1/D2).
+///    - Adjusts weight magnitude, clamping bottom to 0 and top to `2_140_000_000`, preserving weight sign.
+pub fn cpu_apply_gsop(
+    state_buf: &mut MvpStateBuffer,
+    axon_buf: &MvpAxonBuffer,
+    variant_table: &[VariantParameters; VARIANT_LUT_LEN],
+    dopamine: i16,
+) {
+    let padded_n = state_buf.padded_n();
+    let total_axons = axon_buf.total_axons();
+
+    for tid in 0..padded_n {
+        let flags = state_buf.read_soma_flags(tid);
+
+        // Early Exit: Spiking somas only
+        if (flags & 0x01) == 0 {
+            continue;
+        }
+
+        let burst_count = (flags >> 1) & 0x07;
+        let burst_mult = if burst_count > 0 {
+            burst_count as i32
+        } else {
+            1
+        };
+
+        let var_id = ((flags >> 4) & 0x0F) as usize;
+        let p = &variant_table[var_id];
+
+        for slot in 0..MAX_DENDRITES {
+            let timer = state_buf.read_dendrite_timer(slot, tid);
+            if timer > 0 {
+                continue;
+            }
+
+            let target_packed = state_buf.read_dendrite_target(slot, tid);
+            if target_packed == 0 {
+                break; // Hardware Trap
+            }
+
+            let w = state_buf.read_dendrite_weight(slot, tid);
+            if w == 0 {
+                continue; // Night Phase Pruned
+            }
+
+            let seg_idx = target_packed >> 24;
+            let raw_id = target_packed & 0x00FFFFFF;
+            if raw_id == 0 {
+                break; // Zero-Index Trap
+            }
+
+            let axon_id = (raw_id - 1) as usize;
+            if axon_id >= total_axons {
+                continue;
+            }
+
+            let h = axon_buf.read_head(axon_id);
+            let prop = p.signal_propagation_length as u32;
+
+            // Branchless 8-head Hit Detection
+            let is_active = ((h.h0.wrapping_sub(seg_idx) <= prop) as i32)
+                | ((h.h1.wrapping_sub(seg_idx) <= prop) as i32)
+                | ((h.h2.wrapping_sub(seg_idx) <= prop) as i32)
+                | ((h.h3.wrapping_sub(seg_idx) <= prop) as i32)
+                | ((h.h4.wrapping_sub(seg_idx) <= prop) as i32)
+                | ((h.h5.wrapping_sub(seg_idx) <= prop) as i32)
+                | ((h.h6.wrapping_sub(seg_idx) <= prop) as i32)
+                | ((h.h7.wrapping_sub(seg_idx) <= prop) as i32);
+
+            let sign = if w >= 0 { 1 } else { -1 };
+            let abs_w = w.abs();
+
+            // 1. Inertia Rank (0..7)
+            let mut rank = (abs_w >> 28) as usize;
+            if rank > 7 {
+                rank = 7;
+            }
+            let inertia = p.inertia_curve[rank] as i32;
+
+            // 2. Dopamine modulation (D1 boosts LTP, D2 suppresses LTD)
+            let pot_mod = ((dopamine as i32) * (p.d1_affinity as i32)) >> 7;
+            let dep_mod = ((dopamine as i32) * (p.d2_affinity as i32)) >> 7;
+
+            let raw_pot = (p.gsop_potentiation as i32) + pot_mod;
+            let raw_dep = (p.gsop_depression as i32) - dep_mod;
+
+            let final_pot = raw_pot & !(raw_pot >> 31); // max(0, val)
+            let final_dep = raw_dep & !(raw_dep >> 31); // max(0, val)
+
+            let delta_pot = (final_pot * inertia * burst_mult) >> 7;
+            let delta_dep = (final_dep * inertia * burst_mult) >> 7;
+
+            let mut delta = if is_active != 0 {
+                delta_pot
+            } else {
+                -delta_dep
+            };
+
+            // Fixed Slot Decay = 1.0x
+            delta = (delta * 128) >> 7;
+
+            // 3. Apply & Clamp to Mass Domain Limits
+            let mut new_abs = abs_w + delta;
+            new_abs &= !(new_abs >> 31); // Clamp bottom to 0
+            if new_abs > 2140000000 {
+                new_abs = 2140000000;
+            } // Headroom guard
+
+            state_buf.write_dendrite_weight(slot, tid, new_abs * sign);
+        }
+    }
 }

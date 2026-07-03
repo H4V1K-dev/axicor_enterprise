@@ -37,12 +37,14 @@ The full set of MVP CPU functions planned for isolated porting:
 ### Edge Case & Parity Contracts
 - `cpu_propagate_axons`: Implements exact 1:1 MVP parity using `chunks_exact_mut(2)`. Valid production axon head buffers must have an even length. Any trailing odd element in an odd-length slice is left unprocessed.
 - `cpu_inject_inputs`: Uses a deliberate safety guard (`.get(word_idx)`) to prevent panics when `input_bitmask` is shorter than `(num_virtual_axons + 31) / 32`. Virtual axons without matching bitmask words remain unchanged.
+- `cpu_sort_and_prune`: Implements 1:1 MVP pruning threshold (`threshold_mass = (prune_threshold.unsigned_abs() as u32) << 16`), resets burst count bits (`soma_flags & 0xF1`), and sorts active slots in-place by absolute weight magnitude descending (`abs(weight)`).
+- `cpu_apply_gsop`: Implements 1:1 MVP plastic weight updates for spiking somas with burst count multiplier, D1/D2 dopamine modulation, 8-head active tail detection (`wrapping_sub(seg_idx) <= prop`), and magnitude clamping to `[0, 2140000000]`.
 
 ### Step-by-Step Execution Plan
 1. Organize active research directory and register status in `docs/engine/research/current_biocalibration_status.md`.
 2. Prepare test-only harness location under `crates/test-harness` with feature flag `mvp-cpu-replay`.
 3. Implement `.state` and `.axons` blob-compatible wrappers (`MvpStateBuffer`, `MvpAxonBuffer`) adhering to `layout` offsets, headers, and column-major matrix indexing (`slot * padded_n + tid`). [COMPLETED - Task 1]
-4. Incrementally port CPU logic functions starting with simple utilities (`cpu_propagate_axons`, `cpu_apply_spike_batch`, `cpu_inject_inputs`, `cpu_record_outputs`), followed by telemetry/GSOP, and finally `cpu_update_neurons` hot loop. [COMPLETED - Task 2 simple functions]
+4. Incrementally port CPU logic functions starting with simple utilities (`cpu_propagate_axons`, `cpu_apply_spike_batch`, `cpu_inject_inputs`, `cpu_record_outputs`, `cpu_extract_telemetry`, `cpu_sort_and_prune`), followed by GSOP (`cpu_apply_gsop`), and finally `cpu_update_neurons` hot loop. [COMPLETED - Tasks 2, 3 & 4 functions]
 5. Run parity tests against fixtures and generate mismatch reports if deviations occur.
 
 ## Planned Code Location
