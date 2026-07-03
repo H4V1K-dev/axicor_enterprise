@@ -34,11 +34,15 @@ The full set of MVP CPU functions planned for isolated porting:
 
 > **Note on Task 1 Scope**: Task 1 covers strictly the access scaffold for `.state` SoA planes and `.axons` binary blobs. Functional logic transfer begins in Task 2.
 
+### Edge Case & Parity Contracts
+- `cpu_propagate_axons`: Implements exact 1:1 MVP parity using `chunks_exact_mut(2)`. Valid production axon head buffers must have an even length. Any trailing odd element in an odd-length slice is left unprocessed.
+- `cpu_inject_inputs`: Uses a deliberate safety guard (`.get(word_idx)`) to prevent panics when `input_bitmask` is shorter than `(num_virtual_axons + 31) / 32`. Virtual axons without matching bitmask words remain unchanged.
+
 ### Step-by-Step Execution Plan
 1. Organize active research directory and register status in `docs/engine/research/current_biocalibration_status.md`.
 2. Prepare test-only harness location under `crates/test-harness` with feature flag `mvp-cpu-replay`.
 3. Implement `.state` and `.axons` blob-compatible wrappers (`MvpStateBuffer`, `MvpAxonBuffer`) adhering to `layout` offsets, headers, and column-major matrix indexing (`slot * padded_n + tid`). [COMPLETED - Task 1]
-4. Incrementally port CPU logic functions starting with simple utilities (`cpu_propagate_axons`, `cpu_apply_spike_batch`, `cpu_inject_inputs`, `cpu_record_outputs`), followed by telemetry/GSOP, and finally `cpu_update_neurons` hot loop.
+4. Incrementally port CPU logic functions starting with simple utilities (`cpu_propagate_axons`, `cpu_apply_spike_batch`, `cpu_inject_inputs`, `cpu_record_outputs`), followed by telemetry/GSOP, and finally `cpu_update_neurons` hot loop. [COMPLETED - Task 2 simple functions]
 5. Run parity tests against fixtures and generate mismatch reports if deviations occur.
 
 ## Planned Code Location

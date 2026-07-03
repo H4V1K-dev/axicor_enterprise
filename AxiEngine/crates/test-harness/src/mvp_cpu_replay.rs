@@ -440,3 +440,138 @@ impl MvpAxonBuffer {
         self.data[off + 28..off + 32].copy_from_slice(&head.h7.to_le_bytes());
     }
 }
+
+// =============================================================================
+// Standalone MVP CPU Functions
+// =============================================================================
+
+/// Advances axon propagation heads by `v_seg` segments for active (non-sentinel) heads.
+///
+/// Implements 1:1 legacy MVP parity by processing heads in pairs using `chunks_exact_mut(2)`.
+/// Any trailing odd element in an odd-length `axon_heads` slice is skipped.
+/// Valid production axon head buffers must have an even length.
+pub fn cpu_propagate_axons(axon_heads: &mut [BurstHeads8], v_seg: u32) {
+    for chunk in axon_heads.chunks_exact_mut(2) {
+        for head in chunk {
+            head.h0 = head
+                .h0
+                .wrapping_add(v_seg * ((head.h0 != AXON_SENTINEL) as u32));
+            head.h1 = head
+                .h1
+                .wrapping_add(v_seg * ((head.h1 != AXON_SENTINEL) as u32));
+            head.h2 = head
+                .h2
+                .wrapping_add(v_seg * ((head.h2 != AXON_SENTINEL) as u32));
+            head.h3 = head
+                .h3
+                .wrapping_add(v_seg * ((head.h3 != AXON_SENTINEL) as u32));
+            head.h4 = head
+                .h4
+                .wrapping_add(v_seg * ((head.h4 != AXON_SENTINEL) as u32));
+            head.h5 = head
+                .h5
+                .wrapping_add(v_seg * ((head.h5 != AXON_SENTINEL) as u32));
+            head.h6 = head
+                .h6
+                .wrapping_add(v_seg * ((head.h6 != AXON_SENTINEL) as u32));
+            head.h7 = head
+                .h7
+                .wrapping_add(v_seg * ((head.h7 != AXON_SENTINEL) as u32));
+        }
+    }
+}
+
+/// Applies scheduled spike batch events to axon propagation ring buffers.
+///
+/// For each `ghost_id` in `schedule_indices`, shifts `h7 <- h6 ... h1 <- h0`
+/// and sets `h0 = 0u32.wrapping_sub(v_seg)`. Out-of-range axon IDs are ignored.
+pub fn cpu_apply_spike_batch(axon_heads: &mut [BurstHeads8], schedule_indices: &[u32], v_seg: u32) {
+    for &ghost_id in schedule_indices {
+        if let Some(head) = axon_heads.get_mut(ghost_id as usize) {
+            head.h7 = head.h6;
+            head.h6 = head.h5;
+            head.h5 = head.h4;
+            head.h4 = head.h3;
+            head.h3 = head.h2;
+            head.h2 = head.h1;
+            head.h1 = head.h0;
+            head.h0 = 0u32.wrapping_sub(v_seg);
+        }
+    }
+}
+
+/// Injects external stimulus input spikes into virtual axons based on a bitmask slice.
+///
+/// For each virtual axon `tid` in `0..num_virtual_axons`, checks bit `tid % 32` in `input_bitmask[tid / 32]`.
+/// If set, performs a ring buffer shift on axon `virtual_offset + tid` and sets `h0 = 0u32.wrapping_sub(v_seg)`.
+/// Out-of-range virtual axon indices are safely ignored.
+///
+/// If `input_bitmask` is shorter than `(num_virtual_axons + 31) / 32`, missing bitmask words are safely skipped
+/// without panicking, leaving remaining virtual axons unchanged.
+pub fn cpu_inject_inputs(
+    axon_heads: &mut [BurstHeads8],
+    input_bitmask: &[u32],
+    virtual_offset: u32,
+    num_virtual_axons: u32,
+    v_seg: u32,
+) {
+    for tid in 0..num_virtual_axons as usize {
+        let word_idx = tid / 32;
+        let bit_idx = tid % 32;
+        if let Some(&word) = input_bitmask.get(word_idx) {
+            if (word >> bit_idx) & 1 != 0 {
+                if let Some(head) = axon_heads.get_mut(virtual_offset as usize + tid) {
+                    head.h7 = head.h6;
+                    head.h6 = head.h5;
+                    head.h5 = head.h4;
+                    head.h4 = head.h3;
+                    head.h3 = head.h2;
+                    head.h2 = head.h1;
+                    head.h1 = head.h0;
+                    head.h0 = 0u32.wrapping_sub(v_seg);
+                }
+            }
+        }
+    }
+}
+
+/// Records dense output history state (`0` or `1`) for mapped somas at `current_tick`.
+///
+/// For each element in `mapped_soma_ids`, if `soma_id != 0xFFFF_FFFF` and `soma_id` exists in `soma_flags`,
+/// writes `soma_flags[soma_id] & 0x01` to `output_history[current_tick * total_mapped_somas + i]`.
+/// Overwrites existing target buffer values (writing both `0` and `1`).
+pub fn cpu_record_outputs(
+    soma_flags: &[u8],
+    mapped_soma_ids: &[u32],
+    output_history: &mut [u8],
+    current_tick: u32,
+    total_mapped_somas: u32,
+) {
+    let tick_offset = (current_tick as usize) * (total_mapped_somas as usize);
+    for (i, &soma_id) in mapped_soma_ids.iter().enumerate() {
+        if soma_id != 0xFFFF_FFFF {
+            if let Some(&flag) = soma_flags.get(soma_id as usize) {
+                if let Some(out) = output_history.get_mut(tick_offset + i) {
+                    *out = flag & 0x01;
+                }
+            }
+        }
+    }
+}
+
+/// Extracts IDs of spiking somas (`soma_flags & 0x01 != 0`) in sequential ascending order.
+///
+/// Writes up to `out_ids.len()` spiking soma IDs into `out_ids`. Returns the total count of IDs recorded.
+/// Does not panic if `out_ids` capacity is smaller than total spiking somas.
+pub fn cpu_extract_telemetry(soma_flags: &[u8], out_ids: &mut [u32]) -> u32 {
+    let mut count = 0;
+    for (id, &flag) in soma_flags.iter().enumerate() {
+        if (flag & 0x01) != 0 {
+            if let Some(slot) = out_ids.get_mut(count) {
+                *slot = id as u32;
+                count += 1;
+            }
+        }
+    }
+    count as u32
+}

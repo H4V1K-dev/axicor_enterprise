@@ -6,7 +6,10 @@ use layout::{
     compute_state_offsets, BurstHeads8, AXONS_FILE_VERSION, AXONS_MAGIC, STATE_FILE_VERSION,
     STATE_MAGIC,
 };
-use test_harness::{MvpAxonBuffer, MvpStateBuffer};
+use test_harness::{
+    cpu_apply_spike_batch, cpu_extract_telemetry, cpu_inject_inputs, cpu_propagate_axons,
+    cpu_record_outputs, MvpAxonBuffer, MvpStateBuffer,
+};
 use types::AXON_SENTINEL;
 
 #[test]
@@ -155,4 +158,147 @@ fn test_dendrite_slot_indexing_and_state_rw() {
     assert_eq!(state_buf.read_dendrite_target(127, 63), 0x02000099);
     assert_eq!(state_buf.read_dendrite_weight(127, 63), -500);
     assert_eq!(state_buf.read_dendrite_timer(127, 63), 7);
+}
+
+#[test]
+fn test_cpu_propagate_axons() {
+    let mut heads = [
+        BurstHeads8::empty(AXON_SENTINEL),
+        BurstHeads8::empty(AXON_SENTINEL),
+    ];
+
+    heads[0].h0 = 10;
+    heads[0].h1 = AXON_SENTINEL; // Sentinel remains sentinel
+    heads[0].h2 = u32::MAX - 2; // Wrapping test
+
+    cpu_propagate_axons(&mut heads, 5);
+
+    assert_eq!(heads[0].h0, 15);
+    assert_eq!(heads[0].h1, AXON_SENTINEL);
+    assert_eq!(heads[0].h2, 2); // Wrapped
+    assert_eq!(heads[1].h0, AXON_SENTINEL);
+}
+
+#[test]
+fn test_cpu_apply_spike_batch() {
+    let mut heads = [
+        BurstHeads8::empty(AXON_SENTINEL),
+        BurstHeads8::empty(AXON_SENTINEL),
+    ];
+    heads[0].h0 = 10;
+    heads[0].h1 = 20;
+
+    let schedule_indices = [0, 999]; // 0 is valid, 999 is out-of-range
+    cpu_apply_spike_batch(&mut heads, &schedule_indices, 3);
+
+    assert_eq!(heads[0].h0, 0u32.wrapping_sub(3));
+    assert_eq!(heads[0].h1, 10);
+    assert_eq!(heads[0].h2, 20);
+    assert_eq!(heads[1].h0, AXON_SENTINEL);
+}
+
+#[test]
+fn test_cpu_inject_inputs() {
+    let mut heads = vec![BurstHeads8::empty(AXON_SENTINEL); 40];
+    let virtual_offset = 5;
+    let num_virtual_axons = 33; // Spans word 0 (bits 0..31) and word 1 (bit 0)
+
+    let bitmask = [1u32 << 31, 1u32];
+
+    cpu_inject_inputs(&mut heads, &bitmask, virtual_offset, num_virtual_axons, 2);
+
+    let offset = virtual_offset as usize;
+    assert_eq!(heads[offset + 30].h0, AXON_SENTINEL);
+    assert_eq!(heads[offset + 31].h0, 0u32.wrapping_sub(2));
+    assert_eq!(heads[offset + 32].h0, 0u32.wrapping_sub(2));
+}
+
+#[test]
+fn test_cpu_record_outputs() {
+    let soma_flags = [0x01, 0x00, 0x03, 0x00];
+    let mapped_soma_ids = [0, 1, 2, 0xFFFF_FFFF];
+    let total_mapped_somas = 4;
+    let mut output_history = vec![0xFFu8; 8];
+
+    cpu_record_outputs(
+        &soma_flags,
+        &mapped_soma_ids,
+        &mut output_history,
+        0,
+        total_mapped_somas,
+    );
+
+    assert_eq!(output_history[0], 1);
+    assert_eq!(output_history[1], 0);
+    assert_eq!(output_history[2], 1);
+    assert_eq!(output_history[3], 0xFF); // Skipped 0xFFFF_FFFF
+
+    cpu_record_outputs(
+        &soma_flags,
+        &mapped_soma_ids,
+        &mut output_history,
+        1,
+        total_mapped_somas,
+    );
+    assert_eq!(output_history[4], 1);
+    assert_eq!(output_history[5], 0);
+}
+
+#[test]
+fn test_cpu_extract_telemetry() {
+    let soma_flags = [0x00, 0x01, 0x00, 0x11, 0x03, 0x00];
+    let mut out_ids = [0u32; 2];
+
+    let count = cpu_extract_telemetry(&soma_flags, &mut out_ids);
+
+    assert_eq!(count, 2);
+    assert_eq!(out_ids[0], 1);
+    assert_eq!(out_ids[1], 3);
+}
+
+#[test]
+fn test_cpu_propagate_axons_odd_length_tail() {
+    let mut heads = [
+        BurstHeads8::empty(AXON_SENTINEL),
+        BurstHeads8::empty(AXON_SENTINEL),
+        BurstHeads8::empty(AXON_SENTINEL), // Odd 3rd element
+    ];
+    heads[0].h0 = 10;
+    heads[1].h0 = 20;
+    heads[2].h0 = 30; // Odd tail
+
+    cpu_propagate_axons(&mut heads, 5);
+
+    // First pair (heads 0 and 1) is processed
+    assert_eq!(heads[0].h0, 15);
+    assert_eq!(heads[1].h0, 25);
+
+    // Odd tail (head 2) is skipped by chunks_exact_mut(2) MVP parity contract
+    assert_eq!(heads[2].h0, 30);
+}
+
+#[test]
+fn test_cpu_inject_inputs_short_bitmask() {
+    let mut heads = vec![BurstHeads8::empty(AXON_SENTINEL); 64];
+    let virtual_offset = 0;
+    let num_virtual_axons = 64; // Requires 2 bitmask words
+
+    // Pass short bitmask with only 1 word (covers tid 0..31, missing word 1 for tid 32..63)
+    let short_bitmask = [0xFFFF_FFFFu32];
+
+    cpu_inject_inputs(
+        &mut heads,
+        &short_bitmask,
+        virtual_offset,
+        num_virtual_axons,
+        4,
+    );
+
+    // tid 0..31 (word 0) are injected
+    assert_eq!(heads[0].h0, 0u32.wrapping_sub(4));
+    assert_eq!(heads[31].h0, 0u32.wrapping_sub(4));
+
+    // tid 32..63 (missing word 1) safely skipped by safety guard without panic
+    assert_eq!(heads[32].h0, AXON_SENTINEL);
+    assert_eq!(heads[63].h0, AXON_SENTINEL);
 }
