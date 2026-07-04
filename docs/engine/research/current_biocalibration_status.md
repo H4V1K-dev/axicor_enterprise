@@ -28,6 +28,7 @@ Status: active research index, not a final report.
 | [2026-07-01 legacy baseline import](archive/2026-07-01_legacy_baseline_import/README.md) | archived | Просканирована legacy-библиотека, зафиксированы правила импорта и риски. Legacy-параметры полезны как стартовые гипотезы, но не как финальная биологическая истина. |
 | [2026-07-02 biocalibration bootstrap](archive/2026-07-02_biocalibration_bootstrap/README.md) | archived | Собраны Allen/NWB данные, сделаны первые калибровочные пакеты, probes по 314900022, adaptive leak и EPHYS replay. Получены сильные сигналы, но полный нейронный контур еще не закрыт. |
 | [2026-07-04 biology metrics verification](archive/2026-07-04_biology_metrics_verification/README.md) | archived | Мигрированы каноничные профили (VISl4, VISp5, VISp23), проведена длинная симуляция (1,000,000 тиков). Подтверждено плановое поведение спонтанной и синаптической физики (CV, LV, STA, усталость). |
+| [2026-07-04 full neuron replay 314900022](archive/2026-07-04_full_neuron_replay_314900022/README.md) | archived | Выполнен полный нейронный replay с потиковым паритетом Python/Rust. Изучены AHP, рефрактерность, homeostasis, Bounded Inertia и Heartbeat Gating. Выявлено: Bounded Inertia не решает гипервозбудимость на малых токах; Heartbeat Gating устраняет рефрактерные коллизии; gated_discharge — единственный biophysical кандидат для продакшна. |
 
 ## 3. Что сейчас известно
 
@@ -35,34 +36,49 @@ Status: active research index, not a final report.
 - **Specimen 314900022 выбран как первый рабочий якорь**: по нему уже есть trace-match, passive-first, balanced, membrane sandbox и adaptive leak probes.
 - **Homeostasis + adaptive leak + AHP выглядят перспективно**: в probe-режиме они дают лучший результат по SFA/f-I среди проверенных вариантов.
 - **RC / membrane_v2 пока не обязательна**: RC улучшала отдельные метрики, но не дала очевидного выигрыша перед штатной адаптацией.
-- **Мембранные probes были слишком узкими**: дальнейшие выводы должны строиться через full-neuron replay.
+- **Мембранные probes были слишком узкими**: выводы зафиксированы через full-neuron replay.
 
 ## 4. Живые гипотезы
 
 | Гипотеза | Текущий уровень |
 | :--- | :--- |
-| Штатная адаптация AxiEngine способна дать биологически похожую SFA. | supported by probe, not confirmed |
+| Штатная адаптация AxiEngine способна дать биологически похожую SFA. | supported |
 | Главный конфликт одиночного нейрона связан не только с формулой мембраны, но и с полным tick-loop. | supported |
-| DDS / спонтанное событие должно быть stateful и влиять на восстановление нейрона, а не быть бесплатным output-флагом. | hypothesis |
-| Спайковая инерция от накопленного штрафа может дать уникальные отрицательные пики и лучшее восстановление. | hypothesis |
+| DDS / спонтанное событие должно быть stateful и начислять гомеостатический штраф (`gated_discharge`). | supported (plausible candidate) |
+| Спайковая инерция от накопленного штрафа может улучшить восстановление на низких токах. | weakened (ineffective at low frequencies) |
 | Старые legacy-параметры роста и связности могут быть полезны как priors для будущих сетевых экспериментов. | deferred |
 
 ## 5. Ослабленные подходы
 
+- **Bounded Spike Inertia (shift 3-5)**: ослаблена/отклонена для подавления гипервозбудимости на низких токах, так как релаксация порогового смещения между спайками делает инерционный сдвиг нулевым.
+- **Heartbeat Production Control (без gating)**: ослаблен/отклонен, так как допускает генерацию спонтанных спайков во время рефрактерного периода, искажая ISI.
+- **Heartbeat Gated (без discharge)**: классифицирован как diagnostic / free-spike control, так как генерирует спайки без AHP-сброса и рефрактерности.
 - **Homeostasis-free GLIF**: ослаблен, потому что без пороговой адаптации плохо воспроизводит форму разряда под длительным током.
-- **Чистый brute force параметров**: отложен. Сначала нужен аудит полного нейронного цикла и понятные критерии, иначе перебор просто найдет красивую цифру без смысла.
+- **Чистый brute force параметров**: отложен. Сначала нужен аудит полного нейронного цикла и понятные критерии.
 - **Выводы только по membrane sandbox**: недостаточны. Они полезны для отладки математики, но не закрывают поведение нейрона.
 
 ## 6. Открытые вопросы
 
 1. **Единицы и масштабы**: где именно production Rust использует микровольты, а где исследовательские scripts могли маскировать ошибки через mV.
 2. **AHP и refractory shape**: должен ли нейрон восстанавливаться во время refractory или напряжение должно удерживаться плоско.
-3. **DDS / spontaneous events**: это output-событие, внутренний разряд, шумовой recovery-kick или отдельный pacemaker-контур.
-4. **Penalty-driven inertia**: как безопасно связать накопленный threshold offset с глубиной post-spike trough.
-5. **EPHYS_PROBE_01**: какой именно старый контекст дал sawtooth-график с привыканием.
-6. **Переход к популяции**: когда одиночный нейрон будет достаточно понятен, нужно проверить перенос на мини-сеть.
+3. **DDS / spontaneous events**: детализация спецификации `gated_discharge` для перевода в production CPU ядра.
+4. **Переход к популяции**: когда одиночный нейрон достаточно понятен, проверить перенос на мини-сеть.
 
 ## 7. Активные и следующие исследования
+
+### [Completed] Full Neuron Replay 314900022 v1 (`archive/2026-07-04_full_neuron_replay_314900022/`)
+
+- **Вопрос**: Переносится ли калибровочный выигрыш membrane/adaptive probes на production CPU tick-loop и экспериментальные гипотезы (inertia, heartbeat gating).
+- **Зачем**: Это gate перед сетевыми и microcircuit-экспериментами.
+- **Что подтвердило**: Потиковый паритет Rust с Python; Homeostasis — главный драйвер SFA; Heartbeat Gating устраняет рефрактерные коллизии; Gated Discharge — единственный biophysical кандидат. Bounded Inertia ослаблена на низких частотах.
+- **Outputs**: Rust test-runner (`full_neuron_replay.rs`), Python скрипты анализа и визуализации, детальные отчеты v1 в архиве.
+
+### [Completed] Biological Physics Verification (`archive/2026-07-04_biology_metrics_verification/`)
+
+- **Вопрос**: Соответствует ли поведение новой CPU-физики (Gradient Synaptic Fatigue и Stochastic Heartbeat) реальным биологическим показателям при калибровке на каноничных профилях?
+- **Зачем**: Подтвердить корректность интеграции Leak, AHP, пороговой динамики и синаптической усталости на длинной симуляции (1,000,000 тиков).
+- **Что подтвердило**: Реалистичные частоты спонтанного спайкирования (VISl4: 1.03 Hz, VISp5: 0.96 Hz, VISp23: 3.98 Hz) с CV/LV ~1.0. Под Poisson-шумом в 50 Hz получен регулярный эмерджентный разряд с CV ~0.15-0.31, синаптической усталостью 76-83% и плавными пост-спайковыми STA-профилями.
+- **Outputs**: Скрипт миграции, интеграционный тест-раннер, отчет в архиве.
 
 ### [Completed] GSOP STDP Fatigue v1 (`archive/gsop_stdp_fatigue_v1/`)
 
@@ -72,28 +88,9 @@ Status: active research index, not a final report.
 - **Что ослабит**: Расхождения в state planes, которые нельзя объяснить адаптацией контрактов.
 - **Planned outputs**: README, test-only runner, parity tests, mismatch report.
 
-### [Completed] Biological Physics Verification (`archive/2026-07-04_biology_metrics_verification/`)
-
-- **Вопрос**: Соответствует ли поведение новой CPU-физики (Gradient Synaptic Fatigue и Stochastic Heartbeat) реальным биологическим показателям при калибровке на каноничных профилях?
-- **Зачем**: Подтвердить корректность интеграции Leak, AHP, пороговой динамики и синаптической усталости на длинной симуляции (1,000,000 тиков).
-- **Что подтвердило**: Реалистичные частоты спонтанного спайкирования (VISl4: 1.03 Hz, VISp5: 0.96 Hz, VISp23: 3.98 Hz) с CV/LV ~1.0. Под Poisson-шумом в 50 Hz получен регулярный эмерджентный разряд с CV ~0.15-0.31, синаптической усталостью 76-83% и плавными пост-спайковыми STA-профилями.
-- **Outputs**: Скрипт миграции, интеграционный тест-раннер, отчет в архиве.
-
-### [Active] Full Neuron Replay 314900022 v1 (`archive/_active/full_neuron_replay_314900022/`)
-
-Цель: прогнать 314900022 не через обрезанную мембранную песочницу, а через полный нейронный цикл с AHP, refractory, homeostasis, adaptive leak и будущими экспериментальными режимами DDS / inertia.
-
-Ожидание: если probe-улучшения настоящие, full-neuron replay должен сохранить улучшение SFA/f-I и показать осмысленную форму восстановления после спайка. Если результат развалится, проблема находится не в подборе параметров, а в полном tick-loop.
-
-- **Вопрос**: переносится ли калибровочный выигрыш membrane/adaptive probes на production CPU tick-loop.
-- **Зачем**: это gate перед сетевыми и microcircuit-экспериментами; без понятного одиночного нейрона сеть будет маскировать ошибки физики.
-- **Что подтвердит**: сохранение SFA/f-I, осмысленный post-spike recovery, отсутствие ложной тишины/runaway, детерминированный replay.
-- **Что ослабит**: распад хороших sandbox-параметров в полном цикле, бесплатные heartbeat/DDS-события, неинтерпретируемая AHP/refractory/homeostasis динамика.
-- **Planned outputs**: production CPU replay runner, CSV/JSON метрики, sampled traces, решение по DDS/inertia как отдельным physics hypotheses.
-
 ## 8. Ключевые архивы
 
-- [Full Neuron Replay 314900022 v1](archive/_active/full_neuron_replay_314900022/README.md)
+- [Full Neuron Replay 314900022 v1](archive/2026-07-04_full_neuron_replay_314900022/README.md)
 - [Biological Physics Verification](archive/2026-07-04_biology_metrics_verification/README.md)
 - [GSOP STDP Fatigue v1](archive/gsop_stdp_fatigue_v1/README.md)
 - [Legacy baseline import](archive/2026-07-01_legacy_baseline_import/README.md)

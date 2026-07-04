@@ -227,7 +227,7 @@ def main():
     plt.savefig(plot_path, dpi=150)
     
     # Save copy to local images/ for report portability
-    local_img_dir = "docs/engine/research/archive/_active/full_neuron_replay_314900022/images"
+    local_img_dir = "docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/images"
     os.makedirs(local_img_dir, exist_ok=True)
     local_img_path = os.path.join(local_img_dir, "ephys_probe_01_replay_python.png")
     plt.savefig(local_img_path, dpi=150)
@@ -290,7 +290,7 @@ def main():
     generate_markdown_report(summaries, "../images/ephys_probe_01_replay_python.png")
     
 def generate_markdown_report(summaries, plot_path):
-    report_path = "docs/engine/research/archive/_active/full_neuron_replay_314900022/reports/ephys_probe_01_replay_audit_v1.md"
+    report_path = "docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/reports/ephys_probe_01_replay_audit_v1.md"
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     
     sum_dict = {s["mode"]: s for s in summaries}

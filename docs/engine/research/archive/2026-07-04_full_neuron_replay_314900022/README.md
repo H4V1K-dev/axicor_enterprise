@@ -1,6 +1,7 @@
 # Full Neuron Replay 314900022 v1
 
-Status: active
+Status: archived
+Completion date: 2026-07-04
 Start date: 2026-07-04
 Slug: `full-neuron-replay-314900022-v1`
 
@@ -263,7 +264,7 @@ During the implementation and parity checking, we identified and corrected two c
 Для полной репродукции результатов Phase 1 и Phase 2 необходимо строго следовать следующему порядку команд из корня репозитория:
 1. **Генерация Python baseline трассы** (для тестирования математического паритета):
    ```bash
-   .venv/bin/python3 docs/engine/research/archive/_active/full_neuron_replay_314900022/scripts/ephys_probe_01_replay_audit.py
+   .venv/bin/python3 docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/scripts/ephys_probe_01_replay_audit.py
    ```
 2. **Запуск интеграционных Rust-тестов** (строгий потиковый паритет и линтинг):
    ```bash
@@ -275,7 +276,7 @@ During the implementation and parity checking, we identified and corrected two c
    ```
 3. **Генерация калибровочных графиков**:
    ```bash
-   .venv/bin/python3 docs/engine/research/archive/_active/full_neuron_replay_314900022/scripts/plot_replay.py
+   .venv/bin/python3 docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/scripts/plot_replay.py
    ```
 
 ### 2. Результаты вклада механизмов (Mechanism Attribution)
@@ -293,5 +294,43 @@ During the implementation and parity checking, we identified and corrected two c
 *   Раннер является изолированным исследовательским симулятором сомы (`i_ext[tick]`), а не распределенной сетевой моделью `DayBatchCmd`.
 
 Полный аналитический отчет со всеми сгенерированными графиками находится в [reports/ephys_probe_01_replay_audit_v1.md](reports/ephys_probe_01_replay_audit_v1.md).
+
+---
+
+## Phase 3 Results & Summary (Experimental Recovery & Heartbeat Gating)
+
+Мы выполнили Phase 3 исследования `full_neuron_replay_314900022-v1`, оценив влияние альтернативных биофизических гипотез на калибровочные свойства и стабильность нейронов.
+
+### 1. Порядок выполнения экспериментов (Execution Sequence)
+Для полной репродукции результатов всех трех фаз исследования необходимо выполнить следующий порядок команд из корня репозитория:
+1. **Генерация Python baseline трассы** (для тестирования математического паритета Phase 1/2):
+   ```bash
+   .venv/bin/python3 docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/scripts/ephys_probe_01_replay_audit.py
+   ```
+2. **Запуск интеграционных Rust-тестов** (включает Phase 1/2 parity verification и Phase 3 data generation):
+   ```bash
+   cd AxiEngine
+   cargo test -p test-harness --features "mvp-cpu-replay,baker-probe" --test full_neuron_replay -- --nocapture
+   cargo fmt --check
+   cargo clippy -p test-harness --features "mvp-cpu-replay,baker-probe" --test full_neuron_replay -- -D warnings
+   cd ..
+   ```
+3. **Запуск Phase 3 скрипта анализа и графиков**:
+   ```bash
+   .venv/bin/python3 docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/scripts/ephys_probe_01_phase3.py
+   ```
+4. **Генерация калибровочных графиков Phase 1/2**:
+   ```bash
+   .venv/bin/python3 docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/scripts/plot_replay.py
+   ```
+
+### 2. Результаты и выводы Phase 3
+*   **Bounded Spike Inertia**: Гипотеза **ослаблена (Weakened)**. Параметры `inertia_shift = [3, 4, 5]` масштабируют `threshold_offset` слишком сильно вниз на низких частотах, давая смещение сброса всего в 0.1–0.2 mV при слабых токах. Из-за этого RMSE калибровки снизилась лишь незначительно (с 12.89 до 12.49), а ложные спайки при 30/40 pA остались на уровне 35. Для подавления гипервозбудимости на малых токах требуется тонкая калибровка базовой утечки (`leak_shift`/`rest_potential`), а не инерция.
+*   **Heartbeat Gating**: Гипотеза **подтверждена (Supported)**. Текущее поведение продакшна (Production Control) допускает возникновение heartbeat-событий во время рефрактерного периода, что искажает ISI (коэффициент коллизий составляет 14.3% при 190 pA). Блокирование heartbeat во время рефрактерности полностью устраняет коллизии.
+*   **Heartbeat Gating / Discharge в продакшне**:
+    - Режим `heartbeat_gated` классифицирован как **diagnostic / free-spike control**, поскольку он генерирует бесплатные спайки без начисления AHP/refractory/homeostasis штрафов, и не рекомендован для продакшна.
+    - Режим **`heartbeat_gated_discharge`** признан **единственным жизнеспособным biophysically-plausible кандидатом** для внедрения, так как он корректно начисляет гомеостатические штрафы и выполняет сброс мембраны. Требуется дополнительное стресс-тестирование на сетевом уровне.
+
+Подробные сравнительные таблицы и графики представлены в отчете [reports/experimental_recovery_modes_v1.md](reports/experimental_recovery_modes_v1.md).
 
 

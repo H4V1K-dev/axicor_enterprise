@@ -40,7 +40,7 @@ def plot_ephys_probe():
     ax.grid(True, linestyle=':', alpha=0.6)
 
     plt.tight_layout()
-    out_dir = "docs/engine/research/archive/_active/full_neuron_replay_314900022/images"
+    out_dir = "docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/images"
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "ephys_probe_01_replay_rust.png")
     plt.savefig(out_path, dpi=150)
@@ -77,7 +77,7 @@ def plot_fi_curve():
     ax.grid(True, linestyle=':', alpha=0.6)
 
     plt.tight_layout()
-    out_dir = "docs/engine/research/archive/_active/full_neuron_replay_314900022/images"
+    out_dir = "docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/images"
     out_path = os.path.join(out_dir, "full_neuron_fi_curve.png")
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -124,7 +124,7 @@ def plot_sweep_190():
     ax2.grid(True, linestyle=':', alpha=0.6)
 
     plt.tight_layout()
-    out_dir = "docs/engine/research/archive/_active/full_neuron_replay_314900022/images"
+    out_dir = "docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022/images"
     out_path = os.path.join(out_dir, "sweep_190_replay_rust.png")
     plt.savefig(out_path, dpi=150)
     plt.close()
