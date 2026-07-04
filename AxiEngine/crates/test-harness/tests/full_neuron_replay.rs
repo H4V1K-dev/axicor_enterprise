@@ -2194,3 +2194,176 @@ fn run_cross_profile_glif_hierarchy_experiments() {
 
     println!("Cross-Profile GLIF Hierarchy v1 Rust simulations complete.");
 }
+
+#[test]
+fn run_class_specific_glif_calibration_experiments() {
+    println!("=== Starting Class-Specific GLIF Calibration v1 Experiments ===");
+    let artifacts_dir = get_artifacts_dir();
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    let profile_specs = vec![
+        ("L4_spiny_VISl4_4", "L4_spiny"),
+        ("L5_spiny_VISp5_7", "L5_spiny"),
+        ("L23_aspiny_VISp23_218", "L23_aspiny"),
+    ];
+
+    let mut profiles = Vec::new();
+    for (name, class) in &profile_specs {
+        let path = find_profile_path(name);
+        let var = load_variant(path);
+        profiles.push((name.to_string(), class.to_string(), var));
+    }
+
+    let amps = vec![-100, -50, 0, 30, 40, 50, 70, 90, 110, 130, 150, 190, 200];
+    let default_scale = 35.0;
+
+    // Phase A: Profile Cohort Expansion & Inventory
+    let mut inventory = Vec::new();
+    for (name, class, var) in &profiles {
+        let has_bio = name.contains("L4_spiny");
+        inventory.push(serde_json::json!({
+            "profile_name": name,
+            "inferred_class": class,
+            "threshold_uv": var.threshold,
+            "rest_potential_uv": var.rest_potential,
+            "leak_shift": var.leak_shift,
+            "ahp_amplitude": var.ahp_amplitude,
+            "refractory_period": var.refractory_period,
+            "homeostasis_penalty": var.homeostasis_penalty,
+            "homeostasis_decay": var.homeostasis_decay,
+            "has_exact_bio_target": has_bio,
+            "class_status": if has_bio { "exact-target" } else { "single-profile qualitative only" },
+        }));
+    }
+
+    let inv_path = artifacts_dir.join("class_specific_glif_inventory.json");
+    let file = File::create(&inv_path).unwrap();
+    serde_json::to_writer_pretty(file, &inventory).unwrap();
+    println!("Saved class-specific inventory to: {:?}", inv_path);
+
+    // Phase B: Baseline Replay
+    let mut baseline_results = Vec::new();
+    for (name, _class, var) in &profiles {
+        let res = simulate_cross_profile_fi_sweep(
+            var,
+            name,
+            var.leak_shift,
+            var.rest_potential,
+            var.homeostasis_penalty,
+            var.homeostasis_decay,
+            var.ahp_amplitude,
+            var.refractory_period,
+            &amps,
+            default_scale,
+        );
+        baseline_results.push(res);
+    }
+
+    let base_path = artifacts_dir.join("class_specific_glif_baseline_replay.json");
+    let file = File::create(&base_path).unwrap();
+    serde_json::to_writer_pretty(file, &baseline_results).unwrap();
+    println!("Saved class-specific baseline replay to: {:?}", base_path);
+
+    // Phase C: Class-Specific Passive Sweep
+    let leak_shifts = vec![1u32, 2, 3, 4, 5, 6, 7, 8, 10];
+    let rest_potentials = vec![-76000i32, -74000, -73000, -72000, -70000, -68000, -66000];
+    let mut passive_results = Vec::new();
+
+    for (name, _class, var) in &profiles {
+        for &leak in &leak_shifts {
+            for &rest in &rest_potentials {
+                let res = simulate_cross_profile_fi_sweep(
+                    var,
+                    name,
+                    leak,
+                    rest,
+                    var.homeostasis_penalty,
+                    var.homeostasis_decay,
+                    var.ahp_amplitude,
+                    var.refractory_period,
+                    &amps,
+                    default_scale,
+                );
+                passive_results.push(res);
+            }
+        }
+    }
+
+    let pass_path = artifacts_dir.join("class_specific_glif_passive_sweep.json");
+    let file = File::create(&pass_path).unwrap();
+    serde_json::to_writer_pretty(file, &passive_results).unwrap();
+    println!("Saved class-specific passive sweep to: {:?}", pass_path);
+
+    // Phase D: Class-Specific Homeostasis Sweep
+    let penalties = vec![500i32, 1000, 1500, 1940, 2500, 3200];
+    let decays = vec![1u16, 2, 4, 6, 9];
+    let mut homeostasis_results = Vec::new();
+
+    for (name, _class, var) in &profiles {
+        for &leak in &leak_shifts {
+            for &rest in &rest_potentials {
+                for &pen in &penalties {
+                    for &dec in &decays {
+                        let res = simulate_cross_profile_fi_sweep(
+                            var,
+                            name,
+                            leak,
+                            rest,
+                            pen,
+                            dec,
+                            var.ahp_amplitude,
+                            var.refractory_period,
+                            &amps,
+                            default_scale,
+                        );
+                        homeostasis_results.push(res);
+                    }
+                }
+            }
+        }
+    }
+
+    let hom_path = artifacts_dir.join("class_specific_glif_homeostasis_sweep.json");
+    let file = File::create(&hom_path).unwrap();
+    serde_json::to_writer_pretty(file, &homeostasis_results).unwrap();
+    println!("Saved class-specific homeostasis sweep to: {:?}", hom_path);
+
+    // Phase E: AHP / Refractory Sanity
+    let ahp_amps = vec![3000u16, 5000, 7000];
+    let refractories = vec![10u8, 14, 18];
+    let mut ahp_results = Vec::new();
+
+    for (name, _class, var) in &profiles {
+        for &leak in &leak_shifts {
+            for &rest in &rest_potentials {
+                for &ahp in &ahp_amps {
+                    for &refr in &refractories {
+                        let res = simulate_cross_profile_fi_sweep(
+                            var,
+                            name,
+                            leak,
+                            rest,
+                            1940,
+                            4,
+                            ahp,
+                            refr,
+                            &amps,
+                            default_scale,
+                        );
+                        ahp_results.push(res);
+                    }
+                }
+            }
+        }
+    }
+
+    let ahp_path = artifacts_dir.join("class_specific_glif_ahp_refractory_sanity.json");
+    let file = File::create(&ahp_path).unwrap();
+    serde_json::to_writer_pretty(file, &ahp_results).unwrap();
+    println!(
+        "Saved class-specific AHP / refractory sanity to: {:?}",
+        ahp_path
+    );
+
+    println!("Class-Specific GLIF Calibration v1 Rust simulations complete.");
+}

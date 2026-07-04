@@ -68,7 +68,32 @@ Status: active research index, not a final report.
 3. **DDS / spontaneous events**: детализация спецификации `gated_discharge` для перевода в production CPU ядра.
 4. **Переход к популяции**: когда одиночный нейрон достаточно понятен, проверить перенос на мини-сеть.
 
-## 7. Активные и следующие исследования
+## 7. Лестница сетевых исследований
+
+Следующий блок работ идет строго по gate-лестнице. CartPole и reward-задачи не запускаются, пока сеть не пройдет физиологические sanity-гейты.
+
+| Порядок | Исследование | Статус | Gate для перехода дальше |
+| :--- | :--- | :--- | :--- |
+| 1 | **Single-cell calibration anchor** | completed | Есть воспроизводимый GLIF_3/current-clamp якорь: passive membrane, SFA/homeostasis, AHP/refractory sanity и class-specific priors без production migration. |
+| 2 | **Static microcircuit physiology** | next | Маленькая L4/L2-3/L5 сеть без пластичности не уходит в silence/runaway, показывает осмысленные firing rates, E/I balance, fatigue, spatial connectivity и визуализируемую геометрию. |
+| 3 | **Plastic microcircuit** | blocked on step 2 | GSOP/STDP/fatigue включаются только после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться, шумовые не разрушать сеть. |
+| 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity, чтобы не смешивать ошибки topology, кодирования сенсоров, reward и моторного декодера. |
+
+### [Next] Static Microcircuit Physiology v1
+
+- **Вопрос**: Дают ли откалиброванные одиночные GLIF-профили устойчивую пространственную сеть без обучения и reward?
+- **Зачем**: Получить измерительный стенд сети перед пластичностью и CartPole: spike raster, firing-rate heatmaps, fatigue, E/I balance, spatial render, projection matrices.
+- **Первый scope**: CPU/test-harness only; маленькая сеть L4_spiny/L23_aspiny/L5_spiny; Poisson/structured drive в L4; plasticity off; no production API/profile edits.
+- **Gate**: нет полного silence/runaway; L4 отвечает на вход, L23 модулирует активность, L5 получает delayed/output activity; все метрики и визуализации сохраняются в research archive.
+
+## 8. Активные и следующие исследования
+
+### [Completed] Class-Specific GLIF Calibration v1 (`archive/2026-07-04_class_specific_glif_calibration_v1/`)
+
+- **Вопрос**: Можно ли вывести устойчивые class-specific priors для разных типов нейронов (`L4_spiny`, `L5_spiny`, `L23_aspiny`) взамен единого глобального пресета?
+- **Итоговый вердикт (Partial Success / Class-Specific Priors Supported)**: Класс-специфичные априоры поддержаны. L4_spiny удержан как точный калиброванный класс (`4/-70.0 mV`, `1940/4`). L5_spiny и L23_aspiny получили качественные кандидаты (`4/-76.0 mV` и `2/-66.0 mV`), устраняющие ложную гипервозбудимость (0 спайков), но имеют статус `single-profile qualitative only`.
+- **Следующий шаг**: Сбор биологических NWB мишеней для L5 и L2/3 профилей перед производственной миграцией (`needs biological target expansion`).
+- **Outputs**: Rust runner (`run_class_specific_glif_calibration_experiments`), Python скрипты анализа и визуализации, отчёт [class_specific_calibration_v1.md](archive/2026-07-04_class_specific_glif_calibration_v1/reports/class_specific_calibration_v1.md).
 
 ### [Completed] Cross-Profile Validation of GLIF Hierarchy v1 (`archive/2026-07-04_cross_profile_glif_hierarchy_v1/`)
 
@@ -106,7 +131,7 @@ Status: active research index, not a final report.
 - **Что ослабит**: Расхождения в state planes, которые нельзя объяснить адаптацией контрактов.
 - **Planned outputs**: README, test-only runner, parity tests, mismatch report.
 
-## 8. Ключевые архивы
+## 9. Ключевые архивы
 
 - [Single-Specimen Biocalibration 314900022](archive/2026-07-04_full_neuron_replay_314900022_calibration/README.md)
 - [Full Neuron Replay 314900022 v1](archive/2026-07-04_full_neuron_replay_314900022/README.md)
@@ -116,7 +141,7 @@ Status: active research index, not a final report.
 - [Biocalibration bootstrap](archive/2026-07-02_biocalibration_bootstrap/README.md)
 - [Идеи полной физики нейрона](archive/2026-07-02_biocalibration_bootstrap/full_neuron_physics_ideas_v1.md)
 
-## 9. Ключевые артефакты
+## 10. Ключевые артефакты
 
 ### Базовые данные
 
@@ -137,7 +162,7 @@ Status: active research index, not a final report.
 - [ephys_probe_01_replay_summary.csv](../../../artifacts/ephys_probe_01_replay_summary.csv)
 - [ephys_probe_01_replay_trace.csv](../../../artifacts/ephys_probe_01_replay_trace.csv)
 
-## 10. Визуальные ориентиры
+## 11. Визуальные ориентиры
 
 ### Adaptive leak probe
 
