@@ -1,43 +1,45 @@
-# Linear Spatial Cooling (STDP Gradient) Research Specification
+# Linear Spatial Cooling & Bidirectional STDP Research Specification
 
 ## 1. Context & Motivation
 
-During biocalibration research on MVP CPU replay, the discrete bitwise shift model (`cooling_shift = min_dist >> 4`) produced artificial quantization step-downs in LTP magnitude every 16 segments.
+During biocalibration research on MVP CPU replay, single-sided spatial cooling with fixed unconditioned LTD penalty was replaced with a symmetric, continuous **Bidirectional STDP Gradient**.
 
-To provide smooth distance-dependent plasticity without introducing floating-point math, an isolated linear STDP gradient function `research_apply_gsop_plasticity` was created inside `crates/test-harness`.
+In this model, passed spikes produce distance-attenuated Causal LTP (Long-Term Potentiation), while approaching spikes produce distance-attenuated Anti-Causal LTD (Long-Term Depression). Axons without active spikes in range experience zero weight modification ($\Delta = 0$).
 
 ---
 
 ## 2. Mathematical Formulation
 
-### 2.1 Legacy Stepwise Model (Discrete Shift)
+### 2.1 Head Partitioning & Distance Calculations
 
-$$\text{cooling\_shift} = \begin{cases} \lfloor d_{\text{min}} / 16 \rfloor & \text{if } d_{\text{min}} \le L_{\text{prop}} \\ 0 & \text{otherwise} \end{cases}$$
-
-$$\Delta_{\text{pot}}^{\text{discrete}} = \left( \frac{\text{final\_pot} \cdot \text{inertia} \cdot \text{burst\_mult}}{128} \right) \gg \text{cooling\_shift}$$
+For each active head in the 8-head ring buffer (excluding `AXON_SENTINEL`):
+- `diff = head.wrapping_sub(seg_idx)`
+- **Causal Distance** ($d_{\text{ltp}}$): If `diff < 0x8000_0000`, the spike has already passed the segment ($d_{\text{ltp}} = \text{diff}$).
+- **Anti-Causal Distance** ($d_{\text{ltd}}$): If `diff >= 0x8000_0000`, the spike is approaching the segment ($d_{\text{ltd}} = \text{seg\_idx.wrapping\_sub}(head)$).
 
 ---
 
-### 2.2 Active Research Linear STDP Gradient Model
+### 2.2 Superposition Gradient Model
 
-$$\text{decay\_factor} = \text{saturating\_sub}(L_{\text{prop}}, d_{\text{min}}) = \max(0, L_{\text{prop}} - d_{\text{min}})$$
+$$\Delta = \Delta_{\text{ltp}} - \Delta_{\text{ltd}}$$
 
-$$\Delta_{\text{pot}}^{\text{linear}} = \begin{cases} \left\lfloor \frac{\text{final\_pot} \cdot \text{inertia} \cdot \text{burst\_mult} \cdot (L_{\text{prop}} - d_{\text{min}})}{128 \cdot L_{\text{prop}}} \right\rfloor & \text{if } d_{\text{min}} \le L_{\text{prop}} \land L_{\text{prop}} > 0 \\ 0 & \text{otherwise} \end{cases}$$
+$$\Delta_{\text{ltp}} = \begin{cases} \left\lfloor \frac{\text{final\_pot} \cdot \text{inertia} \cdot \text{burst\_mult} \cdot (L_{\text{prop}} - d_{\text{ltp}})}{128 \cdot L_{\text{prop}}} \right\rfloor & \text{if } d_{\text{ltp}} \le L_{\text{prop}} \land L_{\text{prop}} > 0 \\ 0 & \text{otherwise} \end{cases}$$
 
-$$\Delta_{\text{dep}} = \left\lfloor \frac{\text{final\_dep} \cdot \text{inertia} \cdot \text{burst\_mult}}{128} \right\rfloor$$
+$$\Delta_{\text{ltd}} = \begin{cases} \left\lfloor \frac{\text{final\_dep} \cdot \text{inertia} \cdot \text{burst\_mult} \cdot (L_{\text{prop}} - d_{\text{ltd}})}{128 \cdot L_{\text{prop}}} \right\rfloor & \text{if } d_{\text{ltd}} \le L_{\text{prop}} \land L_{\text{prop}} > 0 \\ 0 & \text{otherwise} \end{cases}$$
 
-$$\Delta = \begin{cases} \Delta_{\text{pot}}^{\text{linear}} & \text{if } d_{\text{min}} \le L_{\text{prop}} \quad (\text{Active Tail Hit}) \\ -\Delta_{\text{dep}} & \text{if } d_{\text{min}} > L_{\text{prop}} \quad (\text{Inactive Miss / LTD}) \end{cases}$$
+If both $d_{\text{ltp}} > L_{\text{prop}}$ and $d_{\text{ltd}} > L_{\text{prop}}$ (Complete Miss), $\Delta = 0$.
 
 ---
 
 ## 3. Boundary Conditions & Phase Table
 
-| Distance $d_{\text{min}}$ | $\text{decay\_factor}$ | Relative LTP Strength | Plasticity Mode |
+| Signal State | Distance Condition | Effective Delta $\Delta$ | Plasticity Effect |
 | :--- | :--- | :--- | :--- |
-| $0$ | $L_{\text{prop}}$ | **100%** | Peak Potentiation |
-| $L_{\text{prop}} / 2$ | $L_{\text{prop}} / 2$ | **50%** | Midpoint Linear Attenuation |
-| $L_{\text{prop}}$ | $0$ | **0%** | Zero Delta Boundary |
-| $> L_{\text{prop}}$ | $0$ | N/A | **Full LTD Penalty** ($-\Delta_{\text{dep}}$) |
+| **Causal Peak** | $d_{\text{ltp}} = 0, d_{\text{ltd}} = \infty$ | $+\Delta_{\text{pot}}^{\text{max}}$ | **100% LTP Potentiation** |
+| **Causal Gradient** | $d_{\text{ltp}} = L_{\text{prop}} / 2$ | $+\frac{1}{2} \Delta_{\text{pot}}^{\text{max}}$ | **50% LTP Potentiation** |
+| **Anti-Causal Peak** | $d_{\text{ltp}} = \infty, d_{\text{ltd}} = 0$ | $-\Delta_{\text{dep}}^{\text{max}}$ | **100% LTD Depression** |
+| **Anti-Causal Gradient** | $d_{\text{ltd}} = L_{\text{prop}} / 2$ | $-\frac{1}{2} \Delta_{\text{dep}}^{\text{max}}$ | **50% LTD Depression** |
+| **Complete Miss** | $d_{\text{ltp}} > L_{\text{prop}} \land d_{\text{ltd}} > L_{\text{prop}}$ | $0$ | **No Change** (Weight Preserved) |
 
 ---
 
@@ -46,5 +48,5 @@ $$\Delta = \begin{cases} \Delta_{\text{pot}}^{\text{linear}} & \text{if } d_{\te
 - **Research Module**: `crates/test-harness/src/mvp_cpu_replay.rs` (`research_apply_gsop_plasticity`)
 - **Sandbox Integration**: `cpu_apply_gsop` in `crates/test-harness/src/mvp_cpu_replay.rs`
 - **Unit Tests**:
-  - `test_research_apply_gsop_plasticity_linear_stdp_gradient` in `crates/test-harness/tests/mvp_cpu_replay.rs`
+  - `test_research_apply_gsop_plasticity_bidirectional_stdp` in `crates/test-harness/tests/mvp_cpu_replay.rs`
   - `test_cpu_apply_gsop_spatial_cooling_attenuation` in `crates/test-harness/tests/mvp_cpu_replay.rs`

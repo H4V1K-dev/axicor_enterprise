@@ -645,14 +645,17 @@ pub fn cpu_sort_and_prune(state_buf: &mut MvpStateBuffer, prune_threshold: i16) 
     }
 }
 
-///// Local research implementation of GSOP synaptic plasticity with linear Spatial Cooling.
+/////// Local research implementation of GSOP synaptic plasticity with Bidirectional STDP.
 ///
-/// Attenuates LTP linearly based on signal propagation head distance `min_dist` relative to `prop`:
-/// `decay_factor = prop.saturating_sub(min_dist)` (from 100% at `min_dist = 0` down to 0% at `min_dist = prop`).
+/// Applies superposition of causal LTP (spike passed segment, `min_d_ltp`) and anti-causal LTD (spike approaching segment, `min_d_ltd`):
+/// - Causal LTP: `+ (final_pot * inertia * burst_mult * (prop - min_d_ltp)) / (128 * prop)`
+/// - Anti-causal LTD: `- (final_dep * inertia * burst_mult * (prop - min_d_ltd)) / (128 * prop)`
+/// - Complete miss (`min_d_ltp > prop` and `min_d_ltd > prop`): zero delta (`delta = 0`).
 #[allow(clippy::too_many_arguments)]
 pub fn research_apply_gsop_plasticity(
     weight: i32,
-    min_dist: u32,
+    min_d_ltp: u32,
+    min_d_ltd: u32,
     prop: u32,
     gsop_potentiation: i32,
     gsop_depression: i32,
@@ -676,19 +679,17 @@ pub fn research_apply_gsop_plasticity(
 
     let burst_mult = (burst_count as i64).max(1);
 
-    let is_active = min_dist <= prop;
-    let decay_factor = prop.saturating_sub(min_dist) as i64; // From prop (100%) to 0 (0%)
+    let mut delta = 0i64;
 
-    let delta_pot = if is_active && prop > 0 {
-        (final_pot * inertia * burst_mult * decay_factor) / (128 * prop as i64)
-    } else {
-        0
-    };
+    if min_d_ltp <= prop && prop > 0 {
+        let decay_factor = prop.saturating_sub(min_d_ltp) as i64;
+        delta += (final_pot * inertia * burst_mult * decay_factor) / (128 * prop as i64);
+    }
 
-    let delta_dep = (final_dep * inertia * burst_mult) / 128;
-
-    let active_mask = 0i64.wrapping_sub(is_active as i64);
-    let delta = (delta_pot & active_mask) | ((-delta_dep) & !active_mask);
+    if min_d_ltd <= prop && prop > 0 {
+        let decay_factor = prop.saturating_sub(min_d_ltd) as i64;
+        delta -= (final_dep * inertia * burst_mult * decay_factor) / (128 * prop as i64);
+    }
 
     let new_abs_raw = abs_w as i64 + delta;
     let new_abs = new_abs_raw.clamp(MIN_WEIGHT_LIMIT as i64, MAX_WEIGHT_LIMIT as i64) as u32;
@@ -698,53 +699,55 @@ pub fn research_apply_gsop_plasticity(
 
 /// Applies Global Synaptic Optimization Protocol (GSOP) plastic weight updates to spiking somas.
 ///
-/// Delegates to `research_apply_gsop_plasticity` with linear Spatial Cooling.
+/// Delegates to `research_apply_gsop_plasticity` with Bidirectional STDP.
 pub fn cpu_apply_gsop(
     state_buf: &mut MvpStateBuffer,
     axon_buf: &MvpAxonBuffer,
-    variant_table: &[VariantParameters; VARIANT_LUT_LEN],
+    variants: &[VariantParameters; VARIANT_LUT_LEN],
     dopamine: i16,
 ) {
-    let padded_n = state_buf.padded_n();
-    let total_axons = axon_buf.total_axons();
+    let padded_n = state_buf.padded_n;
+    let total_axons = state_buf.total_axons;
+
+    let mut inertia_curve = [128i32; 8];
 
     for tid in 0..padded_n {
         let flags = state_buf.read_soma_flags(tid);
-
-        // Early Exit: Spiking somas only
-        if (flags & 0x01) == 0 {
-            continue;
+        if flags & 0x01 == 0 {
+            continue; // Soma is not spiking
         }
 
         let burst_count = (flags >> 1) & 0x07;
         let var_id = ((flags >> 4) & 0x0F) as usize;
-        let p = &variant_table[var_id];
+        let p = &variants[var_id];
 
-        let inertia_curve = [
-            p.inertia_curve[0] as i32,
-            p.inertia_curve[1] as i32,
-            p.inertia_curve[2] as i32,
-            p.inertia_curve[3] as i32,
-            p.inertia_curve[4] as i32,
-            p.inertia_curve[5] as i32,
-            p.inertia_curve[6] as i32,
-            p.inertia_curve[7] as i32,
-        ];
+        let type_id = (flags >> 4) & 0x0F;
+        for (i, val) in inertia_curve.iter_mut().enumerate() {
+            *val = p.inertia_curve[i] as i32;
+        }
+
+        if type_id == 0 {
+            // Standard inertia adjustment if type is 0
+            let abs_dopamine = (dopamine as i32).abs();
+            for item in &mut inertia_curve {
+                *item = (*item - abs_dopamine).max(1);
+            }
+        }
 
         for slot in 0..MAX_DENDRITES {
             let timer = state_buf.read_dendrite_timer(slot, tid);
             if timer > 0 {
-                continue;
+                continue; // Dendrite is refractory
             }
 
             let target_packed = state_buf.read_dendrite_target(slot, tid);
             if target_packed == 0 {
-                break; // Hardware Trap
+                break; // Zero-Target Sentinel
             }
 
             let w = state_buf.read_dendrite_weight(slot, tid);
             if w == 0 {
-                continue; // Night Phase Pruned
+                continue;
             }
 
             let seg_idx = target_packed >> 24;
@@ -761,19 +764,29 @@ pub fn cpu_apply_gsop(
             let h = axon_buf.read_head(axon_id);
             let prop = p.signal_propagation_length as u32;
 
-            // 8-head min_dist calculation for Spatial Cooling
-            let mut min_dist = u32::MAX;
+            // 8-head calculation for Bidirectional STDP
+            let mut min_d_ltp = u32::MAX;
+            let mut min_d_ltd = u32::MAX;
             let heads = [h.h0, h.h1, h.h2, h.h3, h.h4, h.h5, h.h6, h.h7];
             for head in heads {
-                let d = head.wrapping_sub(seg_idx);
-                if d <= prop {
-                    min_dist = min_dist.min(d);
+                if head == AXON_SENTINEL {
+                    continue;
+                }
+                let diff = head.wrapping_sub(seg_idx);
+                if diff < 0x8000_0000 {
+                    // Spike has passed segment (Causal LTP)
+                    min_d_ltp = min_d_ltp.min(diff);
+                } else {
+                    // Spike is approaching segment (Anti-causal LTD)
+                    let approaching_diff = seg_idx.wrapping_sub(head);
+                    min_d_ltd = min_d_ltd.min(approaching_diff);
                 }
             }
 
             let new_w = research_apply_gsop_plasticity(
                 w,
-                min_dist,
+                min_d_ltp,
+                min_d_ltd,
                 prop,
                 p.gsop_potentiation as i32,
                 p.gsop_depression as i32,
