@@ -29,6 +29,8 @@ Status: active research index, not a final report.
 | [2026-07-02 biocalibration bootstrap](archive/2026-07-02_biocalibration_bootstrap/README.md) | archived | Собраны Allen/NWB данные, сделаны первые калибровочные пакеты, probes по 314900022, adaptive leak и EPHYS replay. Получены сильные сигналы, но полный нейронный контур еще не закрыт. |
 | [2026-07-04 biology metrics verification](archive/2026-07-04_biology_metrics_verification/README.md) | archived | Мигрированы каноничные профили (VISl4, VISp5, VISp23), проведена длинная симуляция (1,000,000 тиков). Подтверждено плановое поведение спонтанной и синаптической физики (CV, LV, STA, усталость). |
 | [2026-07-04 full neuron replay 314900022](archive/2026-07-04_full_neuron_replay_314900022/README.md) | archived | Выполнен полный нейронный replay с потиковым паритетом Python/Rust. Изучены AHP, рефрактерность, homeostasis, Bounded Inertia и Heartbeat Gating. Выявлено: Bounded Inertia не решает гипервозбудимость на малых токах; Heartbeat Gating устраняет рефрактерные коллизии; gated_discharge — единственный biophysical кандидат для продакшна. |
+| [2026-07-04 static microcircuit scale-up v1](archive/2026-07-04_static_microcircuit_scale_up_v1/README.md) | archived | Масштабирование статической микросети до N=1M на CPU. Выявлены Vm saturation и перегрев порогов. |
+| [2026-07-04 static microcircuit v1.1 input scale & E/I ablation](archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/README.md) | archived | Стабилизация L4 мембранного потенциала, рекрутирование L5 и оценка E/I баланса через ablation аудит торможения L23. |
 
 ## 3. Что сейчас известно
 
@@ -77,17 +79,25 @@ Status: active research index, not a final report.
 | 1 | **Single-cell calibration anchor** | completed | Есть воспроизводимый GLIF_3/current-clamp якорь: passive membrane, SFA/homeostasis, AHP/refractory sanity и class-specific priors без production migration. |
 | 2 | **Static microcircuit physiology** | completed | Маленькая L4/L2-3/L5 сеть без пластичности не уходит в silence/runaway, показывает осмысленные firing rates, E/I balance, fatigue, spatial connectivity и визуализируемую геометрию. |
 | 2.1 | **Static microcircuit scale-up** | completed | Оценена стабильность и CPU производительность при масштабировании до 1,000,000 нейронов. Выявлена Vm saturation (> -25mV) из-за избыточного homeostasis offset под Poisson-шумом. Физиология inconclusive. |
-| 3 | **Plastic microcircuit** | blocked on step 2.1 | GSOP/STDP/fatigue включаются только после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться, шумовые не разрушать сеть. |
+| 2.2 | **Static microcircuit v1.1 Input Scale & E/I Ablation** | completed / partial | Мембранный потенциал стабилизирован, но L5 recruitment gate не закрыт; ablation показывает модулирующую роль L23 inhibition без формального runaway. |
+| 2.3 | **Static microcircuit L5 recruitment/topology** | next | Перед STDP нужно вывести L5 в целевой диапазон 1..15 Hz в full network без возврата Vm saturation. |
+| 3 | **Plastic microcircuit** | blocked on step 2.3 | GSOP/STDP/fatigue включаются только после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться, шумовые не разрушать сеть. |
 | 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity, чтобы не смешивать ошибки topology, кодирования сенсоров, reward и моторного декодера. |
 
-### [Next] Static Microcircuit v1.1 Input Scale & E/I Ablation
+### [Next] Static Microcircuit L5 Recruitment / Topology
 
-- **Вопрос**: Можно ли устранить Vm saturation и избыточный homeostasis offset за счет снижения весов Poisson-входов и введения жестких Vm/homeostasis ограничений (hard gates)?
-- **Зачем**: Убедиться в физиологической стабильности мембраны перед STDP.
-- **Первый scope**: CPU/test-harness; уменьшенный Poisson drive; ablation L23 прогон; расчет фазовой селективности.
-- **Gate**: Vm и threshold_offset остаются стабильными; торможение L23 снижает firing rate L4/L5; количественно подтверждена phase selectivity.
+- **Вопрос**: Можно ли рекрутировать L5 в full network до 1..15 Hz без снятия торможения L23 и без возврата L4 Vm saturation?
+- **Зачем**: Закрыть последний статический physiology gate перед пластичностью.
+- **Gate**: L5 moderate rate 1..15 Hz на N=256 и N=512; L4/L23 остаются в целевых диапазонах; Vm/threshold/recovery gates сохраняются; ablation показывает ожидаемый E/I gradient без требования искусственного runaway.
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Static Microcircuit v1.1 Input Scale & E/I Ablation (`archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/`)
+
+- **Вопрос**: Можно ли устранить Vm saturation и избыточный homeostasis offset за счет снижения весов Poisson-входов и сбалансировать активность L5?
+- **Итоговый вердикт (Partial Pass / Vm Fixed / L5 Gate Failed)**: Мембранный потенциал L4 успешно возвращен в рамки физиологической нормы (0 последовательных тиков превышения -25 mV), threshold/recovery также проходят. Но L5 в full network остается ниже hard gate (около 0.055 Hz на N=512 при требовании 1..15 Hz). Удаление торможения L23 усиливает L4/L23/L5, но формальный runaway не фиксируется.
+- **Следующий шаг**: `Static Microcircuit L5 Recruitment / Topology` перед включением GSOP/STDP.
+- **Outputs**: Rust runner (`run_static_microcircuit_v1_1_experiments`), Python скрипты, отчёт [static_microcircuit_v1_1_input_scale_ei_ablation.md](archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/reports/static_microcircuit_v1_1_input_scale_ei_ablation.md).
 
 ### [Completed] Static Microcircuit Scale-Up v1 (`archive/2026-07-04_static_microcircuit_scale_up_v1/`)
 
@@ -148,6 +158,7 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Static Microcircuit v1.1 Input Scale & E/I Ablation](archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/README.md)
 - [Static Microcircuit Scale-Up v1](archive/2026-07-04_static_microcircuit_scale_up_v1/README.md)
 - [Static Microcircuit Physiology v1](archive/2026-07-04_static_microcircuit_physiology_v1/README.md)
 - [Single-Specimen Biocalibration 314900022](archive/2026-07-04_full_neuron_replay_314900022_calibration/README.md)
@@ -167,6 +178,9 @@ Status: active research index, not a final report.
 
 ### Static Microcircuit
 
+- [static_microcircuit_v1_1_sweep_summary.json](../../../artifacts/static_microcircuit_v1_1_sweep_summary.json)
+- [static_microcircuit_v1_1_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_1_best_candidate_log_512.json)
+- [static_microcircuit_v1_1_ablation_summary.json](../../../artifacts/static_microcircuit_v1_1_ablation_summary.json)
 - [static_microcircuit_scale_up_summary.json](../../../artifacts/static_microcircuit_scale_up_summary.json)
 - [static_microcircuit_connectivity.json](../../../artifacts/static_microcircuit_connectivity.json)
 - [static_microcircuit_simulation_log.json](../../../artifacts/static_microcircuit_simulation_log.json)

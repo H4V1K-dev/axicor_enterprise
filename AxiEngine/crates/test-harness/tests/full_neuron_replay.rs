@@ -3457,3 +3457,868 @@ fn run_static_microcircuit_scale_up_experiments() {
 
     println!("Static Microcircuit Scale-Up v1 Rust simulations complete.");
 }
+
+#[test]
+#[allow(
+    clippy::needless_range_loop,
+    clippy::collapsible_if,
+    clippy::useless_vec,
+    clippy::manual_range_contains,
+    clippy::type_complexity
+)]
+fn run_static_microcircuit_v1_1_experiments() {
+    println!("=== Starting Static Microcircuit v1.1 Experiments ===");
+    use compute_api::{ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload};
+    use compute_cpu::{CpuBackend, CpuBackendConfig};
+    use std::collections::VecDeque;
+    use std::fs::File;
+    use test_harness::{MvpAxonBuffer, MvpStateBuffer};
+    use types::{PackedTarget, SomaFlags};
+
+    struct SimpleRng {
+        state: u64,
+    }
+    impl SimpleRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+        fn next_u32(&mut self) -> u32 {
+            self.state = self
+                .state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (self.state >> 32) as u32
+        }
+        fn next_f32(&mut self) -> f32 {
+            (self.next_u32() & 0xffffff) as f32 / 16777216.0
+        }
+        fn range(&mut self, min: usize, max: usize) -> usize {
+            assert!(max >= min);
+            let diff = max - min + 1;
+            min + (self.next_u32() as usize % diff)
+        }
+    }
+
+    let artifacts_dir = get_artifacts_dir();
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    // 1. Define calibrated neuron profiles (variants)
+    let path_visl4 = find_profile_path("L4_spiny_VISl4_4");
+    let path_visp5 = find_profile_path("L5_spiny_VISp5_7");
+    let path_visp23 = find_profile_path("L23_aspiny_VISp23_218");
+
+    let mut var_visl4 = load_variant(path_visl4);
+    var_visl4.leak_shift = 4;
+    var_visl4.rest_potential = -70000;
+    var_visl4.homeostasis_penalty = 1940;
+    var_visl4.homeostasis_decay = 4;
+    var_visl4.ahp_amplitude = 5000;
+    var_visl4.refractory_period = 14;
+    var_visl4.heartbeat_m = 0;
+    var_visl4.gsop_potentiation = 0;
+    var_visl4.gsop_depression = 0;
+
+    let mut var_visp5 = load_variant(path_visp5);
+    var_visp5.leak_shift = 4;
+    var_visp5.rest_potential = -76000;
+    var_visp5.homeostasis_penalty = 1940;
+    var_visp5.homeostasis_decay = 9;
+    var_visp5.ahp_amplitude = 5000;
+    var_visp5.refractory_period = 14;
+    var_visp5.heartbeat_m = 0;
+    var_visp5.gsop_potentiation = 0;
+    var_visp5.gsop_depression = 0;
+
+    let mut var_visp23 = load_variant(path_visp23);
+    var_visp23.leak_shift = 2;
+    var_visp23.rest_potential = -66000;
+    var_visp23.homeostasis_penalty = 500;
+    var_visp23.homeostasis_decay = 4;
+    var_visp23.ahp_amplitude = 5000;
+    var_visp23.refractory_period = 14;
+    var_visp23.heartbeat_m = 0;
+    var_visp23.gsop_potentiation = 0;
+    var_visp23.gsop_depression = 0;
+
+    let mut variant_table = [bytemuck::Zeroable::zeroed(); layout::VARIANT_LUT_LEN];
+    variant_table[0] = var_visl4;
+    variant_table[1] = var_visp5;
+    variant_table[2] = var_visp23;
+
+    // 2. Define sweep parameters
+    let virtual_weights = vec![1500, 2000, 2500, 3000, 3500];
+    let noise_profiles = vec![
+        (0.006, 0.020, 0.035), // Low
+        (0.009, 0.030, 0.050), // Mid
+        (0.012, 0.045, 0.075), // High
+    ];
+    let exc_weights = vec![2000, 2500, 3000];
+    let inh_weights = vec![-2000, -2750, -3500];
+
+    #[derive(serde::Serialize, Clone)]
+    struct SweepResult {
+        stage: usize,
+        virtual_weight: i32,
+        noise_profile: usize,
+        exc_weight: i32,
+        inh_weight: i32,
+        l4_rate: f64,
+        l23_rate: f64,
+        l5_rate: f64,
+        max_consec_vm_above: usize,
+        max_consec_vm_below: usize,
+        max_thresh_offset_mv: f64,
+        thresh_decay_pct: f64,
+        selectivity: f64,
+        has_runaway: bool,
+        passed_all_gates: bool,
+    }
+
+    let mut sweep_results = Vec::new();
+
+    let run_config = |n: usize,
+                      virt_w: i32,
+                      profile_idx: usize,
+                      exc_w: i32,
+                      inh_w: i32,
+                      stage: usize,
+                      variant_table: &[VariantParameters; layout::VARIANT_LUT_LEN]|
+     -> (SweepResult, Vec<serde_json::Value>) {
+        let padded_n = n.div_ceil(64) * 64;
+        let total_axons = padded_n + padded_n / 2;
+        let virt_count = total_axons - n;
+
+        let mut rng = SimpleRng::new(
+            42 + (virt_w as u64) * 7 + (exc_w as u64) * 13 + (inh_w.unsigned_abs() as u64) * 19,
+        );
+
+        let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+        let axons_buf = MvpAxonBuffer::new(total_axons);
+
+        // Soma layout
+        for i in 0..padded_n {
+            let type_id = if i < n / 2 {
+                0 // L4 spiny
+            } else if i < 3 * n / 4 {
+                2 // L23 aspiny
+            } else if i < n {
+                1 // L5 spiny
+            } else {
+                0 // padding
+            };
+            let var = &variant_table[type_id];
+            state_buf.write_soma_flags(i, SomaFlags::new(false, 0, type_id as u8).0);
+            state_buf.write_soma_voltage(i, var.rest_potential);
+            state_buf.write_soma_to_axon(i, i as u32);
+        }
+
+        // Coordinates
+        let mut coordinates = Vec::new();
+        for i in 0..padded_n {
+            let (x, y, z) = if i < n / 2 {
+                ((i % 16) as f32 * 12.0, (i / 16) as f32 * 12.0, 10.0f32)
+            } else if i < 3 * n / 4 {
+                (
+                    ((i - n / 2) % 8) as f32 * 18.0,
+                    ((i - n / 2) / 8) as f32 * 18.0,
+                    20.0f32,
+                )
+            } else if i < n {
+                (
+                    ((i - 3 * n / 4) % 8) as f32 * 18.0,
+                    ((i - 3 * n / 4) / 8) as f32 * 18.0,
+                    0.0f32,
+                )
+            } else {
+                (0.0f32, 0.0f32, 0.0f32)
+            };
+            coordinates.push((x, y, z));
+        }
+
+        let mut edges = Vec::new();
+        let mut next_slot = vec![0usize; padded_n];
+
+        // L4 -> L23
+        for dest in (n / 2)..(3 * n / 4) {
+            let fan_in_target = rng.range(8, 24);
+            let mut candidates = Vec::new();
+            for src in 0..(n / 2) {
+                let (x1, y1, z1) = coordinates[src];
+                let (x2, y2, z2) = coordinates[dest];
+                let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+                candidates.push((src, d));
+            }
+            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            for k in 0..fan_in_target {
+                edges.push((candidates[k].0, dest, exc_w));
+            }
+        }
+
+        // L4 -> L5
+        for dest in (3 * n / 4)..n {
+            let fan_in_target = rng.range(6, 18);
+            let mut candidates = Vec::new();
+            for src in 0..(n / 2) {
+                let (x1, y1, z1) = coordinates[src];
+                let (x2, y2, z2) = coordinates[dest];
+                let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+                candidates.push((src, d));
+            }
+            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            for k in 0..fan_in_target {
+                edges.push((candidates[k].0, dest, exc_w));
+            }
+        }
+
+        // L23 -> L4 (inhibitory)
+        for dest in 0..(n / 2) {
+            let fan_in_target = rng.range(8, 24);
+            let mut candidates = Vec::new();
+            for src in (n / 2)..(3 * n / 4) {
+                let (x1, y1, z1) = coordinates[src];
+                let (x2, y2, z2) = coordinates[dest];
+                let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+                candidates.push((src, d));
+            }
+            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            for k in 0..fan_in_target {
+                edges.push((candidates[k].0, dest, inh_w));
+            }
+        }
+
+        // L23 -> L5 (inhibitory)
+        for dest in (3 * n / 4)..n {
+            let fan_in_target = rng.range(6, 18);
+            let mut candidates = Vec::new();
+            for src in (n / 2)..(3 * n / 4) {
+                let (x1, y1, z1) = coordinates[src];
+                let (x2, y2, z2) = coordinates[dest];
+                let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+                candidates.push((src, d));
+            }
+            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            for k in 0..fan_in_target {
+                edges.push((candidates[k].0, dest, inh_w));
+            }
+        }
+
+        // L23 -> L23 (inhibitory feedback)
+        for dest in (n / 2)..(3 * n / 4) {
+            let fan_in_target = rng.range(4, 12);
+            let mut candidates = Vec::new();
+            for src in (n / 2)..(3 * n / 4) {
+                if src != dest {
+                    let (x1, y1, z1) = coordinates[src];
+                    let (x2, y2, z2) = coordinates[dest];
+                    let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+                    candidates.push((src, d));
+                }
+            }
+            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            let act_target = fan_in_target.min(candidates.len());
+            for k in 0..act_target {
+                edges.push((candidates[k].0, dest, inh_w));
+            }
+        }
+
+        // L5 -> L23
+        for dest in (n / 2)..(3 * n / 4) {
+            let fan_in_target = rng.range(4, 12);
+            let mut candidates = Vec::new();
+            for src in (3 * n / 4)..n {
+                let (x1, y1, z1) = coordinates[src];
+                let (x2, y2, z2) = coordinates[dest];
+                let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+                candidates.push((src, d));
+            }
+            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            for k in 0..fan_in_target {
+                edges.push((candidates[k].0, dest, exc_w));
+            }
+        }
+
+        // Virtual inputs -> L4
+        for dest in 0..(n / 2) {
+            let fan_in_target = rng.range(8, 24);
+            for _ in 0..fan_in_target {
+                let src = rng.range(n, n + virt_count - 1);
+                edges.push((src, dest, virt_w));
+            }
+        }
+
+        // Write connections to state buffer
+        for &(src, dest, weight) in &edges {
+            let slot = next_slot[dest];
+            if slot < 128 {
+                let target = PackedTarget::pack(src as u32, 0).0;
+                state_buf.write_dendrite_target(slot, dest, target);
+                state_buf.write_dendrite_weight(slot, dest, weight << 16);
+                next_slot[dest] += 1;
+            }
+        }
+
+        let mut l4_group_a_pref = vec![false; n / 2];
+        for i in 0..(n / 2) {
+            let mut count_a = 0;
+            let mut count_b = 0;
+            for &(src, dest, _) in &edges {
+                if dest == i && src >= n {
+                    let virt_idx = src - n;
+                    if virt_idx < virt_count / 2 {
+                        count_a += 1;
+                    } else {
+                        count_b += 1;
+                    }
+                }
+            }
+            l4_group_a_pref[i] = count_a >= count_b;
+        }
+
+        let backend_config = CpuBackendConfig {
+            thread_count: Some(1),
+        };
+        let mut backend = CpuBackend::new(backend_config).unwrap();
+        let spec = ShardAllocSpec {
+            padded_n: padded_n as u32,
+            total_axons: total_axons as u32,
+            total_ghosts: 0,
+            virtual_offset: 0,
+        };
+        let handle = backend.alloc_shard(spec).unwrap();
+        backend
+            .upload_shard(
+                handle,
+                ShardUpload {
+                    state_blob: state_buf.as_bytes(),
+                    axons_blob: axons_buf.as_bytes(),
+                    variant_table,
+                },
+            )
+            .unwrap();
+
+        let num_ticks = 9000;
+        let max_spikes = total_axons as u32;
+        let mut out_spikes = vec![0u32; max_spikes as usize];
+        let mut out_counts = vec![0u32; 1];
+        let mapped_somas: Vec<u32> = (0..padded_n as u32).collect();
+
+        let mut snap_state = vec![0u8; state_buf.as_bytes().len()];
+        let mut snap_axons = vec![0u8; axons_buf.as_bytes().len()];
+
+        let mut incoming_padded = vec![0u32; max_spikes as usize];
+        let mut recent_spikes = VecDeque::new();
+        let mut sim_log = Vec::new();
+
+        let (p_weak, p_mod, p_struct) = noise_profiles[profile_idx];
+        let mut spikes_active_group = 0;
+        let mut spikes_inactive_group = 0;
+
+        let mut total_incoming_spikes = 0;
+        let mut max_l4_voltage: f64 = -100000.0;
+
+        for tick in 0..num_ticks {
+            let mut incoming_count = 0;
+
+            let p_val = if tick < 1000 {
+                0.0
+            } else if tick < 3000 {
+                p_weak
+            } else if tick < 5000 {
+                p_mod
+            } else if tick < 7000 {
+                p_struct
+            } else {
+                0.0
+            };
+
+            if tick >= 5000 && tick < 7000 {
+                let group_a = ((tick - 5000) / 500) % 2 == 0;
+                for axon_idx in n..total_axons {
+                    let is_a = axon_idx < n + virt_count / 2;
+                    if is_a == group_a {
+                        if rng.next_f32() < p_val {
+                            incoming_padded[incoming_count] = axon_idx as u32;
+                            incoming_count += 1;
+                        }
+                    }
+                }
+            } else {
+                for axon_idx in n..total_axons {
+                    if rng.next_f32() < p_val {
+                        incoming_padded[incoming_count] = axon_idx as u32;
+                        incoming_count += 1;
+                    }
+                }
+            }
+
+            total_incoming_spikes += incoming_count;
+            out_counts[0] = 0;
+            out_spikes.fill(0);
+
+            let cmd = DayBatchCmd {
+                sync_batch_ticks: 1,
+                tick_base: tick as u64,
+                v_seg: 1,
+                dopamine: 0,
+                input_bitmask: None,
+                num_virtual_axons: 0,
+                virtual_offset: 0,
+                input_words_per_tick: 0,
+                incoming_spikes: if incoming_count > 0 {
+                    Some(&incoming_padded)
+                } else {
+                    None
+                },
+                incoming_spike_counts: &[incoming_count as u32],
+                max_spikes_per_tick: max_spikes,
+                num_outputs: padded_n as u32,
+                mapped_soma_ids: &mapped_somas,
+                output_spikes: &mut out_spikes,
+                output_spike_counts: &mut out_counts,
+            };
+
+            backend.run_day_batch(handle, cmd).unwrap();
+
+            backend
+                .debug_snapshot(
+                    handle,
+                    ShardSnapshotMut {
+                        state_blob: &mut snap_state,
+                        axons_blob: &mut snap_axons,
+                    },
+                )
+                .unwrap();
+
+            let snap_state_buf =
+                MvpStateBuffer::from_raw(padded_n, total_axons, snap_state.clone());
+
+            let count = out_counts[0] as usize;
+            let mut tick_spikes = vec![false; padded_n];
+            for &id in &out_spikes[0..count] {
+                if id < padded_n as u32 {
+                    tick_spikes[id as usize] = true;
+                }
+            }
+
+            let mut l4_sp = 0;
+            let mut l23_sp = 0;
+            let mut l5_sp = 0;
+
+            let mut l4_v_sum = 0.0;
+            let mut l4_th_sum = 0.0;
+            let mut l4_fatigue_sum = 0.0;
+            let mut l23_fatigue_sum = 0.0;
+            let mut l5_fatigue_sum = 0.0;
+
+            for i in 0..padded_n {
+                let v = snap_state_buf.read_soma_voltage(i) as f64;
+                let th = snap_state_buf.read_threshold_offset(i) as f64;
+
+                let mut fatigue_timer_sum = 0;
+                for slot in 0..128 {
+                    let timer = snap_state_buf.read_dendrite_timer(slot, i);
+                    fatigue_timer_sum += timer as usize;
+                }
+                let fatigue = fatigue_timer_sum as f64 / (128.0 * 255.0);
+
+                if i < n / 2 {
+                    l4_v_sum += v;
+                    l4_th_sum += th;
+                    l4_fatigue_sum += fatigue;
+                    max_l4_voltage = max_l4_voltage.max(v);
+                    if tick_spikes[i] {
+                        l4_sp += 1;
+                        if tick >= 5000 && tick < 7000 {
+                            let group_a_active = ((tick - 5000) / 500) % 2 == 0;
+                            let is_a_responder = l4_group_a_pref[i];
+                            if is_a_responder == group_a_active {
+                                spikes_active_group += 1;
+                            } else {
+                                spikes_inactive_group += 1;
+                            }
+                        }
+                    }
+                } else if i < 3 * n / 4 {
+                    l23_fatigue_sum += fatigue;
+                    if tick_spikes[i] {
+                        l23_sp += 1;
+                    }
+                } else if i < n {
+                    l5_fatigue_sum += fatigue;
+                    if tick_spikes[i] {
+                        l5_sp += 1;
+                    }
+                }
+            }
+
+            recent_spikes.push_back((l4_sp, l23_sp, l5_sp));
+            if recent_spikes.len() > 1000 {
+                recent_spikes.pop_front();
+            }
+
+            let (total_l4, total_l23, total_l5) = recent_spikes
+                .iter()
+                .fold((0, 0, 0), |acc, x| (acc.0 + x.0, acc.1 + x.1, acc.2 + x.2));
+            let total_all = total_l4 + total_l23 + total_l5;
+
+            let silence_flag = tick >= 1100 && total_all == 0;
+
+            let window_len = recent_spikes.len() as f64;
+            let l4_rate_hz = (total_l4 as f64 / (n / 2) as f64) * (1000.0 / window_len);
+            let l23_rate_hz = (total_l23 as f64 / (n / 4) as f64) * (1000.0 / window_len);
+            let l5_rate_hz = (total_l5 as f64 / (n / 4) as f64) * (1000.0 / window_len);
+            let runaway_flag =
+                tick >= 1000 && (l4_rate_hz > 50.0 || l23_rate_hz > 50.0 || l5_rate_hz > 50.0);
+
+            sim_log.push(serde_json::json!({
+                "tick": tick,
+                "l4_spikes": l4_sp,
+                "l23_spikes": l23_sp,
+                "l5_spikes": l5_sp,
+                "l4_mean_voltage": l4_v_sum / (n/2) as f64,
+                "l4_mean_threshold": l4_th_sum / (n/2) as f64,
+                "l4_mean_fatigue": l4_fatigue_sum / (n/2) as f64,
+                "l23_mean_fatigue": l23_fatigue_sum / (n/4) as f64,
+                "l5_mean_fatigue": l5_fatigue_sum / (n/4) as f64,
+                "silence_flag": silence_flag,
+                "runaway_flag": runaway_flag,
+            }));
+        }
+
+        backend.free_shard(handle).unwrap();
+
+        let mod_log = &sim_log[3000..5000];
+        let total_mod_ticks = 2000.0;
+        let r3_l4 = (mod_log
+            .iter()
+            .map(|item| item["l4_spikes"].as_f64().unwrap())
+            .sum::<f64>()
+            / (total_mod_ticks * (n / 2) as f64))
+            * 1000.0;
+        let r3_l23 = (mod_log
+            .iter()
+            .map(|item| item["l23_spikes"].as_f64().unwrap())
+            .sum::<f64>()
+            / (total_mod_ticks * (n / 4) as f64))
+            * 1000.0;
+        let r3_l5 = (mod_log
+            .iter()
+            .map(|item| item["l5_spikes"].as_f64().unwrap())
+            .sum::<f64>()
+            / (total_mod_ticks * (n / 4) as f64))
+            * 1000.0;
+
+        let mut max_consec_above = 0;
+        let mut consec_above = 0;
+        let mut max_consec_below = 0;
+        let mut consec_below = 0;
+
+        for item in &sim_log {
+            let vm = item["l4_mean_voltage"].as_f64().unwrap() / 1000.0;
+            if vm > -25.0 {
+                consec_above += 1;
+                max_consec_above = max_consec_above.max(consec_above);
+            } else {
+                consec_above = 0;
+            }
+
+            if vm < -110.0 {
+                consec_below += 1;
+                max_consec_below = max_consec_below.max(consec_below);
+            } else {
+                consec_below = 0;
+            }
+        }
+
+        let gate_vm_health = max_consec_above <= 50 && max_consec_below <= 50;
+
+        let l4_th_series: Vec<f64> = sim_log
+            .iter()
+            .map(|item| item["l4_mean_threshold"].as_f64().unwrap() / 1000.0)
+            .collect();
+        let max_th_mv = l4_th_series.iter().fold(0.0f64, |a, &b| a.max(b));
+        let gate_th_max = max_th_mv < 40.0;
+
+        let peak_th = l4_th_series[5000..7000]
+            .iter()
+            .fold(0.0f64, |a, &b| a.max(b));
+        let rec_th_end = l4_th_series[8000..9000].iter().sum::<f64>() / 1000.0;
+        let decay_pct = if peak_th > 0.0 {
+            (peak_th - rec_th_end) / peak_th
+        } else {
+            1.0
+        };
+        let gate_th_decay = decay_pct >= 0.30;
+
+        let rec_log = &sim_log[7000..9000];
+        let rec_rate_all = (rec_log
+            .iter()
+            .map(|item| {
+                item["l4_spikes"].as_f64().unwrap()
+                    + item["l23_spikes"].as_f64().unwrap()
+                    + item["l5_spikes"].as_f64().unwrap()
+            })
+            .sum::<f64>()
+            / (2000.0 * n as f64))
+            * 1000.0;
+        let gate_rec_silent = rec_rate_all < 0.5;
+
+        let gate_l4_act = r3_l4 >= 3.0 && r3_l4 <= 25.0;
+        let gate_l23_act = r3_l23 >= 3.0 && r3_l23 <= 35.0;
+        let gate_l5_act = r3_l5 >= 1.0 && r3_l5 <= 15.0;
+
+        let mut max_consec_runaway = 0;
+        let mut consec_runaway = 0;
+        for item in &sim_log {
+            if item["runaway_flag"].as_bool().unwrap() {
+                consec_runaway += 1;
+                max_consec_runaway = max_consec_runaway.max(consec_runaway);
+            } else {
+                consec_runaway = 0;
+            }
+        }
+        let gate_no_runaway = max_consec_runaway <= 200;
+        let gate_no_silence = r3_l4 > 0.05 && r3_l23 > 0.05 && r3_l5 > 0.05;
+
+        let sel_ratio = spikes_active_group as f64 / spikes_inactive_group.max(1) as f64;
+        let gate_selectivity = sel_ratio > 1.5;
+
+        let passed_all = gate_vm_health
+            && gate_th_max
+            && gate_th_decay
+            && gate_rec_silent
+            && gate_l4_act
+            && gate_l23_act
+            && gate_l5_act
+            && gate_no_runaway
+            && gate_no_silence
+            && gate_selectivity;
+
+        let res = SweepResult {
+            stage,
+            virtual_weight: virt_w,
+            noise_profile: profile_idx,
+            exc_weight: exc_w,
+            inh_weight: inh_w,
+            l4_rate: r3_l4,
+            l23_rate: r3_l23,
+            l5_rate: r3_l5,
+            max_consec_vm_above: max_consec_above,
+            max_consec_vm_below: max_consec_below,
+            max_thresh_offset_mv: max_th_mv,
+            thresh_decay_pct: decay_pct,
+            selectivity: sel_ratio,
+            has_runaway: max_consec_runaway > 200,
+            passed_all_gates: passed_all,
+        };
+
+        println!(
+            "  Debug Config: virt_w = {}, profile = {}, total_incoming = {}, max_l4_v = {:.1} mV",
+            virt_w,
+            profile_idx,
+            total_incoming_spikes,
+            max_l4_voltage / 1000.0
+        );
+        (res, sim_log)
+    };
+
+    let n_sweep = 256;
+
+    println!("--- STAGE 1: Sweeping virtual input scale & noise profiles ---");
+    let mut stage1_results = Vec::new();
+    for &vw in &virtual_weights {
+        for profile in 0..3 {
+            let (res, _) = run_config(n_sweep, vw, profile, 3000, -3500, 1, &variant_table);
+            println!(
+                "  Virtual W = {}, Profile = {}: L4 rate = {:.1} Hz, L4 max consec Vm > -25 = {}, Max threshold offset = {:.1} mV, passed = {}",
+                vw, profile, res.l4_rate, res.max_consec_vm_above, res.max_thresh_offset_mv, res.passed_all_gates
+            );
+            stage1_results.push(res.clone());
+            sweep_results.push(res);
+        }
+    }
+
+    let mut best_stage1_idx = 0;
+    let mut min_violations = usize::MAX;
+    for (idx, res) in stage1_results.iter().enumerate() {
+        if res.l4_rate >= 3.0 && res.l4_rate <= 25.0 {
+            if res.max_consec_vm_above < min_violations {
+                min_violations = res.max_consec_vm_above;
+                best_stage1_idx = idx;
+            }
+        }
+    }
+    if min_violations == usize::MAX {
+        for (idx, res) in stage1_results.iter().enumerate() {
+            if res.l4_rate > 1.0 {
+                best_stage1_idx = idx;
+                break;
+            }
+        }
+    }
+    let best_virt_w = stage1_results[best_stage1_idx].virtual_weight;
+    let best_profile = stage1_results[best_stage1_idx].noise_profile;
+    println!(
+        "Selected Stage 1 Best: Virtual W = {}, Profile = {}",
+        best_virt_w, best_profile
+    );
+
+    println!("--- STAGE 2: Sweeping excitatory weights L4->L5 / L4->L23 ---");
+    let mut stage2_results = Vec::new();
+    for &ew in &exc_weights {
+        let (res, _) = run_config(
+            n_sweep,
+            best_virt_w,
+            best_profile,
+            ew,
+            -3500,
+            2,
+            &variant_table,
+        );
+        println!(
+            "  Exc W = {}: L5 rate = {:.1} Hz, L23 rate = {:.1} Hz, passed = {}",
+            ew, res.l5_rate, res.l23_rate, res.passed_all_gates
+        );
+        stage2_results.push(res.clone());
+        sweep_results.push(res);
+    }
+
+    let mut best_stage2_idx = 0;
+    let mut best_l5_dist = f64::MAX;
+    for (idx, res) in stage2_results.iter().enumerate() {
+        let dist = if res.l5_rate >= 1.0 && res.l5_rate <= 15.0 {
+            0.0
+        } else {
+            (res.l5_rate - 8.0).abs()
+        };
+        if dist < best_l5_dist {
+            best_l5_dist = dist;
+            best_stage2_idx = idx;
+        }
+    }
+    let best_exc_w = stage2_results[best_stage2_idx].exc_weight;
+    println!("Selected Stage 2 Best: Exc W = {}", best_exc_w);
+
+    println!("--- STAGE 3: Sweeping L23 inhibitory weights ---");
+    let mut stage3_results = Vec::new();
+    for &iw in &inh_weights {
+        let (res, _) = run_config(
+            n_sweep,
+            best_virt_w,
+            best_profile,
+            best_exc_w,
+            iw,
+            3,
+            &variant_table,
+        );
+        println!(
+            "  Inh W = {}: L4 rate = {:.1} Hz, L5 rate = {:.1} Hz, L23 rate = {:.1} Hz, runaway = {}, passed = {}",
+            iw, res.l4_rate, res.l5_rate, res.l23_rate, res.has_runaway, res.passed_all_gates
+        );
+        stage3_results.push(res.clone());
+        sweep_results.push(res);
+    }
+
+    let mut best_stage3_idx = 0;
+    let mut max_select = 0.0;
+    for (idx, res) in stage3_results.iter().enumerate() {
+        if !res.has_runaway {
+            if res.selectivity > max_select {
+                max_select = res.selectivity;
+                best_stage3_idx = idx;
+            }
+        }
+    }
+    let best_inh_w = stage3_results[best_stage3_idx].inh_weight;
+    println!("Selected Stage 3 Best: Inh W = {}", best_inh_w);
+
+    println!("=== Sweeps complete. Running detailed best candidate runs ===");
+    let (_best_res_256, best_log_256) = run_config(
+        256,
+        best_virt_w,
+        best_profile,
+        best_exc_w,
+        best_inh_w,
+        4,
+        &variant_table,
+    );
+    let (best_res_512, best_log_512) = run_config(
+        512,
+        best_virt_w,
+        best_profile,
+        best_exc_w,
+        best_inh_w,
+        4,
+        &variant_table,
+    );
+
+    let log_path_256 = artifacts_dir.join("static_microcircuit_v1_1_best_candidate_log_256.json");
+    let file = File::create(&log_path_256).unwrap();
+    serde_json::to_writer_pretty(file, &best_log_256).unwrap();
+
+    let log_path_512 = artifacts_dir.join("static_microcircuit_v1_1_best_candidate_log_512.json");
+    let file = File::create(&log_path_512).unwrap();
+    serde_json::to_writer_pretty(file, &best_log_512).unwrap();
+
+    println!("--- Running Ablation cases on N=512 ---");
+    let (res_no_inh, log_no_inh) = run_config(
+        512,
+        best_virt_w,
+        best_profile,
+        best_exc_w,
+        0,
+        5,
+        &variant_table,
+    );
+    let (res_red_inh, log_red_inh) = run_config(
+        512,
+        best_virt_w,
+        best_profile,
+        best_exc_w,
+        best_inh_w / 2,
+        5,
+        &variant_table,
+    );
+
+    let ablation_summary = serde_json::json!({
+        "full": {
+            "l4_rate": best_res_512.l4_rate,
+            "l23_rate": best_res_512.l23_rate,
+            "l5_rate": best_res_512.l5_rate,
+            "max_consec_vm_above": best_res_512.max_consec_vm_above,
+            "has_runaway": best_res_512.has_runaway,
+        },
+        "no_inhibition": {
+            "l4_rate": res_no_inh.l4_rate,
+            "l23_rate": res_no_inh.l23_rate,
+            "l5_rate": res_no_inh.l5_rate,
+            "max_consec_vm_above": res_no_inh.max_consec_vm_above,
+            "has_runaway": res_no_inh.has_runaway,
+        },
+        "reduced_inhibition": {
+            "l4_rate": res_red_inh.l4_rate,
+            "l23_rate": res_red_inh.l23_rate,
+            "l5_rate": res_red_inh.l5_rate,
+            "max_consec_vm_above": res_red_inh.max_consec_vm_above,
+            "has_runaway": res_red_inh.has_runaway,
+        }
+    });
+
+    let ablation_path = artifacts_dir.join("static_microcircuit_v1_1_ablation_summary.json");
+    let file = File::create(&ablation_path).unwrap();
+    serde_json::to_writer_pretty(file, &ablation_summary).unwrap();
+
+    let ablation_logs = serde_json::json!({
+        "no_inhibition_log": log_no_inh,
+        "reduced_inhibition_log": log_red_inh
+    });
+    let ablation_logs_path = artifacts_dir.join("static_microcircuit_v1_1_ablation_logs.json");
+    let file = File::create(&ablation_logs_path).unwrap();
+    serde_json::to_writer_pretty(file, &ablation_logs).unwrap();
+
+    let sweep_summary_path = artifacts_dir.join("static_microcircuit_v1_1_sweep_summary.json");
+    let file = File::create(&sweep_summary_path).unwrap();
+    serde_json::to_writer_pretty(file, &sweep_results).unwrap();
+
+    println!("Static Microcircuit v1.1 Rust simulations complete.");
+}
