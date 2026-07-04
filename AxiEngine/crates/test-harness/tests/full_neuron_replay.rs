@@ -3466,8 +3466,8 @@ fn run_static_microcircuit_scale_up_experiments() {
     clippy::manual_range_contains,
     clippy::type_complexity
 )]
-fn run_static_microcircuit_v1_1_experiments() {
-    println!("=== Starting Static Microcircuit v1.1 Experiments ===");
+fn run_static_microcircuit_v1_2_experiments() {
+    println!("=== Starting Static Microcircuit v1.2 Experiments ===");
     use compute_api::{ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload};
     use compute_cpu::{CpuBackend, CpuBackendConfig};
     use std::collections::VecDeque;
@@ -3546,22 +3546,22 @@ fn run_static_microcircuit_v1_1_experiments() {
     variant_table[2] = var_visp23;
 
     // 2. Define sweep parameters
-    let virtual_weights = vec![1500, 2000, 2500, 3000, 3500];
     let noise_profiles = vec![
         (0.006, 0.020, 0.035), // Low
         (0.009, 0.030, 0.050), // Mid
         (0.012, 0.045, 0.075), // High
     ];
-    let exc_weights = vec![2000, 2500, 3000];
-    let inh_weights = vec![-2000, -2750, -3500];
 
     #[derive(serde::Serialize, Clone)]
     struct SweepResult {
         stage: usize,
         virtual_weight: i32,
         noise_profile: usize,
-        exc_weight: i32,
-        inh_weight: i32,
+        exc_weight_l4_l23: i32,
+        exc_weight_l4_l5: i32,
+        fan_in_l4_l5_idx: usize,
+        inh_weight_l23_l4: i32,
+        inh_weight_l23_l5: i32,
         l4_rate: f64,
         l23_rate: f64,
         l5_rate: f64,
@@ -3572,6 +3572,8 @@ fn run_static_microcircuit_v1_1_experiments() {
         selectivity: f64,
         has_runaway: bool,
         passed_all_gates: bool,
+        l5_mean_fan_in: f64,
+        l5_max_fan_in: usize,
     }
 
     let mut sweep_results = Vec::new();
@@ -3579,17 +3581,26 @@ fn run_static_microcircuit_v1_1_experiments() {
     let run_config = |n: usize,
                       virt_w: i32,
                       profile_idx: usize,
-                      exc_w: i32,
-                      inh_w: i32,
+                      exc_w_l4_l23: i32,
+                      exc_w_l4_l5: i32,
+                      fan_in_l4_l5_range_idx: usize,
+                      inh_w_l23_l4: i32,
+                      inh_w_l23_l5: i32,
                       stage: usize,
                       variant_table: &[VariantParameters; layout::VARIANT_LUT_LEN]|
      -> (SweepResult, Vec<serde_json::Value>) {
         let padded_n = n.div_ceil(64) * 64;
         let total_axons = padded_n + padded_n / 2;
         let virt_count = total_axons - n;
+        let l5_count = n / 4;
 
         let mut rng = SimpleRng::new(
-            42 + (virt_w as u64) * 7 + (exc_w as u64) * 13 + (inh_w.unsigned_abs() as u64) * 19,
+            42 + (virt_w as u64) * 7
+                + (exc_w_l4_l23 as u64) * 13
+                + (exc_w_l4_l5 as u64) * 17
+                + (inh_w_l23_l4.unsigned_abs() as u64) * 19
+                + (inh_w_l23_l5.unsigned_abs() as u64) * 23
+                + (fan_in_l4_l5_range_idx as u64) * 31,
         );
 
         let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
@@ -3650,13 +3661,18 @@ fn run_static_microcircuit_v1_1_experiments() {
             }
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             for k in 0..fan_in_target {
-                edges.push((candidates[k].0, dest, exc_w));
+                edges.push((candidates[k].0, dest, exc_w_l4_l23));
             }
         }
 
         // L4 -> L5
+        let fan_in_l4_l5 = match fan_in_l4_l5_range_idx {
+            0 => rng.range(6, 18),
+            1 => rng.range(12, 28),
+            2 => rng.range(20, 40),
+            _ => rng.range(6, 18),
+        };
         for dest in (3 * n / 4)..n {
-            let fan_in_target = rng.range(6, 18);
             let mut candidates = Vec::new();
             for src in 0..(n / 2) {
                 let (x1, y1, z1) = coordinates[src];
@@ -3665,8 +3681,9 @@ fn run_static_microcircuit_v1_1_experiments() {
                 candidates.push((src, d));
             }
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-            for k in 0..fan_in_target {
-                edges.push((candidates[k].0, dest, exc_w));
+            let actual_fan_in = fan_in_l4_l5.min(candidates.len());
+            for k in 0..actual_fan_in {
+                edges.push((candidates[k].0, dest, exc_w_l4_l5));
             }
         }
 
@@ -3682,7 +3699,7 @@ fn run_static_microcircuit_v1_1_experiments() {
             }
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             for k in 0..fan_in_target {
-                edges.push((candidates[k].0, dest, inh_w));
+                edges.push((candidates[k].0, dest, inh_w_l23_l4));
             }
         }
 
@@ -3698,7 +3715,7 @@ fn run_static_microcircuit_v1_1_experiments() {
             }
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             for k in 0..fan_in_target {
-                edges.push((candidates[k].0, dest, inh_w));
+                edges.push((candidates[k].0, dest, inh_w_l23_l5));
             }
         }
 
@@ -3717,7 +3734,7 @@ fn run_static_microcircuit_v1_1_experiments() {
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             let act_target = fan_in_target.min(candidates.len());
             for k in 0..act_target {
-                edges.push((candidates[k].0, dest, inh_w));
+                edges.push((candidates[k].0, dest, inh_w_l23_l4));
             }
         }
 
@@ -3733,7 +3750,7 @@ fn run_static_microcircuit_v1_1_experiments() {
             }
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             for k in 0..fan_in_target {
-                edges.push((candidates[k].0, dest, exc_w));
+                edges.push((candidates[k].0, dest, 3000));
             }
         }
 
@@ -3908,7 +3925,14 @@ fn run_static_microcircuit_v1_1_experiments() {
             let mut l4_th_sum = 0.0;
             let mut l4_fatigue_sum = 0.0;
             let mut l23_fatigue_sum = 0.0;
+            let mut l5_v_sum = 0.0;
+            let mut l5_th_sum = 0.0;
             let mut l5_fatigue_sum = 0.0;
+
+            let mut min_l4_v = 0.0f64;
+            let mut max_l4_v = -100000.0f64;
+            let mut min_l5_v = 0.0f64;
+            let mut max_l5_v = -100000.0f64;
 
             for i in 0..padded_n {
                 let v = snap_state_buf.read_soma_voltage(i) as f64;
@@ -3926,6 +3950,12 @@ fn run_static_microcircuit_v1_1_experiments() {
                     l4_th_sum += th;
                     l4_fatigue_sum += fatigue;
                     max_l4_voltage = max_l4_voltage.max(v);
+                    if min_l4_v == 0.0 || v < min_l4_v {
+                        min_l4_v = v;
+                    }
+                    if v > max_l4_v {
+                        max_l4_v = v;
+                    }
                     if tick_spikes[i] {
                         l4_sp += 1;
                         if tick >= 5000 && tick < 7000 {
@@ -3944,31 +3974,69 @@ fn run_static_microcircuit_v1_1_experiments() {
                         l23_sp += 1;
                     }
                 } else if i < n {
+                    l5_v_sum += v;
+                    l5_th_sum += th;
                     l5_fatigue_sum += fatigue;
+                    if min_l5_v == 0.0 || v < min_l5_v {
+                        min_l5_v = v;
+                    }
+                    if v > max_l5_v {
+                        max_l5_v = v;
+                    }
                     if tick_spikes[i] {
                         l5_sp += 1;
                     }
                 }
             }
 
+            let mut virt_spiked = vec![false; total_axons];
+            for &axon_id in &incoming_padded[0..incoming_count] {
+                if (axon_id as usize) < total_axons {
+                    virt_spiked[axon_id as usize] = true;
+                }
+            }
+
+            let mut l5_exc_input = 0.0;
+            let mut l5_inh_input = 0.0;
+            let l5_count = n / 4;
+
+            for dest in (3 * n / 4)..n {
+                for &(src, d_node, w) in &edges {
+                    if d_node == dest {
+                        let spiked = if src < n {
+                            tick_spikes[src]
+                        } else {
+                            virt_spiked[src]
+                        };
+                        if spiked {
+                            if w > 0 {
+                                l5_exc_input += w as f64;
+                            } else {
+                                l5_inh_input += w.unsigned_abs() as f64;
+                            }
+                        }
+                    }
+                }
+            }
+
             recent_spikes.push_back((l4_sp, l23_sp, l5_sp));
-            if recent_spikes.len() > 1000 {
+            if recent_spikes.len() > 100 {
                 recent_spikes.pop_front();
             }
 
-            let (total_l4, total_l23, total_l5) = recent_spikes
+            let sum_recent: (usize, usize, usize) = recent_spikes
                 .iter()
                 .fold((0, 0, 0), |acc, x| (acc.0 + x.0, acc.1 + x.1, acc.2 + x.2));
-            let total_all = total_l4 + total_l23 + total_l5;
+            let rate_recent_l4 =
+                (sum_recent.0 as f64 / (recent_spikes.len() as f64 * (n / 2) as f64)) * 1000.0;
+            let rate_recent_l23 =
+                (sum_recent.1 as f64 / (recent_spikes.len() as f64 * (n / 4) as f64)) * 1000.0;
+            let rate_recent_l5 =
+                (sum_recent.2 as f64 / (recent_spikes.len() as f64 * (n / 4) as f64)) * 1000.0;
 
-            let silence_flag = tick >= 1100 && total_all == 0;
-
-            let window_len = recent_spikes.len() as f64;
-            let l4_rate_hz = (total_l4 as f64 / (n / 2) as f64) * (1000.0 / window_len);
-            let l23_rate_hz = (total_l23 as f64 / (n / 4) as f64) * (1000.0 / window_len);
-            let l5_rate_hz = (total_l5 as f64 / (n / 4) as f64) * (1000.0 / window_len);
+            let silence_flag = rate_recent_l4 < 0.01;
             let runaway_flag =
-                tick >= 1000 && (l4_rate_hz > 50.0 || l23_rate_hz > 50.0 || l5_rate_hz > 50.0);
+                rate_recent_l4 > 120.0 || rate_recent_l23 > 120.0 || rate_recent_l5 > 120.0;
 
             sim_log.push(serde_json::json!({
                 "tick": tick,
@@ -3976,10 +4044,18 @@ fn run_static_microcircuit_v1_1_experiments() {
                 "l23_spikes": l23_sp,
                 "l5_spikes": l5_sp,
                 "l4_mean_voltage": l4_v_sum / (n/2) as f64,
+                "l4_min_voltage": min_l4_v,
+                "l4_max_voltage": max_l4_v,
+                "l5_mean_voltage": l5_v_sum / l5_count as f64,
+                "l5_min_voltage": min_l5_v,
+                "l5_max_voltage": max_l5_v,
                 "l4_mean_threshold": l4_th_sum / (n/2) as f64,
+                "l5_mean_threshold": l5_th_sum / l5_count as f64,
                 "l4_mean_fatigue": l4_fatigue_sum / (n/2) as f64,
                 "l23_mean_fatigue": l23_fatigue_sum / (n/4) as f64,
-                "l5_mean_fatigue": l5_fatigue_sum / (n/4) as f64,
+                "l5_mean_fatigue": l5_fatigue_sum / l5_count as f64,
+                "l5_active_exc_input": l5_exc_input / l5_count as f64,
+                "l5_active_inh_input": l5_inh_input / l5_count as f64,
                 "silence_flag": silence_flag,
                 "runaway_flag": runaway_flag,
             }));
@@ -4094,12 +4170,24 @@ fn run_static_microcircuit_v1_1_experiments() {
             && gate_no_silence
             && gate_selectivity;
 
+        let mut l5_fan_in = vec![0; l5_count];
+        for &(_, dest, _) in &edges {
+            if dest >= 3 * n / 4 && dest < n {
+                l5_fan_in[dest - 3 * n / 4] += 1;
+            }
+        }
+        let l5_mean_fan = l5_fan_in.iter().sum::<usize>() as f64 / l5_count as f64;
+        let l5_max_fan = *l5_fan_in.iter().max().unwrap_or(&0);
+
         let res = SweepResult {
             stage,
             virtual_weight: virt_w,
             noise_profile: profile_idx,
-            exc_weight: exc_w,
-            inh_weight: inh_w,
+            exc_weight_l4_l23: exc_w_l4_l23,
+            exc_weight_l4_l5: exc_w_l4_l5,
+            fan_in_l4_l5_idx: fan_in_l4_l5_range_idx,
+            inh_weight_l23_l4: inh_w_l23_l4,
+            inh_weight_l23_l5: inh_w_l23_l5,
             l4_rate: r3_l4,
             l23_rate: r3_l23,
             l5_rate: r3_l5,
@@ -4110,6 +4198,8 @@ fn run_static_microcircuit_v1_1_experiments() {
             selectivity: sel_ratio,
             has_runaway: max_consec_runaway > 200,
             passed_all_gates: passed_all,
+            l5_mean_fan_in: l5_mean_fan,
+            l5_max_fan_in: l5_max_fan,
         };
 
         println!(
@@ -4122,16 +4212,51 @@ fn run_static_microcircuit_v1_1_experiments() {
         (res, sim_log)
     };
 
-    let n_sweep = 256;
+    // Stage 0: Audit & Baseline metrics
+    println!("--- STAGE 0: Baseline Metrics (N=256 and N=512) ---");
+    let (res_baseline_256, _) =
+        run_config(256, 1500, 0, 3000, 3000, 0, -2750, -2750, 0, &variant_table);
+    let (res_baseline_512, _) =
+        run_config(512, 1500, 0, 3000, 3000, 0, -2750, -2750, 0, &variant_table);
+    println!(
+        "  Baseline N=256: L4={:.1}Hz, L23={:.1}Hz, L5={:.1}Hz, consec_above={}",
+        res_baseline_256.l4_rate,
+        res_baseline_256.l23_rate,
+        res_baseline_256.l5_rate,
+        res_baseline_256.max_consec_vm_above
+    );
+    println!(
+        "  Baseline N=512: L4={:.1}Hz, L23={:.1}Hz, L5={:.1}Hz, consec_above={}",
+        res_baseline_512.l4_rate,
+        res_baseline_512.l23_rate,
+        res_baseline_512.l5_rate,
+        res_baseline_512.max_consec_vm_above
+    );
+    sweep_results.push(res_baseline_256);
+    sweep_results.push(res_baseline_512);
 
-    println!("--- STAGE 1: Sweeping virtual input scale & noise profiles ---");
+    // Stage 1: L5 Feedforward Sweep (N=256)
+    println!("--- STAGE 1: Sweeping L4->L5 excitation weight & L4->L5 fan-in (N=256) ---");
+    let exc_w_l4_l5_options = vec![3000, 4000, 5000, 6500, 8000];
+    let fan_in_options = vec![0, 1, 2]; // 0: 6..18, 1: 12..28, 2: 20..40
     let mut stage1_results = Vec::new();
-    for &vw in &virtual_weights {
-        for profile in 0..3 {
-            let (res, _) = run_config(n_sweep, vw, profile, 3000, -3500, 1, &variant_table);
+    for &exc_l4_l5 in &exc_w_l4_l5_options {
+        for &fan_in_idx in &fan_in_options {
+            let (res, _) = run_config(
+                256,
+                1500,
+                0,
+                3000,
+                exc_l4_l5,
+                fan_in_idx,
+                -2750,
+                -2750,
+                1,
+                &variant_table,
+            );
             println!(
-                "  Virtual W = {}, Profile = {}: L4 rate = {:.1} Hz, L4 max consec Vm > -25 = {}, Max threshold offset = {:.1} mV, passed = {}",
-                vw, profile, res.l4_rate, res.max_consec_vm_above, res.max_thresh_offset_mv, res.passed_all_gates
+                "  Exc L4->L5 = {}, Fan-in Index = {}: L5 rate = {:.2} Hz, L4 rate = {:.1} Hz, consec_above = {}, passed = {}",
+                exc_l4_l5, fan_in_idx, res.l5_rate, res.l4_rate, res.max_consec_vm_above, res.passed_all_gates
             );
             stage1_results.push(res.clone());
             sweep_results.push(res);
@@ -4139,143 +4264,162 @@ fn run_static_microcircuit_v1_1_experiments() {
     }
 
     let mut best_stage1_idx = 0;
-    let mut min_violations = usize::MAX;
+    let mut best_l5_dist = f64::MAX;
+    let mut best_l5_rate_fallback = 0.0;
+    let mut best_fallback_idx = 0;
     for (idx, res) in stage1_results.iter().enumerate() {
-        if res.l4_rate >= 3.0 && res.l4_rate <= 25.0 {
-            if res.max_consec_vm_above < min_violations {
-                min_violations = res.max_consec_vm_above;
-                best_stage1_idx = idx;
+        let is_healthy = res.max_consec_vm_above <= 50 && !res.has_runaway;
+        if is_healthy {
+            if res.l5_rate >= 1.0 && res.l5_rate <= 15.0 {
+                let dist = (res.l5_rate - 8.0).abs();
+                if dist < best_l5_dist {
+                    best_l5_dist = dist;
+                    best_stage1_idx = idx;
+                }
+            }
+            if res.l5_rate > best_l5_rate_fallback {
+                best_l5_rate_fallback = res.l5_rate;
+                best_fallback_idx = idx;
             }
         }
     }
-    if min_violations == usize::MAX {
-        for (idx, res) in stage1_results.iter().enumerate() {
-            if res.l4_rate > 1.0 {
-                best_stage1_idx = idx;
-                break;
-            }
-        }
-    }
-    let best_virt_w = stage1_results[best_stage1_idx].virtual_weight;
-    let best_profile = stage1_results[best_stage1_idx].noise_profile;
+    let stage1_winner_idx = if best_l5_dist < f64::MAX {
+        best_stage1_idx
+    } else {
+        best_fallback_idx
+    };
+    let best_exc_w_l4_l5 = stage1_results[stage1_winner_idx].exc_weight_l4_l5;
+    let best_fan_in_idx = stage1_results[stage1_winner_idx].fan_in_l4_l5_idx;
     println!(
-        "Selected Stage 1 Best: Virtual W = {}, Profile = {}",
-        best_virt_w, best_profile
+        "Selected Stage 1 Best: Exc L4->L5 = {}, Fan-in Index = {}",
+        best_exc_w_l4_l5, best_fan_in_idx
     );
 
-    println!("--- STAGE 2: Sweeping excitatory weights L4->L5 / L4->L23 ---");
+    // Stage 2: Layer-Specific Inhibition Split (N=256)
+    println!("--- STAGE 2: Sweeping L23->L4 and L23->L5 inhibition split (N=256) ---");
+    let inh_w_l23_l4_options = vec![-2000, -2750, -3500];
+    let inh_w_l23_l5_options = vec![0, -500, -1000, -1500, -2000, -2750];
     let mut stage2_results = Vec::new();
-    for &ew in &exc_weights {
-        let (res, _) = run_config(
-            n_sweep,
-            best_virt_w,
-            best_profile,
-            ew,
-            -3500,
-            2,
-            &variant_table,
-        );
-        println!(
-            "  Exc W = {}: L5 rate = {:.1} Hz, L23 rate = {:.1} Hz, passed = {}",
-            ew, res.l5_rate, res.l23_rate, res.passed_all_gates
-        );
-        stage2_results.push(res.clone());
-        sweep_results.push(res);
+    for &inh_l23_l4 in &inh_w_l23_l4_options {
+        for &inh_l23_l5 in &inh_w_l23_l5_options {
+            let (res, _) = run_config(
+                256,
+                1500,
+                0,
+                3000,
+                best_exc_w_l4_l5,
+                best_fan_in_idx,
+                inh_l23_l4,
+                inh_l23_l5,
+                2,
+                &variant_table,
+            );
+            println!(
+                "  Inh L23->L4 = {}, Inh L23->L5 = {}: L4 rate = {:.1} Hz, L5 rate = {:.2} Hz, L23 rate = {:.1} Hz, runaway = {}, passed = {}",
+                inh_l23_l4, inh_l23_l5, res.l4_rate, res.l5_rate, res.l23_rate, res.has_runaway, res.passed_all_gates
+            );
+            stage2_results.push(res.clone());
+            sweep_results.push(res);
+        }
     }
 
     let mut best_stage2_idx = 0;
-    let mut best_l5_dist = f64::MAX;
+    let mut best_l5_dist_s2 = f64::MAX;
+    let mut best_stage2_fallback_idx = 0;
+    let mut best_fallback_dist_s2 = f64::MAX;
+
     for (idx, res) in stage2_results.iter().enumerate() {
-        let dist = if res.l5_rate >= 1.0 && res.l5_rate <= 15.0 {
-            0.0
-        } else {
-            (res.l5_rate - 8.0).abs()
-        };
-        if dist < best_l5_dist {
-            best_l5_dist = dist;
-            best_stage2_idx = idx;
-        }
-    }
-    let best_exc_w = stage2_results[best_stage2_idx].exc_weight;
-    println!("Selected Stage 2 Best: Exc W = {}", best_exc_w);
+        let is_healthy = res.max_consec_vm_above <= 50 && !res.has_runaway;
+        if is_healthy {
+            let l4_ok = res.l4_rate >= 3.0 && res.l4_rate <= 25.0;
+            let l23_ok = res.l23_rate >= 3.0 && res.l23_rate <= 35.0;
+            let l5_ok = res.l5_rate >= 1.0 && res.l5_rate <= 15.0;
 
-    println!("--- STAGE 3: Sweeping L23 inhibitory weights ---");
-    let mut stage3_results = Vec::new();
-    for &iw in &inh_weights {
-        let (res, _) = run_config(
-            n_sweep,
-            best_virt_w,
-            best_profile,
-            best_exc_w,
-            iw,
-            3,
-            &variant_table,
-        );
-        println!(
-            "  Inh W = {}: L4 rate = {:.1} Hz, L5 rate = {:.1} Hz, L23 rate = {:.1} Hz, runaway = {}, passed = {}",
-            iw, res.l4_rate, res.l5_rate, res.l23_rate, res.has_runaway, res.passed_all_gates
-        );
-        stage3_results.push(res.clone());
-        sweep_results.push(res);
-    }
+            if l4_ok && l23_ok && l5_ok {
+                let dist = (res.l5_rate - 8.0).abs();
+                if dist < best_l5_dist_s2 {
+                    best_l5_dist_s2 = dist;
+                    best_stage2_idx = idx;
+                }
+            }
 
-    let mut best_stage3_idx = 0;
-    let mut max_select = 0.0;
-    for (idx, res) in stage3_results.iter().enumerate() {
-        if !res.has_runaway {
-            if res.selectivity > max_select {
-                max_select = res.selectivity;
-                best_stage3_idx = idx;
+            let dist_fb = (res.l5_rate - 8.0).abs();
+            if dist_fb < best_fallback_dist_s2 {
+                best_fallback_dist_s2 = dist_fb;
+                best_stage2_fallback_idx = idx;
             }
         }
     }
-    let best_inh_w = stage3_results[best_stage3_idx].inh_weight;
-    println!("Selected Stage 3 Best: Inh W = {}", best_inh_w);
 
+    let stage2_winner_idx = if best_l5_dist_s2 < f64::MAX {
+        best_stage2_idx
+    } else {
+        best_stage2_fallback_idx
+    };
+    let best_inh_w_l23_l4 = stage2_results[stage2_winner_idx].inh_weight_l23_l4;
+    let best_inh_w_l23_l5 = stage2_results[stage2_winner_idx].inh_weight_l23_l5;
+    println!(
+        "Selected Stage 2 Best: Inh L23->L4 = {}, Inh L23->L5 = {}",
+        best_inh_w_l23_l4, best_inh_w_l23_l5
+    );
+
+    // Stage 4: Confirmation detailed best candidate runs
     println!("=== Sweeps complete. Running detailed best candidate runs ===");
     let (_best_res_256, best_log_256) = run_config(
         256,
-        best_virt_w,
-        best_profile,
-        best_exc_w,
-        best_inh_w,
+        1500,
+        0,
+        3000,
+        best_exc_w_l4_l5,
+        best_fan_in_idx,
+        best_inh_w_l23_l4,
+        best_inh_w_l23_l5,
         4,
         &variant_table,
     );
     let (best_res_512, best_log_512) = run_config(
         512,
-        best_virt_w,
-        best_profile,
-        best_exc_w,
-        best_inh_w,
+        1500,
+        0,
+        3000,
+        best_exc_w_l4_l5,
+        best_fan_in_idx,
+        best_inh_w_l23_l4,
+        best_inh_w_l23_l5,
         4,
         &variant_table,
     );
 
-    let log_path_256 = artifacts_dir.join("static_microcircuit_v1_1_best_candidate_log_256.json");
+    let log_path_256 = artifacts_dir.join("static_microcircuit_v1_2_best_candidate_log_256.json");
     let file = File::create(&log_path_256).unwrap();
     serde_json::to_writer_pretty(file, &best_log_256).unwrap();
 
-    let log_path_512 = artifacts_dir.join("static_microcircuit_v1_1_best_candidate_log_512.json");
+    let log_path_512 = artifacts_dir.join("static_microcircuit_v1_2_best_candidate_log_512.json");
     let file = File::create(&log_path_512).unwrap();
     serde_json::to_writer_pretty(file, &best_log_512).unwrap();
 
     println!("--- Running Ablation cases on N=512 ---");
     let (res_no_inh, log_no_inh) = run_config(
         512,
-        best_virt_w,
-        best_profile,
-        best_exc_w,
+        1500,
+        0,
+        3000,
+        best_exc_w_l4_l5,
+        best_fan_in_idx,
+        0,
         0,
         5,
         &variant_table,
     );
     let (res_red_inh, log_red_inh) = run_config(
         512,
-        best_virt_w,
-        best_profile,
-        best_exc_w,
-        best_inh_w / 2,
+        1500,
+        0,
+        3000,
+        best_exc_w_l4_l5,
+        best_fan_in_idx,
+        best_inh_w_l23_l4 / 2,
+        best_inh_w_l23_l5 / 2,
         5,
         &variant_table,
     );
@@ -4304,7 +4448,7 @@ fn run_static_microcircuit_v1_1_experiments() {
         }
     });
 
-    let ablation_path = artifacts_dir.join("static_microcircuit_v1_1_ablation_summary.json");
+    let ablation_path = artifacts_dir.join("static_microcircuit_v1_2_ablation_summary.json");
     let file = File::create(&ablation_path).unwrap();
     serde_json::to_writer_pretty(file, &ablation_summary).unwrap();
 
@@ -4312,13 +4456,13 @@ fn run_static_microcircuit_v1_1_experiments() {
         "no_inhibition_log": log_no_inh,
         "reduced_inhibition_log": log_red_inh
     });
-    let ablation_logs_path = artifacts_dir.join("static_microcircuit_v1_1_ablation_logs.json");
+    let ablation_logs_path = artifacts_dir.join("static_microcircuit_v1_2_ablation_logs.json");
     let file = File::create(&ablation_logs_path).unwrap();
     serde_json::to_writer_pretty(file, &ablation_logs).unwrap();
 
-    let sweep_summary_path = artifacts_dir.join("static_microcircuit_v1_1_sweep_summary.json");
+    let sweep_summary_path = artifacts_dir.join("static_microcircuit_v1_2_sweep_summary.json");
     let file = File::create(&sweep_summary_path).unwrap();
     serde_json::to_writer_pretty(file, &sweep_results).unwrap();
 
-    println!("Static Microcircuit v1.1 Rust simulations complete.");
+    println!("Static Microcircuit v1.2 Rust simulations complete.");
 }

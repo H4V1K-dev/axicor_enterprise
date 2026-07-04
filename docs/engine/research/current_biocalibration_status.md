@@ -80,17 +80,19 @@ Status: active research index, not a final report.
 | 2 | **Static microcircuit physiology** | completed | Маленькая L4/L2-3/L5 сеть без пластичности не уходит в silence/runaway, показывает осмысленные firing rates, E/I balance, fatigue, spatial connectivity и визуализируемую геометрию. |
 | 2.1 | **Static microcircuit scale-up** | completed | Оценена стабильность и CPU производительность при масштабировании до 1,000,000 нейронов. Выявлена Vm saturation (> -25mV) из-за избыточного homeostasis offset под Poisson-шумом. Физиология inconclusive. |
 | 2.2 | **Static microcircuit v1.1 Input Scale & E/I Ablation** | completed / partial | Мембранный потенциал стабилизирован, но L5 recruitment gate не закрыт; ablation показывает модулирующую роль L23 inhibition без формального runaway. |
-| 2.3 | **Static microcircuit L5 recruitment/topology** | next | Перед STDP нужно вывести L5 в целевой диапазон 1..15 Hz в full network без возврата Vm saturation. |
-| 3 | **Plastic microcircuit** | blocked on step 2.3 | GSOP/STDP/fatigue включаются только после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться, шумовые не разрушать сеть. |
-| 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity, чтобы не смешивать ошибки topology, кодирования сенсоров, reward и моторного декодера. |
-
-### [Next] Static Microcircuit L5 Recruitment / Topology
-
-- **Вопрос**: Можно ли рекрутировать L5 в full network до 1..15 Hz без снятия торможения L23 и без возврата L4 Vm saturation?
-- **Зачем**: Закрыть последний статический physiology gate перед пластичностью.
-- **Gate**: L5 moderate rate 1..15 Hz на N=256 и N=512; L4/L23 остаются в целевых диапазонах; Vm/threshold/recovery gates сохраняются; ablation показывает ожидаемый E/I gradient без требования искусственного runaway.
+| 2.3 | **Static microcircuit L5 recruitment/topology** | completed / partial | L5 успешно рекрутирован в целевой диапазон (~10.1 Hz на N=512) за счет FF L4->L5 усиления (8000 uV) и разделения L23 торможения; L4 переторможен ниже gate (1.4-1.6 Hz). |
+| 2.4 | **Static microcircuit L4/L5 balance** | next | Нужно одновременно удержать L4 в 3..25 Hz и L5 в 1..15 Hz на N=256/N=512 без возврата Vm saturation. |
+| 3 | **Plastic microcircuit** | blocked on step 2.4 | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться. |
+| 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity. |
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Static Microcircuit v1.2 L5 Recruitment & Topology (`archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/`)
+
+- **Вопрос**: Можно ли вывести L5 в целевой диапазон активности 1..15 Hz в full network, сохранив Vm health и threshold decay?
+- **Итоговый вердикт (Partial Pass / L5 Recruited / L4 Over-inhibited)**: L5 успешно рекрутирован: 8.29 Hz на N=256 и 10.05 Hz на N=512. Мембранный потенциал L4 полностью стабилен (0 consecutive тиков > -25 mV). Однако L4 слегка переторможен (1.4-1.6 Hz при мишени 3-25 Hz) из-за сильного split торможения L23.
+- **Следующий шаг**: `Static microcircuit L4/L5 balance` перед переходом к plasticity.
+- **Outputs**: Rust runner (`run_static_microcircuit_v1_2_experiments`), Python скрипты, отчёт [static_microcircuit_v1_2_l5_recruitment_topology.md](archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/reports/static_microcircuit_v1_2_l5_recruitment_topology.md).
 
 ### [Completed] Static Microcircuit v1.1 Input Scale & E/I Ablation (`archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/`)
 
@@ -158,6 +160,7 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Static Microcircuit v1.2 L5 Recruitment & Topology](archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/README.md)
 - [Static Microcircuit v1.1 Input Scale & E/I Ablation](archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/README.md)
 - [Static Microcircuit Scale-Up v1](archive/2026-07-04_static_microcircuit_scale_up_v1/README.md)
 - [Static Microcircuit Physiology v1](archive/2026-07-04_static_microcircuit_physiology_v1/README.md)
@@ -178,6 +181,9 @@ Status: active research index, not a final report.
 
 ### Static Microcircuit
 
+- [static_microcircuit_v1_2_sweep_summary.json](../../../artifacts/static_microcircuit_v1_2_sweep_summary.json)
+- [static_microcircuit_v1_2_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_2_best_candidate_log_512.json)
+- [static_microcircuit_v1_2_ablation_summary.json](../../../artifacts/static_microcircuit_v1_2_ablation_summary.json)
 - [static_microcircuit_v1_1_sweep_summary.json](../../../artifacts/static_microcircuit_v1_1_sweep_summary.json)
 - [static_microcircuit_v1_1_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_1_best_candidate_log_512.json)
 - [static_microcircuit_v1_1_ablation_summary.json](../../../artifacts/static_microcircuit_v1_1_ablation_summary.json)
