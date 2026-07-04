@@ -645,17 +645,17 @@ pub fn cpu_sort_and_prune(state_buf: &mut MvpStateBuffer, prune_threshold: i16) 
     }
 }
 
-/////// Local research implementation of GSOP synaptic plasticity with Bidirectional STDP.
+/////// Local research implementation of GSOP synaptic plasticity with All-to-All STDP.
 ///
-/// Applies superposition of causal LTP (spike passed segment, `min_d_ltp`) and anti-causal LTD (spike approaching segment, `min_d_ltd`):
-/// - Causal LTP: `+ (final_pot * inertia * burst_mult * (prop - min_d_ltp)) / (128 * prop)`
-/// - Anti-causal LTD: `- (final_dep * inertia * burst_mult * (prop - min_d_ltd)) / (128 * prop)`
-/// - Complete miss (`min_d_ltp > prop` and `min_d_ltd > prop`): zero delta (`delta = 0`).
+/// Applies sum of causal LTP (spike passed segment) and anti-causal LTD (spike approaching segment)
+/// across all active heads in range, and applies additional linear penalty if dendritic timer is active.
 #[allow(clippy::too_many_arguments)]
 pub fn research_apply_gsop_plasticity(
     weight: i32,
-    min_d_ltp: u32,
-    min_d_ltd: u32,
+    heads: &[u32; 8],
+    seg_idx: u32,
+    timer: u8,
+    refractory_period: u8,
     prop: u32,
     gsop_potentiation: i32,
     gsop_depression: i32,
@@ -679,17 +679,41 @@ pub fn research_apply_gsop_plasticity(
 
     let burst_mult = (burst_count as i64).max(1);
 
-    let mut delta = 0i64;
+    let mut total_delta_ltp = 0i64;
+    let mut total_delta_ltd = 0i64;
 
-    if min_d_ltp <= prop && prop > 0 {
-        let decay_factor = prop.saturating_sub(min_d_ltp) as i64;
-        delta += (final_pot * inertia * burst_mult * decay_factor) / (128 * prop as i64);
+    for &head in heads {
+        if head == AXON_SENTINEL {
+            continue;
+        }
+        let diff = head.wrapping_sub(seg_idx);
+        if diff < 0x8000_0000 {
+            // Causal LTP
+            if diff <= prop && prop > 0 {
+                total_delta_ltp +=
+                    (final_pot * inertia * burst_mult * prop.saturating_sub(diff) as i64)
+                        / (128 * prop as i64);
+            }
+        } else {
+            // Anti-causal LTD
+            let approaching_diff = seg_idx.wrapping_sub(head);
+            if approaching_diff <= prop && prop > 0 {
+                total_delta_ltd -= (final_dep
+                    * inertia
+                    * burst_mult
+                    * prop.saturating_sub(approaching_diff) as i64)
+                    / (128 * prop as i64);
+            }
+        }
     }
 
-    if min_d_ltd <= prop && prop > 0 {
-        let decay_factor = prop.saturating_sub(min_d_ltd) as i64;
-        delta -= (final_dep * inertia * burst_mult * decay_factor) / (128 * prop as i64);
+    if timer > 0 && refractory_period > 0 {
+        let base_ltd = (final_dep * inertia * burst_mult) / 128;
+        let timer_penalty = (timer as i64 * base_ltd) / (refractory_period as i64);
+        total_delta_ltd -= timer_penalty;
     }
+
+    let delta = total_delta_ltp + total_delta_ltd;
 
     let new_abs_raw = abs_w as i64 + delta;
     let new_abs = new_abs_raw.clamp(MIN_WEIGHT_LIMIT as i64, MAX_WEIGHT_LIMIT as i64) as u32;
@@ -699,7 +723,7 @@ pub fn research_apply_gsop_plasticity(
 
 /// Applies Global Synaptic Optimization Protocol (GSOP) plastic weight updates to spiking somas.
 ///
-/// Delegates to `research_apply_gsop_plasticity` with Bidirectional STDP.
+/// Delegates to `research_apply_gsop_plasticity` with All-to-All STDP and refractory timer penalty.
 pub fn cpu_apply_gsop(
     state_buf: &mut MvpStateBuffer,
     axon_buf: &MvpAxonBuffer,
@@ -735,15 +759,12 @@ pub fn cpu_apply_gsop(
         }
 
         for slot in 0..MAX_DENDRITES {
-            let timer = state_buf.read_dendrite_timer(slot, tid);
-            if timer > 0 {
-                continue; // Dendrite is refractory
-            }
-
             let target_packed = state_buf.read_dendrite_target(slot, tid);
             if target_packed == 0 {
                 break; // Zero-Target Sentinel
             }
+
+            let timer = state_buf.read_dendrite_timer(slot, tid);
 
             let w = state_buf.read_dendrite_weight(slot, tid);
             if w == 0 {
@@ -764,29 +785,14 @@ pub fn cpu_apply_gsop(
             let h = axon_buf.read_head(axon_id);
             let prop = p.signal_propagation_length as u32;
 
-            // 8-head calculation for Bidirectional STDP
-            let mut min_d_ltp = u32::MAX;
-            let mut min_d_ltd = u32::MAX;
             let heads = [h.h0, h.h1, h.h2, h.h3, h.h4, h.h5, h.h6, h.h7];
-            for head in heads {
-                if head == AXON_SENTINEL {
-                    continue;
-                }
-                let diff = head.wrapping_sub(seg_idx);
-                if diff < 0x8000_0000 {
-                    // Spike has passed segment (Causal LTP)
-                    min_d_ltp = min_d_ltp.min(diff);
-                } else {
-                    // Spike is approaching segment (Anti-causal LTD)
-                    let approaching_diff = seg_idx.wrapping_sub(head);
-                    min_d_ltd = min_d_ltd.min(approaching_diff);
-                }
-            }
 
             let new_w = research_apply_gsop_plasticity(
                 w,
-                min_d_ltp,
-                min_d_ltd,
+                &heads,
+                seg_idx,
+                timer,
+                p.synapse_refractory_period,
                 prop,
                 p.gsop_potentiation as i32,
                 p.gsop_depression as i32,

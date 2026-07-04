@@ -455,7 +455,7 @@ fn test_variant_table() -> [VariantParameters; VARIANT_LUT_LEN] {
         gsop_depression: 64,
         homeostasis_decay: 1,
         refractory_period: 2,
-        synapse_refractory_period: 0,
+        synapse_refractory_period: 5,
         signal_propagation_length: 5,
         is_inhibitory: 0,
         inertia_curve: [128; 8],
@@ -703,22 +703,28 @@ fn test_cpu_apply_gsop_timer_before_zero_target() {
 
     state_buf.write_soma_flags(0, 0x01);
 
-    // Slot 0: timer > 0 and target = 0 (timer check must come before target == 0 break!)
+    // Slot 0: valid target and timer = 5 -> processed with penalty
+    state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(0, 0, 100000);
     state_buf.write_dendrite_timer(0, 0, 5);
-    state_buf.write_dendrite_target(0, 0, 0);
 
-    // Slot 1: valid target and weight
-    state_buf.write_dendrite_target(1, 0, (2 << 24) | 1);
-    state_buf.write_dendrite_weight(1, 0, 100000);
+    // Slot 1: target = 0 (sentinel) -> breaks loop
+    state_buf.write_dendrite_target(1, 0, 0);
+
+    // Slot 2: valid target -> skipped because of Slot 1 break
+    state_buf.write_dendrite_target(2, 0, (2 << 24) | 1);
+    state_buf.write_dendrite_weight(2, 0, 100000);
 
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h0 = 1; // min_d_ltd = 2 - 1 = 1
+    head.h0 = 1; // approaching_diff = 2 - 1 = 1 -> LTD delta -51
     axon_buf.write_head(0, head);
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
 
-    // Slot 0 skipped via timer > 0 continue without breaking loop; Slot 1 processed (depressed to 99949)
-    assert_eq!(state_buf.read_dendrite_weight(1, 0), 99949);
+    // Slot 0 processed: LTD delta -51, penalty: (5 * 64) / 5 = 64 -> weight = 99885
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 99885);
+    // Slot 2 untouched because of sentinel break
+    assert_eq!(state_buf.read_dendrite_weight(2, 0), 100000);
 }
 
 #[test]
@@ -795,7 +801,7 @@ fn test_cpu_apply_gsop_timer_skip() {
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
 
-    assert_eq!(state_buf.read_dendrite_weight(0, 0), 100000);
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 99911);
     assert_eq!(state_buf.read_dendrite_weight(1, 0), 99949);
 }
 
@@ -954,11 +960,23 @@ fn test_research_apply_gsop_plasticity_bidirectional_stdp() {
     let weight = 100000;
     let prop = 20;
 
-    // Scenario 1: Causal passed spike (min_d_ltp = 0, min_d_ltd = u32::MAX) -> Max LTP (+128)
+    // Scenario 1: Causal passed spike (head = 140, seg_idx = 140, timer = 0, refractory_period = 0) -> Max LTP (+128)
+    let heads_ltp = [
+        140,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+    ];
     let w_ltp = research_apply_gsop_plasticity(
         weight,
+        &heads_ltp,
+        140,
         0,
-        u32::MAX,
+        0,
         prop,
         128,
         64,
@@ -970,10 +988,22 @@ fn test_research_apply_gsop_plasticity_bidirectional_stdp() {
     );
     assert_eq!(w_ltp - weight, 128);
 
-    // Scenario 2: Anti-causal approaching spike (min_d_ltp = u32::MAX, min_d_ltd = 0) -> Max LTD (-64)
+    // Scenario 2: Anti-causal approaching spike (head = 139, seg_idx = 140, timer = 0, refractory_period = 0) -> LTD (-60)
+    let heads_ltd = [
+        139,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+    ];
     let w_ltd = research_apply_gsop_plasticity(
         weight,
-        u32::MAX,
+        &heads_ltd,
+        140,
+        0,
         0,
         prop,
         128,
@@ -984,13 +1014,25 @@ fn test_research_apply_gsop_plasticity_bidirectional_stdp() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_ltd - weight, -64);
+    assert_eq!(w_ltd - weight, -60);
 
-    // Scenario 3: Complete miss (min_d_ltp = prop + 1, min_d_ltd = prop + 1) -> No change (delta 0)
+    // Scenario 3: Complete miss (heads out of prop window) -> No change (delta 0)
+    let heads_miss = [
+        119,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+    ];
     let w_miss = research_apply_gsop_plasticity(
         weight,
-        prop + 1,
-        prop + 1,
+        &heads_miss,
+        140,
+        0,
+        0,
         prop,
         128,
         64,
@@ -1048,9 +1090,9 @@ fn test_bidirectional_stdp_six_scenarios() {
         axon_buf.write_head(0, head);
 
         cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
-        // min_d_ltd = 140 - 71 = 69
-        // decay_factor = 80 - 69 = 11
-        // LTD delta = (64 * 128 * 11) / (128 * 80) = 8
+        // min_d_ltd for 71 is 140 - 71 = 69 -> decay = 11 -> LTD delta = 8
+        // min_d_ltd for 61 is 140 - 61 = 79 -> decay = 1 -> LTD delta = 0
+        // Total LTD delta = 8
         assert_eq!(state_buf.read_dendrite_weight(0, 0), 99992);
     }
 
@@ -1075,9 +1117,11 @@ fn test_bidirectional_stdp_six_scenarios() {
         axon_buf.write_head(0, head);
 
         cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
-        // min_d_ltp = 140 - 140 = 0
-        // LTP delta = (128 * 128 * 80) / (128 * 80) = 128
-        assert_eq!(state_buf.read_dendrite_weight(0, 0), 100128);
+        // Sum of LTP deltas for in-range heads:
+        // 140 (diff 0 -> delta 128), 155 (diff 15 -> delta 104), 170 (diff 30 -> delta 80)
+        // 185 (diff 45 -> delta 56), 200 (diff 60 -> delta 32), 215 (diff 75 -> delta 8)
+        // Total LTP delta = 128 + 104 + 80 + 56 + 32 + 8 = 408
+        assert_eq!(state_buf.read_dendrite_weight(0, 0), 100408);
     }
 
     // 4. Scenario 4: 4 spikes left and 4 right, closest at 5 segments, interval 20
@@ -1102,10 +1146,10 @@ fn test_bidirectional_stdp_six_scenarios() {
         axon_buf.write_head(0, head);
 
         cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
-        // min_d_ltd = 140 - 135 = 5 -> decay = 75 -> LTD delta = (64 * 75) / 80 = 60
-        // min_d_ltp = 145 - 140 = 5 -> decay = 75 -> LTP delta = (128 * 75) / 80 = 120
-        // Total delta = 120 - 60 = 60
-        assert_eq!(state_buf.read_dendrite_weight(0, 0), 100060);
+        // LTD: 135 (delta 60), 115 (delta 44), 95 (delta 28), 75 (delta 12) -> sum 144
+        // LTP: 145 (delta 120), 165 (delta 88), 185 (delta 56), 205 (delta 24) -> sum 288
+        // Total delta = 288 - 144 = 144
+        assert_eq!(state_buf.read_dendrite_weight(0, 0), 100144);
     }
 
     // 5. Scenario 5: 2 spikes left, 6 spikes right, closest at 15 segments, interval 30
@@ -1130,10 +1174,10 @@ fn test_bidirectional_stdp_six_scenarios() {
         axon_buf.write_head(0, head);
 
         cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
-        // min_d_ltd = 15 -> decay = 65 -> LTD delta = 52
-        // min_d_ltp = 15 -> decay = 65 -> LTP delta = 104
-        // Total delta = 104 - 52 = 52
-        assert_eq!(state_buf.read_dendrite_weight(0, 0), 100052);
+        // LTD: 125 (delta 52), 95 (delta 28) -> sum 80
+        // LTP: 155 (delta 104), 185 (delta 56), 215 (delta 8) -> sum 168
+        // Total delta = 168 - 80 = 88
+        assert_eq!(state_buf.read_dendrite_weight(0, 0), 100088);
     }
 
     // 6. Scenario 6: 6 spikes left, 2 spikes right, closest at 15 segments, interval 30
@@ -1158,7 +1202,81 @@ fn test_bidirectional_stdp_six_scenarios() {
         axon_buf.write_head(0, head);
 
         cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
-        // Should be identical to Scenario 5
-        assert_eq!(state_buf.read_dendrite_weight(0, 0), 100052);
+        // LTD: 125 (delta 52), 95 (delta 28), 65 (delta 4) -> sum 84
+        // LTP: 155 (delta 104), 185 (delta 56) -> sum 160
+        // Total delta = 160 - 84 = 76
+        assert_eq!(state_buf.read_dendrite_weight(0, 0), 100076);
     }
+}
+
+#[test]
+fn test_all_to_all_stdp_summation() {
+    let inertia_curve = [128i32; 8];
+    let weight = 100000;
+    let prop = 80;
+
+    // Two spikes in LTP window: head 140 (diff 0 -> 128 delta) and head 150 (diff 10 -> 112 delta)
+    let heads = [
+        140,
+        150,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+    ];
+    let w = research_apply_gsop_plasticity(
+        weight,
+        &heads,
+        140,
+        0,
+        0,
+        prop,
+        128,
+        64,
+        0,
+        0,
+        0,
+        1,
+        &inertia_curve,
+    );
+    assert_eq!(w - weight, 240);
+}
+
+#[test]
+fn test_refractory_timer_penalty_linear() {
+    let inertia_curve = [128i32; 8];
+    let weight = 100000;
+    let prop = 80;
+
+    // One spike in LTD window: head 130 (approaching_diff 10 -> 56 LTD delta)
+    // timer = 5, refractory_period = 5 -> full timer penalty = 64 LTD delta
+    // Total delta = -56 - 64 = -120
+    let heads = [
+        130,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+    ];
+    let w = research_apply_gsop_plasticity(
+        weight,
+        &heads,
+        140,
+        5,
+        5,
+        prop,
+        128,
+        64,
+        0,
+        0,
+        0,
+        1,
+        &inertia_curve,
+    );
+    assert_eq!(w - weight, -120);
 }

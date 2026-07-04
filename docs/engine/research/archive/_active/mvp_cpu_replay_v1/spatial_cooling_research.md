@@ -1,10 +1,10 @@
-# Linear Spatial Cooling & Bidirectional STDP Research Specification
+# All-to-All STDP & Refractory Timer Penalty Research Specification
 
 ## 1. Context & Motivation
 
-During biocalibration research on MVP CPU replay, single-sided spatial cooling with fixed unconditioned LTD penalty was replaced with a symmetric, continuous **Bidirectional STDP Gradient**.
+During biocalibration research on MVP CPU replay, single-sided spatial cooling was replaced with a symmetric, continuous **Bidirectional STDP Gradient**. To avoid missing cumulative multi-spike temporal dynamics, the learning engine was further upgraded from Nearest-Neighbor search to **All-to-All STDP** summation.
 
-In this model, passed spikes produce distance-attenuated Causal LTP (Long-Term Potentiation), while approaching spikes produce distance-attenuated Anti-Causal LTD (Long-Term Depression). Axons without active spikes in range experience zero weight modification ($\Delta = 0$).
+Furthermore, a legacy limitation where the dendritic refractory timer blocked all synaptic learning was resolved. Now, learning remains open for all dendrites, but "tired" synapses (with `timer > 0`) receive a supplementary **Linear Refractory Penalty** proportional to the timer state and refractory period.
 
 ---
 
@@ -19,34 +19,43 @@ For each active head in the 8-head ring buffer (excluding `AXON_SENTINEL`):
 
 ---
 
-### 2.2 Superposition Gradient Model
+### 2.2 All-to-All STDP Summation
 
-$$\Delta = \Delta_{\text{ltp}} - \Delta_{\text{ltd}}$$
+Instead of finding the closest spike, the total synaptic plasticity delta is calculated by summing the contributions of all active axon heads within the propagation length window ($L_{\text{prop}}$):
 
-$$\Delta_{\text{ltp}} = \begin{cases} \left\lfloor \frac{\text{final\_pot} \cdot \text{inertia} \cdot \text{burst\_mult} \cdot (L_{\text{prop}} - d_{\text{ltp}})}{128 \cdot L_{\text{prop}}} \right\rfloor & \text{if } d_{\text{ltp}} \le L_{\text{prop}} \land L_{\text{prop}} > 0 \\ 0 & \text{otherwise} \end{cases}$$
+$$\Delta_{\text{ltp}}^{\text{total}} = \sum_{h \in \text{heads}, d_{\text{ltp}}(h) \le L_{\text{prop}}} \left\lfloor \frac{\text{final\_pot} \cdot \text{inertia} \cdot \text{burst\_mult} \cdot (L_{\text{prop}} - d_{\text{ltp}}(h))}{128 \cdot L_{\text{prop}}} \right\rfloor$$
 
-$$\Delta_{\text{ltd}} = \begin{cases} \left\lfloor \frac{\text{final\_dep} \cdot \text{inertia} \cdot \text{burst\_mult} \cdot (L_{\text{prop}} - d_{\text{ltd}})}{128 \cdot L_{\text{prop}}} \right\rfloor & \text{if } d_{\text{ltd}} \le L_{\text{prop}} \land L_{\text{prop}} > 0 \\ 0 & \text{otherwise} \end{cases}$$
-
-If both $d_{\text{ltp}} > L_{\text{prop}}$ and $d_{\text{ltd}} > L_{\text{prop}}$ (Complete Miss), $\Delta = 0$.
+$$\Delta_{\text{ltd}}^{\text{total}} = \sum_{h \in \text{heads}, d_{\text{ltd}}(h) \le L_{\text{prop}}} \left\lfloor \frac{\text{final\_dep} \cdot \text{inertia} \cdot \text{burst\_mult} \cdot (L_{\text{prop}} - d_{\text{ltd}}(h))}{128 \cdot L_{\text{prop}}} \right\rfloor$$
 
 ---
 
-## 3. Boundary Conditions & Phase Table
+### 2.3 Refractory Timer Penalty
 
-| Signal State | Distance Condition | Effective Delta $\Delta$ | Plasticity Effect |
-| :--- | :--- | :--- | :--- |
-| **Causal Peak** | $d_{\text{ltp}} = 0, d_{\text{ltd}} = \infty$ | $+\Delta_{\text{pot}}^{\text{max}}$ | **100% LTP Potentiation** |
-| **Causal Gradient** | $d_{\text{ltp}} = L_{\text{prop}} / 2$ | $+\frac{1}{2} \Delta_{\text{pot}}^{\text{max}}$ | **50% LTP Potentiation** |
-| **Anti-Causal Peak** | $d_{\text{ltp}} = \infty, d_{\text{ltd}} = 0$ | $-\Delta_{\text{dep}}^{\text{max}}$ | **100% LTD Depression** |
-| **Anti-Causal Gradient** | $d_{\text{ltd}} = L_{\text{prop}} / 2$ | $-\frac{1}{2} \Delta_{\text{dep}}^{\text{max}}$ | **50% LTD Depression** |
-| **Complete Miss** | $d_{\text{ltp}} > L_{\text{prop}} \land d_{\text{ltd}} > L_{\text{prop}}$ | $0$ | **No Change** (Weight Preserved) |
+If the dendritic timer is active (`timer > 0`) and the refractory period is non-zero (`refractory_period > 0`), an additional linear depression penalty is subtracted:
+
+$$\text{base\_ltd} = \left\lfloor \frac{\text{final\_dep} \cdot \text{inertia} \cdot \text{burst\_mult}}{128} \right\rfloor$$
+
+$$\Delta_{\text{penalty}} = \left\lfloor \frac{\text{timer} \cdot \text{base\_ltd}}{\text{refractory\_period}} \right\rfloor$$
 
 ---
 
-## 4. Code & Test Reference
+### 2.4 Final Delta
+
+$$\Delta = \Delta_{\text{ltp}}^{\text{total}} - \Delta_{\text{ltd}}^{\text{total}} - \Delta_{\text{penalty}}$$
+
+The weight is updated by clamping the raw value:
+$$\text{weight}_{\text{new}} = \text{clamp}(\text{weight}_{\text{old}} + \Delta, \text{MIN\_WEIGHT\_LIMIT}, \text{MAX\_WEIGHT\_LIMIT})$$
+
+---
+
+## 3. Code & Test Reference
 
 - **Research Module**: `crates/test-harness/src/mvp_cpu_replay.rs` (`research_apply_gsop_plasticity`)
 - **Sandbox Integration**: `cpu_apply_gsop` in `crates/test-harness/src/mvp_cpu_replay.rs`
 - **Unit Tests**:
   - `test_research_apply_gsop_plasticity_bidirectional_stdp` in `crates/test-harness/tests/mvp_cpu_replay.rs`
-  - `test_cpu_apply_gsop_spatial_cooling_attenuation` in `crates/test-harness/tests/mvp_cpu_replay.rs`
+  - `test_all_to_all_stdp_summation` in `crates/test-harness/tests/mvp_cpu_replay.rs`
+  - `test_refractory_timer_penalty_linear` in `crates/test-harness/tests/mvp_cpu_replay.rs`
+  - `test_bidirectional_stdp_six_scenarios` in `crates/test-harness/tests/mvp_cpu_replay.rs`
+  - `test_cpu_apply_gsop_timer_skip` (verifying penalty application) in `crates/test-harness/tests/mvp_cpu_replay.rs`
+
