@@ -1938,3 +1938,259 @@ fn run_full_neuron_replay_phase6_experiments() {
 
     println!("Phase 6 Rust simulations complete.");
 }
+
+#[allow(clippy::too_many_arguments)]
+fn simulate_cross_profile_fi_sweep(
+    base_var: &VariantParameters,
+    profile_name: &str,
+    leak_shift: u32,
+    rest_potential: i32,
+    homeostasis_penalty: i32,
+    homeostasis_decay: u16,
+    ahp_amp: u16,
+    refractory: u8,
+    amps: &[i32],
+    current_scale: f64,
+) -> serde_json::Value {
+    let mut var = *base_var;
+    var.leak_shift = leak_shift;
+    var.rest_potential = rest_potential;
+    var.homeostasis_penalty = homeostasis_penalty;
+    var.homeostasis_decay = homeostasis_decay;
+    var.ahp_amplitude = ahp_amp;
+    var.refractory_period = refractory;
+    var.adaptive_leak_min_shift = 1;
+    var.adaptive_leak_gain = 0;
+    var.adaptive_mode = 0;
+    var.heartbeat_m = 0;
+
+    let mut fi_data = Vec::new();
+    for &amp in amps {
+        let ticks = 3000;
+        let step_current = (amp as f64 * current_scale) as i32;
+        let mut i_ext = vec![0; ticks];
+        i_ext[1000..2000].fill(step_current);
+
+        let (ticks_log, _, _) = full_neuron_replay_314900022_simulate_experimental(
+            &var,
+            &i_ext,
+            ticks,
+            ExperimentalRecoveryMode::HeartbeatGatedDischarge,
+        );
+
+        let stim_log: Vec<_> = ticks_log
+            .iter()
+            .filter(|t| t.tick >= 1000 && t.tick < 2000)
+            .collect();
+        let stim_spikes = stim_log.iter().filter(|t| t.final_spike).count();
+        let stim_spike_ticks: Vec<usize> = stim_log
+            .iter()
+            .filter(|t| t.final_spike)
+            .map(|t| t.tick)
+            .collect();
+
+        let first_spike_latency = stim_spike_ticks.first().map(|&t| t - 1000);
+        let mut isis = Vec::new();
+        for i in 0..stim_spike_ticks.len().saturating_sub(1) {
+            isis.push(stim_spike_ticks[i + 1] - stim_spike_ticks[i]);
+        }
+
+        let first_isi = isis.first().copied();
+        let last_isi = isis.last().copied();
+        let isi_growth = match (first_isi, last_isi) {
+            (Some(f), Some(l)) if f > 0 => l as f64 / f as f64,
+            _ => 1.0,
+        };
+
+        fi_data.push(serde_json::json!({
+            "stimulus_pa": amp,
+            "spike_count": stim_spikes,
+            "first_spike_latency_ticks": first_spike_latency,
+            "first_isi_ticks": first_isi,
+            "last_isi_ticks": last_isi,
+            "isi_growth_ratio": isi_growth,
+        }));
+    }
+
+    serde_json::json!({
+        "profile_name": profile_name,
+        "leak_shift": leak_shift,
+        "rest_potential_uv": rest_potential,
+        "threshold_uv": var.threshold,
+        "homeostasis_penalty": homeostasis_penalty,
+        "homeostasis_decay": homeostasis_decay,
+        "ahp_amplitude": ahp_amp,
+        "refractory_period": refractory,
+        "fi_data": fi_data
+    })
+}
+
+#[test]
+fn run_cross_profile_glif_hierarchy_experiments() {
+    println!("=== Starting Cross-Profile GLIF Calibration Hierarchy v1 Experiments ===");
+    let artifacts_dir = get_artifacts_dir();
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    let profile_names = vec![
+        "L4_spiny_VISl4_4",
+        "L5_spiny_VISp5_7",
+        "L23_aspiny_VISp23_218",
+    ];
+    let mut profiles = Vec::new();
+
+    for name in &profile_names {
+        let path = find_profile_path(name);
+        let var = load_variant(path);
+        profiles.push((name.to_string(), var));
+    }
+
+    let amps = vec![-100, -50, 0, 30, 40, 50, 70, 90, 110, 130, 150, 190, 200];
+    let default_scale = 35.0;
+
+    // Phase A: Inventory
+    let mut inventory = Vec::new();
+    for (name, var) in &profiles {
+        inventory.push(serde_json::json!({
+            "profile_name": name,
+            "threshold_uv": var.threshold,
+            "rest_potential_uv": var.rest_potential,
+            "leak_shift": var.leak_shift,
+            "ahp_amplitude": var.ahp_amplitude,
+            "refractory_period": var.refractory_period,
+            "homeostasis_penalty": var.homeostasis_penalty,
+            "homeostasis_decay": var.homeostasis_decay,
+            "has_allen_bio_target": name.contains("L4_spiny"),
+        }));
+    }
+
+    let inv_path = artifacts_dir.join("cross_profile_glif_inventory.json");
+    let file = File::create(&inv_path).unwrap();
+    serde_json::to_writer_pretty(file, &inventory).unwrap();
+    println!("Saved inventory to: {:?}", inv_path);
+
+    // Phase B: Baseline Replay
+    let mut baseline_results = Vec::new();
+    for (name, var) in &profiles {
+        let res = simulate_cross_profile_fi_sweep(
+            var,
+            name,
+            var.leak_shift,
+            var.rest_potential,
+            var.homeostasis_penalty,
+            var.homeostasis_decay,
+            var.ahp_amplitude,
+            var.refractory_period,
+            &amps,
+            default_scale,
+        );
+        baseline_results.push(res);
+    }
+
+    let base_path = artifacts_dir.join("cross_profile_glif_baseline_replay.json");
+    let file = File::create(&base_path).unwrap();
+    serde_json::to_writer_pretty(file, &baseline_results).unwrap();
+    println!("Saved baseline replay to: {:?}", base_path);
+
+    // Phase C1: Passive Membrane Sweep per profile
+    let leak_shifts = vec![2u32, 4, 6, 8, 10];
+    let rest_potentials = vec![-75000i32, -73000, -70000, -68000];
+    let mut passive_results = Vec::new();
+
+    for (name, var) in &profiles {
+        for &leak in &leak_shifts {
+            for &rest in &rest_potentials {
+                let res = simulate_cross_profile_fi_sweep(
+                    var,
+                    name,
+                    leak,
+                    rest,
+                    var.homeostasis_penalty,
+                    var.homeostasis_decay,
+                    var.ahp_amplitude,
+                    var.refractory_period,
+                    &amps,
+                    default_scale,
+                );
+                passive_results.push(res);
+            }
+        }
+    }
+
+    let pass_path = artifacts_dir.join("cross_profile_glif_passive_sweep.json");
+    let file = File::create(&pass_path).unwrap();
+    serde_json::to_writer_pretty(file, &passive_results).unwrap();
+    println!("Saved passive sweep to: {:?}", pass_path);
+
+    // Freeze Phase C1 chosen passive candidates per profile for Phase C2 & C3
+    let frozen_passives: Vec<(&str, u32, i32)> = vec![
+        ("L4_spiny_VISl4_4", 4u32, -70000i32),
+        ("L5_spiny_VISp5_7", 4u32, -73000i32),
+        ("L23_aspiny_VISp23_218", 2u32, -68000i32),
+    ];
+
+    // Phase C2: Homeostasis Sweep per profile (FROZEN ON PASSED CANDIDATE PER PROFILE)
+    let penalties = vec![500i32, 1000, 1500, 1940, 2500];
+    let decays = vec![2u16, 4, 6, 9];
+    let mut homeostasis_results = Vec::new();
+
+    for (name, var) in &profiles {
+        let &(_, frozen_leak, frozen_rest) =
+            frozen_passives.iter().find(|(n, _, _)| n == name).unwrap();
+        for &pen in &penalties {
+            for &dec in &decays {
+                let res = simulate_cross_profile_fi_sweep(
+                    var,
+                    name,
+                    frozen_leak,
+                    frozen_rest,
+                    pen,
+                    dec,
+                    var.ahp_amplitude,
+                    var.refractory_period,
+                    &amps,
+                    default_scale,
+                );
+                homeostasis_results.push(res);
+            }
+        }
+    }
+
+    let hom_path = artifacts_dir.join("cross_profile_glif_homeostasis_sweep.json");
+    let file = File::create(&hom_path).unwrap();
+    serde_json::to_writer_pretty(file, &homeostasis_results).unwrap();
+    println!("Saved homeostasis sweep to: {:?}", hom_path);
+
+    // Phase C3: AHP / Refractory Sweep per profile (FROZEN ON PASSED PASSIVE + HOMEOSTASIS CANDIDATE)
+    let ahp_amps = vec![3000u16, 5000, 7000];
+    let refractories = vec![10u8, 14, 18];
+    let mut ahp_results = Vec::new();
+
+    for (name, var) in &profiles {
+        let &(_, frozen_leak, frozen_rest) =
+            frozen_passives.iter().find(|(n, _, _)| n == name).unwrap();
+        for &ahp in &ahp_amps {
+            for &refr in &refractories {
+                let res = simulate_cross_profile_fi_sweep(
+                    var,
+                    name,
+                    frozen_leak,
+                    frozen_rest,
+                    1940,
+                    4,
+                    ahp,
+                    refr,
+                    &amps,
+                    default_scale,
+                );
+                ahp_results.push(res);
+            }
+        }
+    }
+
+    let ahp_path = artifacts_dir.join("cross_profile_glif_ahp_refractory_sweep.json");
+    let file = File::create(&ahp_path).unwrap();
+    serde_json::to_writer_pretty(file, &ahp_results).unwrap();
+    println!("Saved AHP / refractory sweep to: {:?}", ahp_path);
+
+    println!("Cross-Profile GLIF Hierarchy v1 Rust simulations complete.");
+}

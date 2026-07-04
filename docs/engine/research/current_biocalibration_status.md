@@ -70,6 +70,13 @@ Status: active research index, not a final report.
 
 ## 7. Активные и следующие исследования
 
+### [Completed] Cross-Profile Validation of GLIF Hierarchy v1 (`archive/2026-07-04_cross_profile_glif_hierarchy_v1/`)
+
+- **Вопрос**: Переносится ли 2-этапная иерархия калибровки GLIF_3 (`passive` -> `homeostasis`, с `AHP deferred/sanity`) на другие канонические профили репозитория (`L4_spiny_VISl4_4`, `L5_spiny_VISp5_7`, `L23_aspiny_VISp23_218`)?
+- **Итоговый вердикт (Partial Success / Class-Specific Calibration Required)**: Иерархический метод калибровки полностью валидирован как верный workflow (ликвидирует 100% ложной 30–40 pA гипервозбудимости без провала 190 pA отклика). Однако единый глобальный пресет не накрывает все слои из-за различий пороговых потенциалов (L4 `-45.6 mV`, L5 `-49.7 mV`, L2/3 `-55.4 mV`).
+- **Следующий шаг**: Разработка исследований класс-специфичной калибровки (`class-specific calibration research`) отдельно для слоев L5_spiny и L23_aspiny. Никакой производственной миграции на данном этапе не проводится.
+- **Outputs**: Rust runner (`run_cross_profile_glif_hierarchy_experiments`), Python скрипты анализа и визуализации, отчёт [cross_profile_validation_v1.md](archive/2026-07-04_cross_profile_glif_hierarchy_v1/reports/cross_profile_validation_v1.md).
+
 ### [Completed] Single-Specimen Biocalibration 314900022 (`archive/2026-07-04_full_neuron_replay_314900022_calibration/`)
 
 - **Вопрос**: Каков итоговый calibrated GLIF_3+ профиль для specimen 314900022 после подбора пассивной утечки (Phase 4), SFA (Phase 5) и аудита AHP/рефрактерности (Phase 6)?
