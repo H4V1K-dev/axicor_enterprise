@@ -76,17 +76,25 @@ Status: active research index, not a final report.
 | :--- | :--- | :--- | :--- |
 | 1 | **Single-cell calibration anchor** | completed | Есть воспроизводимый GLIF_3/current-clamp якорь: passive membrane, SFA/homeostasis, AHP/refractory sanity и class-specific priors без production migration. |
 | 2 | **Static microcircuit physiology** | completed | Маленькая L4/L2-3/L5 сеть без пластичности не уходит в silence/runaway, показывает осмысленные firing rates, E/I balance, fatigue, spatial connectivity и визуализируемую геометрию. |
-| 3 | **Plastic microcircuit** | next | GSOP/STDP/fatigue включаются только после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться, шумовые не разрушать сеть. |
+| 2.1 | **Static microcircuit scale-up** | completed | Оценена стабильность и CPU производительность при масштабировании до 1,000,000 нейронов. Выявлена Vm saturation (> -25mV) из-за избыточного homeostasis offset под Poisson-шумом. Физиология inconclusive. |
+| 3 | **Plastic microcircuit** | blocked on step 2.1 | GSOP/STDP/fatigue включаются только после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться, шумовые не разрушать сеть. |
 | 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity, чтобы не смешивать ошибки topology, кодирования сенсоров, reward и моторного декодера. |
 
-### [Next] Plastic Microcircuit v1
+### [Next] Static Microcircuit v1.1 Input Scale & E/I Ablation
 
-- **Вопрос**: Стабилизируют ли механизмы GSOP/STDP/fatigue веса синапсов в пространственной сети при длительной Poisson стимуляции?
-- **Зачем**: Убедиться в стабильности синаптической пластичности перед CartPole.
-- **Первый scope**: CPU/test-harness; пластичность включена; веса ограничены; коррелированные пути усиливаются.
-- **Gate**: отсутствие runaway пластичности или деградации сети под постоянным входом.
+- **Вопрос**: Можно ли устранить Vm saturation и избыточный homeostasis offset за счет снижения весов Poisson-входов и введения жестких Vm/homeostasis ограничений (hard gates)?
+- **Зачем**: Убедиться в физиологической стабильности мембраны перед STDP.
+- **Первый scope**: CPU/test-harness; уменьшенный Poisson drive; ablation L23 прогон; расчет фазовой селективности.
+- **Gate**: Vm и threshold_offset остаются стабильными; торможение L23 снижает firing rate L4/L5; количественно подтверждена phase selectivity.
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Static Microcircuit Scale-Up v1 (`archive/2026-07-04_static_microcircuit_scale_up_v1/`)
+
+- **Вопрос**: Переносится ли статическая L4/L2-3/L5 микросеть с 64 нейронов на существенно больший размер без silence/runaway, без перегрева homeostasis threshold и без деградации CPU tick-loop?
+- **Итоговый вердикт (Performance Passed / Physiology Inconclusive)**: CPU симулятор в release-сборке успешно масштабируется до 1,000,000 нейронов со 128 миллионами синапсов (около 8.8 секунды на тик). Однако физиология признана **inconclusive** из-за перегрева гомеостаза и Vm saturation (> -25mV) под сильным шумом.
+- **Следующий шаг**: Исследование `Static Microcircuit v1.1 Input Scale & E/I Ablation` для стабилизации Vm.
+- **Outputs**: Rust runner (`run_static_microcircuit_scale_up_experiments`), Python скрипты анализа и визуализации, отчёт [static_microcircuit_scale_up_v1.md](archive/2026-07-04_static_microcircuit_scale_up_v1/reports/static_microcircuit_scale_up_v1.md).
 
 ### [Completed] Static Microcircuit Physiology v1 (`archive/2026-07-04_static_microcircuit_physiology_v1/`)
 
@@ -140,6 +148,7 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Static Microcircuit Scale-Up v1](archive/2026-07-04_static_microcircuit_scale_up_v1/README.md)
 - [Static Microcircuit Physiology v1](archive/2026-07-04_static_microcircuit_physiology_v1/README.md)
 - [Single-Specimen Biocalibration 314900022](archive/2026-07-04_full_neuron_replay_314900022_calibration/README.md)
 - [Full Neuron Replay 314900022 v1](archive/2026-07-04_full_neuron_replay_314900022/README.md)
@@ -158,6 +167,7 @@ Status: active research index, not a final report.
 
 ### Static Microcircuit
 
+- [static_microcircuit_scale_up_summary.json](../../../artifacts/static_microcircuit_scale_up_summary.json)
 - [static_microcircuit_connectivity.json](../../../artifacts/static_microcircuit_connectivity.json)
 - [static_microcircuit_simulation_log.json](../../../artifacts/static_microcircuit_simulation_log.json)
 
