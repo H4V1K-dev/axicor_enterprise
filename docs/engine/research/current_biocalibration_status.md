@@ -63,7 +63,7 @@ Status: active research index, not a final report.
 
 ## 7. Активные и следующие исследования
 
-### [Active] MVP CPU Replay v1 (`archive/_active/mvp_cpu_replay_v1/`)
+### [Completed] GSOP STDP Fatigue v1 (`archive/gsop_stdp_fatigue_v1/`)
 
 - **Вопрос**: Можем ли изолированно воспроизвести MVP CPU tick-loop 1:1.
 - **Зачем**: Нужен технический baseline перед изменением физики.
@@ -83,7 +83,7 @@ full-neuron-replay-314900022-v1
 
 ## 8. Ключевые архивы
 
-- [MVP CPU Replay v1 (Active)](archive/_active/mvp_cpu_replay_v1/README.md)
+- [GSOP STDP Fatigue v1](archive/gsop_stdp_fatigue_v1/README.md)
 - [Legacy baseline import](archive/2026-07-01_legacy_baseline_import/README.md)
 - [Biocalibration bootstrap](archive/2026-07-02_biocalibration_bootstrap/README.md)
 - [Идеи полной физики нейрона](archive/2026-07-02_biocalibration_bootstrap/full_neuron_physics_ideas_v1.md)

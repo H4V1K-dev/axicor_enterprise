@@ -645,6 +645,16 @@ pub fn cpu_sort_and_prune(state_buf: &mut MvpStateBuffer, prune_threshold: i16) 
     }
 }
 
+pub trait ResearchVariantExt {
+    fn fatigue_capacity(&self) -> u8;
+}
+
+impl ResearchVariantExt for VariantParameters {
+    fn fatigue_capacity(&self) -> u8 {
+        255
+    }
+}
+
 /////// Local research implementation of GSOP synaptic plasticity with All-to-All STDP.
 ///
 /// Applies sum of causal LTP (spike passed segment) and anti-causal LTD (spike approaching segment)
@@ -655,7 +665,7 @@ pub fn research_apply_gsop_plasticity(
     heads: &[u32; 8],
     seg_idx: u32,
     timer: u8,
-    refractory_period: u8,
+    fatigue_capacity: u8,
     prop: u32,
     gsop_potentiation: i32,
     gsop_depression: i32,
@@ -707,9 +717,9 @@ pub fn research_apply_gsop_plasticity(
         }
     }
 
-    if timer > 0 && refractory_period > 0 {
+    if timer > 0 && fatigue_capacity > 0 {
         let base_ltd = (final_dep * inertia * burst_mult) / 128;
-        let timer_penalty = (timer as i64 * base_ltd) / (refractory_period as i64);
+        let timer_penalty = (timer as i64 * base_ltd) / fatigue_capacity as i64;
         total_delta_ltd -= timer_penalty;
     }
 
@@ -741,14 +751,15 @@ pub fn cpu_apply_gsop(
             continue; // Soma is not spiking
         }
 
-        let burst_count = (flags >> 1) & 0x07;
         let var_id = ((flags >> 4) & 0x0F) as usize;
         let p = &variants[var_id];
 
-        let type_id = (flags >> 4) & 0x0F;
-        for (i, val) in inertia_curve.iter_mut().enumerate() {
-            *val = p.inertia_curve[i] as i32;
+        for (k, item) in inertia_curve.iter_mut().enumerate() {
+            *item = p.inertia_curve[k] as i32;
         }
+
+        let burst_count = (flags >> 1) & 0x07;
+        let type_id = (flags >> 4) & 0x0F;
 
         if type_id == 0 {
             // Standard inertia adjustment if type is 0
@@ -792,7 +803,7 @@ pub fn cpu_apply_gsop(
                 &heads,
                 seg_idx,
                 timer,
-                p.synapse_refractory_period,
+                p.fatigue_capacity(),
                 prop,
                 p.gsop_potentiation as i32,
                 p.gsop_depression as i32,

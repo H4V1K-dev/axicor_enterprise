@@ -721,8 +721,8 @@ fn test_cpu_apply_gsop_timer_before_zero_target() {
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
 
-    // Slot 0 processed: LTD delta -51, penalty: (5 * 64) / 5 = 64 -> weight = 99885
-    assert_eq!(state_buf.read_dendrite_weight(0, 0), 99885);
+    // Slot 0 processed: LTD delta -51, penalty: (5 * 64) / 255 = 1 -> weight = 99948
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 99948);
     // Slot 2 untouched because of sentinel break
     assert_eq!(state_buf.read_dendrite_weight(2, 0), 100000);
 }
@@ -801,7 +801,7 @@ fn test_cpu_apply_gsop_timer_skip() {
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
 
-    assert_eq!(state_buf.read_dendrite_weight(0, 0), 99911);
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 99949);
     assert_eq!(state_buf.read_dendrite_weight(1, 0), 99949);
 }
 

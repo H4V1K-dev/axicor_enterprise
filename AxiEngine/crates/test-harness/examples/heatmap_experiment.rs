@@ -60,6 +60,8 @@ fn create_experiment_variants() -> [VariantParameters; VARIANT_LUT_LEN] {
     }; VARIANT_LUT_LEN]
 }
 
+use test_harness::ResearchVariantExt;
+
 pub fn research_update_neurons(
     state_buf: &mut MvpStateBuffer,
     axon_buf: &mut MvpAxonBuffer,
@@ -109,14 +111,25 @@ pub fn research_update_neurons(
                 let axon_id = (raw_id - 1) as usize;
                 let seg_idx = target_packed >> 24;
 
+                let mut fatigue = state_buf.read_dendrite_timer(d, i);
+                fatigue = fatigue.saturating_sub(1);
+
                 if axon_id < total_axons {
                     let h = axon_buf.read_head(axon_id);
                     let heads = [h.h0, h.h1, h.h2, h.h3, h.h4, h.h5, h.h6, h.h7];
                     if active_tail_hit(&heads, seg_idx, variant.signal_propagation_length as u32) {
-                        let w = state_buf.read_dendrite_weight(d, i);
-                        i_in = i_in.wrapping_add(weight_to_charge(w));
+                        let capacity = variant.fatigue_capacity();
+                        if fatigue < capacity {
+                            let w = state_buf.read_dendrite_weight(d, i);
+                            let modified_w_i64 =
+                                (w as i64 * (capacity as i64 - fatigue as i64)) / capacity as i64;
+                            i_in = i_in.wrapping_add(weight_to_charge(modified_w_i64 as i32));
+                            fatigue = fatigue.saturating_add(50).min(capacity);
+                        }
                     }
                 }
+
+                state_buf.write_dendrite_timer(d, i, fatigue);
             }
 
             let v_old = state_buf.read_soma_voltage(i);

@@ -1,8 +1,11 @@
 # MVP CPU Replay v1
 
-Status: running
+Status: COMPLETED
 Started: 2026-07-04
-Completed: N/A
+Completed: 2026-07-04
+
+## TL;DR
+Successfully integrated All-to-All STDP and Gradient Synaptic Fatigue (Leaky Integrator), achieving stable weight polarization and noise protection.
 
 ## Question
 Can we reproduce the legacy MVP CPU tick-loop 1:1 in an isolated environment before introducing physics modifications?
@@ -67,8 +70,10 @@ Bitwise identical state plane outputs between the ported test-only CPU runner an
 2. Are there any implicit contract shifts between legacy `ShardVramPtrs` plane alignment and current `layout::StateOffsets` calculation?
 
 ## Outputs
-- README: `docs/engine/research/archive/_active/mvp_cpu_replay_v1/README.md`
-- Research Spec: `docs/engine/research/archive/_active/mvp_cpu_replay_v1/spatial_cooling_research.md`
-- Heatmap Polarization Report: `docs/engine/research/archive/_active/mvp_cpu_replay_v1/bidirectional_all_to_all_stdp_research.md`
+- README: `docs/engine/research/archive/gsop_stdp_fatigue_v1/README.md`
+- Research Spec: `docs/engine/research/archive/gsop_stdp_fatigue_v1/spatial_cooling_research.md`
+- Heatmap Polarization Report: `docs/engine/research/archive/gsop_stdp_fatigue_v1/bidirectional_all_to_all_stdp_research.md`
+- Fatigue Heatmap Report (STP): `docs/engine/research/archive/gsop_stdp_fatigue_v1/fatigue_heatmap_report.md`
+- Gradient Synaptic Fatigue Research: `docs/engine/research/archive/gsop_stdp_fatigue_v1/gradient_fatigue_research.md`
 - Test-only harness module: `crates/test-harness/src/mvp_cpu_replay.rs`
 - Integration tests: `crates/test-harness/tests/mvp_cpu_replay.rs`
