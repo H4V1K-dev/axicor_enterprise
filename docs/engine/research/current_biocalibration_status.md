@@ -34,6 +34,7 @@ Status: active research index, not a final report.
 
 - **Эталонные данные есть**: создан пакет биологических признаков из Allen/NWB для дальнейшей калибровки.
 - **Specimen 314900022 выбран как первый рабочий якорь**: по нему уже есть trace-match, passive-first, balanced, membrane sandbox и adaptive leak probes.
+- **Пассивная утечка `leak_shift = 4` решает гипевозбудимость на 30-40 pA**: снижение `leak_shift` с 8 до 4 при `rest = -70 mV` устраняет нефизичные спайки на 30 и 40 pA (spikes_30=0, spikes_40=0), сохраняя 35 спайков на 190 pA и улучшая Allen f-I RMSE с 12.89 до 1.89.
 - **Homeostasis + adaptive leak + AHP выглядят перспективно**: в probe-режиме они дают лучший результат по SFA/f-I среди проверенных вариантов.
 - **RC / membrane_v2 пока не обязательна**: RC улучшала отдельные метрики, но не дала очевидного выигрыша перед штатной адаптацией.
 - **Мембранные probes были слишком узкими**: выводы зафиксированы через full-neuron replay.
@@ -42,10 +43,11 @@ Status: active research index, not a final report.
 
 | Гипотеза | Текущий уровень |
 | :--- | :--- |
+| Корректировка пассивной утечки (`leak_shift = 4`) приводит реобазу нейрона к биологическому порогу (~50 pA) без сложной адаптивной математики. | confirmed |
 | Штатная адаптация AxiEngine способна дать биологически похожую SFA. | supported |
 | Главный конфликт одиночного нейрона связан не только с формулой мембраны, но и с полным tick-loop. | supported |
 | DDS / спонтанное событие должно быть stateful и начислять гомеостатический штраф (`gated_discharge`). | supported (plausible candidate) |
-| Спайковая инерция от накопленного штрафа может улучшить восстановление на низких токах. | weakened (ineffective at low frequencies) |
+| Спайковая инерция от накопленного штрафа может улучшить восстановление на низких частотах. | weakened (ineffective at low frequencies) |
 | Старые legacy-параметры роста и связности могут быть полезны как priors для будущих сетевых экспериментов. | deferred |
 
 ## 5. Ослабленные подходы
@@ -65,6 +67,13 @@ Status: active research index, not a final report.
 4. **Переход к популяции**: когда одиночный нейрон достаточно понятен, проверить перенос на мини-сеть.
 
 ## 7. Активные и следующие исследования
+
+### [Active] Phase 4 Rheobase Calibration 314900022 (`archive/_active/full_neuron_replay_314900022/`)
+
+- **Вопрос**: Можно ли изолированно подобрать параметры пассивной утечки (`leak_shift` и `rest_potential`) для устранения нефизичной гипервозбудимости на малых токах (30–40 pA) без ухудшения высокотокового отклика на 190 pA?
+- **Зачем**: Убрать фальшивые спайки на малых токах и приблизить реобазу нейрона к биологическому порогу (~50 pA).
+- **Что подтвердило**: `leak_shift = 4` и `rest_potential = -70 mV` полностью устраняют спайки на 30 pA и 40 pA (`spikes_30 = 0`, `spikes_40 = 0`), сохраняют 35 спайков на 190 pA и снижают Allen f-I RMSE с 12.89 до 1.89. Кандидат прошёл Acceptance Gate.
+- **Outputs**: Rust runner (`run_full_neuron_replay_phase4_experiments`), Python скрипт `rheobase_leak_rest_calibration.py`, отчёт [rheobase_leak_rest_calibration_v1.md](archive/_active/full_neuron_replay_314900022/reports/rheobase_leak_rest_calibration_v1.md).
 
 ### [Completed] Full Neuron Replay 314900022 v1 (`archive/2026-07-04_full_neuron_replay_314900022/`)
 
@@ -90,6 +99,7 @@ Status: active research index, not a final report.
 
 ## 8. Ключевые архивы
 
+- [Phase 4 Rheobase Calibration 314900022](archive/_active/full_neuron_replay_314900022/README.md)
 - [Full Neuron Replay 314900022 v1](archive/2026-07-04_full_neuron_replay_314900022/README.md)
 - [Biological Physics Verification](archive/2026-07-04_biology_metrics_verification/README.md)
 - [GSOP STDP Fatigue v1](archive/gsop_stdp_fatigue_v1/README.md)
@@ -106,6 +116,8 @@ Status: active research index, not a final report.
 
 ### Specimen 314900022
 
+- [Phase 4 static sweep](../../../artifacts/full_neuron_replay_314900022_phase4_static_sweep.json)
+- [Phase 4 winner 190 pA trace](../../../artifacts/full_neuron_replay_314900022_phase4_trace_candidate_190.csv)
 - [balanced best](../../../artifacts/single_neuron_314900022_balanced_best.csv)
 - [passive-first best](../../../artifacts/single_neuron_314900022_passive_first_best.csv)
 - [membrane sandbox comparison](../../../artifacts/single_neuron_314900022_membrane_sandbox_model_comparison.csv)

@@ -1120,3 +1120,271 @@ fn run_full_neuron_replay_phase3_experiments() {
         stress_json_path
     );
 }
+
+#[allow(clippy::too_many_arguments)]
+fn simulate_phase4_fi_sweep(
+    base_var: &VariantParameters,
+    leak_shift: i32,
+    rest_potential: i32,
+    current_scale: f64,
+    adaptive_gain: i32,
+    adaptive_min_shift: i32,
+    adaptive_mode: i32,
+    amps: &[i32],
+) -> serde_json::Value {
+    let mut var = *base_var;
+    var.leak_shift = leak_shift as u32;
+    var.rest_potential = rest_potential;
+    var.adaptive_leak_gain = adaptive_gain as u16;
+    var.adaptive_leak_min_shift = adaptive_min_shift;
+    var.adaptive_mode = adaptive_mode as u8;
+    var.heartbeat_m = 0;
+
+    let mut fi_data = Vec::new();
+
+    for &amp in amps {
+        let step_current = (amp as f64 * current_scale) as i32;
+        let ticks = 3000;
+        let mut i_ext = vec![0; ticks];
+        i_ext[1000..2000].fill(step_current);
+
+        let (ticks_log, spikes, _) = full_neuron_replay_314900022_simulate_experimental(
+            &var,
+            &i_ext,
+            ticks,
+            ExperimentalRecoveryMode::HeartbeatGatedDischarge,
+        );
+
+        let stim_spikes = spikes
+            .iter()
+            .filter(|&&t| (1000..2000).contains(&t))
+            .count();
+        let stim_spike_ticks: Vec<usize> = spikes
+            .iter()
+            .cloned()
+            .filter(|&t| (1000..2000).contains(&t))
+            .collect();
+        let first_spike_latency = stim_spike_ticks.first().map(|&t| t - 1000);
+
+        let isis: Vec<usize> = stim_spike_ticks.windows(2).map(|w| w[1] - w[0]).collect();
+        let first_isi = isis.first().cloned();
+        let last_isi = isis.last().cloned();
+        let isi_growth = if let (Some(f), Some(l)) = (first_isi, last_isi) {
+            l as f64 / f as f64
+        } else {
+            1.0
+        };
+
+        let stim_ticks_log: Vec<&ExperimentalLoggedTick> = ticks_log
+            .iter()
+            .filter(|t| (1000..2000).contains(&t.tick))
+            .collect();
+        let voltages: Vec<f64> = stim_ticks_log
+            .iter()
+            .map(|t| t.voltage_pre as f64 / 1000.0)
+            .collect();
+        let min_v = voltages.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+        let max_v = voltages.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let mean_v = if !voltages.is_empty() {
+            voltages.iter().sum::<f64>() / voltages.len() as f64
+        } else {
+            0.0
+        };
+
+        fi_data.push(serde_json::json!({
+            "stimulus_pa": amp,
+            "spike_count": stim_spikes,
+            "first_spike_latency_ticks": first_spike_latency,
+            "first_isi_ticks": first_isi,
+            "last_isi_ticks": last_isi,
+            "isi_growth_ratio": isi_growth,
+            "min_v_mv": min_v,
+            "max_v_mv": max_v,
+            "mean_v_mv": mean_v,
+        }));
+    }
+
+    serde_json::json!({
+        "leak_shift": leak_shift,
+        "rest_potential_uv": rest_potential,
+        "current_scale": current_scale,
+        "adaptive_leak_gain": adaptive_gain,
+        "adaptive_leak_min_shift": adaptive_min_shift,
+        "adaptive_mode": adaptive_mode,
+        "fi_data": fi_data
+    })
+}
+
+#[test]
+fn run_full_neuron_replay_phase4_experiments() {
+    println!("=== Starting Phase 4 Passive Excitability Calibration ===");
+    let artifacts_dir = get_artifacts_dir();
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    let path_visl4 = find_profile_path("L4_spiny_VISl4_4");
+    let var_visl4 = load_variant(path_visl4);
+
+    let amps = vec![-100, -50, 0, 30, 40, 50, 70, 90, 110, 130, 150, 190, 200];
+    let default_scale = 35.0;
+
+    // 1. Static Sweep: leak_shift x rest_potential
+    let leak_shifts = vec![1, 2, 3, 4, 5, 6, 7, 8, 10]; // 8 is baseline
+    let rest_potentials = vec![-70000, -71000, -72000, -73000, -73443]; // uV
+
+    let mut static_sweep_results = Vec::new();
+    for &leak in &leak_shifts {
+        for &rest in &rest_potentials {
+            let res =
+                simulate_phase4_fi_sweep(&var_visl4, leak, rest, default_scale, 0, 1, 0, &amps);
+            static_sweep_results.push(res);
+        }
+    }
+
+    let static_json_path =
+        artifacts_dir.join("full_neuron_replay_314900022_phase4_static_sweep.json");
+    let file = File::create(&static_json_path).unwrap();
+    serde_json::to_writer_pretty(file, &static_sweep_results).unwrap();
+    println!("Saved Phase 4 Static Sweep JSON to: {:?}", static_json_path);
+
+    // 2. Control current_scale Sweep (varying scaling factor on baseline & key leak/rest candidates)
+    let current_scales = vec![15.0, 20.0, 25.0, 30.0, 35.0, 40.0];
+    let mut scale_sweep_results = Vec::new();
+    for &scale in &current_scales {
+        // baseline rest & leak
+        let res_base = simulate_phase4_fi_sweep(
+            &var_visl4,
+            var_visl4.leak_shift as i32,
+            var_visl4.rest_potential,
+            scale,
+            0,
+            1,
+            0,
+            &amps,
+        );
+        scale_sweep_results.push(res_base);
+
+        // leak_shift = 4, rest = -70000
+        let res_leak4 = simulate_phase4_fi_sweep(&var_visl4, 4, -70000, scale, 0, 1, 0, &amps);
+        scale_sweep_results.push(res_leak4);
+    }
+
+    let scale_json_path =
+        artifacts_dir.join("full_neuron_replay_314900022_phase4_control_scale_sweep.json");
+    let file = File::create(&scale_json_path).unwrap();
+    serde_json::to_writer_pretty(file, &scale_sweep_results).unwrap();
+    println!(
+        "Saved Phase 4 Control Scale Sweep JSON to: {:?}",
+        scale_json_path
+    );
+
+    // 3. Adaptive Leak Subphase Sweep
+    let adaptive_gains = vec![0, 1, 2, 4, 8];
+    let adaptive_min_shifts = vec![1, 2, 4];
+    let adaptive_modes = vec![0, 1];
+
+    let mut adaptive_sweep_results = Vec::new();
+    for &leak in &[3, 4, 5, 6, 7, 8, 10] {
+        for &rest in &[-70000, -73443] {
+            for &gain in &adaptive_gains {
+                for &min_shift in &adaptive_min_shifts {
+                    for &mode in &adaptive_modes {
+                        if mode == 0 && gain > 0 {
+                            continue; // skip duplicate disabled modes
+                        }
+                        let res = simulate_phase4_fi_sweep(
+                            &var_visl4,
+                            leak,
+                            rest,
+                            default_scale,
+                            gain,
+                            min_shift,
+                            mode,
+                            &amps,
+                        );
+                        adaptive_sweep_results.push(res);
+                    }
+                }
+            }
+        }
+    }
+
+    let adaptive_json_path =
+        artifacts_dir.join("full_neuron_replay_314900022_phase4_adaptive_sweep.json");
+    let file = File::create(&adaptive_json_path).unwrap();
+    serde_json::to_writer_pretty(file, &adaptive_sweep_results).unwrap();
+    println!(
+        "Saved Phase 4 Adaptive Sweep JSON to: {:?}",
+        adaptive_json_path
+    );
+
+    // Save trace CSVs for 190 pA for baseline (leak=8, rest=-73443) and winner candidate (leak=4, rest=-70000)
+    let mut baseline_var = var_visl4;
+    baseline_var.heartbeat_m = 0;
+
+    let mut candidate_var = var_visl4;
+    candidate_var.leak_shift = 4;
+    candidate_var.rest_potential = -70000;
+    candidate_var.heartbeat_m = 0;
+
+    let ticks = 3000;
+    let step_current_190_base = (190.0 * default_scale) as i32;
+    let mut i_ext_190 = vec![0; ticks];
+    i_ext_190[1000..2000].fill(step_current_190_base);
+
+    let (ticks_log_base_190, _, _) = full_neuron_replay_314900022_simulate_experimental(
+        &baseline_var,
+        &i_ext_190,
+        ticks,
+        ExperimentalRecoveryMode::HeartbeatGatedDischarge,
+    );
+    let (ticks_log_cand_190, _, _) = full_neuron_replay_314900022_simulate_experimental(
+        &candidate_var,
+        &i_ext_190,
+        ticks,
+        ExperimentalRecoveryMode::HeartbeatGatedDischarge,
+    );
+
+    let trace_base_path =
+        artifacts_dir.join("full_neuron_replay_314900022_phase4_trace_baseline_190.csv");
+    let file = File::create(&trace_base_path).unwrap();
+    let mut writer = BufWriter::new(file);
+    writeln!(writer, "tick,voltage_pre,voltage_candidate,voltage_post,threshold_offset,effective_threshold,i_ext,final_spike").unwrap();
+    for t in ticks_log_base_190 {
+        writeln!(
+            writer,
+            "{},{},{},{},{},{},{},{}",
+            t.tick,
+            t.voltage_pre,
+            t.voltage_candidate,
+            t.voltage_post,
+            t.threshold_offset,
+            t.effective_threshold,
+            t.i_ext,
+            t.final_spike as u8
+        )
+        .unwrap();
+    }
+
+    let trace_cand_path =
+        artifacts_dir.join("full_neuron_replay_314900022_phase4_trace_candidate_190.csv");
+    let file = File::create(&trace_cand_path).unwrap();
+    let mut writer = BufWriter::new(file);
+    writeln!(writer, "tick,voltage_pre,voltage_candidate,voltage_post,threshold_offset,effective_threshold,i_ext,final_spike").unwrap();
+    for t in ticks_log_cand_190 {
+        writeln!(
+            writer,
+            "{},{},{},{},{},{},{},{}",
+            t.tick,
+            t.voltage_pre,
+            t.voltage_candidate,
+            t.voltage_post,
+            t.threshold_offset,
+            t.effective_threshold,
+            t.i_ext,
+            t.final_spike as u8
+        )
+        .unwrap();
+    }
+
+    println!("Phase 4 Rust simulations complete.");
+}
