@@ -206,8 +206,20 @@ Purpose:
 *   **Mode C (ahp_only)**: 115 спайков.
 *   **Mode D (ahp_plus_homeostasis)**: 58 спайков.
 
-> [!NOTE]
-> В ходе интеграции было обнаружено расхождение в порядке выполнения распада: в прототипе-песочнице распад порога выполнялся в конце шага (после проверки спайка), в то время как в производственном коде Rust распад `homeostasis_decay` выполняется в начале шага (до GLIF обновления и проверки спайка). Мы обновили прототип `ephys_probe_01_replay_audit.py`, приведя его к производственному виду, после чего достигнуто полное потиковое совпадение всех трасс.
+### Key Corrected Mismatches & Audit Details
+
+During the implementation and parity checking, we identified and corrected two critical differences between the Python sandbox/prototype and the Rust production codebase:
+
+1. **Homeostasis Decay Order**:
+   - *Sandbox behavior*: The threshold offset decay (`thresh_offset = max(0, thresh_offset - homeostasis_decay)`) was applied at the end of the tick loop, only if a spike did not occur in that tick.
+   - *Production behavior*: The threshold offset decay runs at the very beginning of the neuron state update tick-loop, before the GLIF candidate voltage update and spike checks are performed. Therefore, a spike check uses the decayed threshold, and the homeostasis penalty is added to the already-decayed threshold at the end of the tick.
+   - *Fix*: We added an active corrected copy at [ephys_probe_01_replay_audit.py](scripts/ephys_probe_01_replay_audit.py) to follow this production decay-before-check order, and updated the Rust runner to decay first.
+
+2. **Refractory Branch Voltage Overwrite**:
+   - *Sandbox behavior*: Explicitly reset the voltage to `v_reset` on every single refractory tick.
+   - *Production behavior*: Decrements the refractory timer, leaving the voltage unchanged (which stays at the reset value anyway since no updates are performed).
+   - *Fix*: We aligned the Rust runner with this behavior so that the somatic voltage is not overwritten on refractory ticks.
+   - *Caveat*: There is no numerical difference under the current baseline modes since the voltage naturally stays at the reset potential during the refractory period, but this alignment is essential for exact parity under future active simulation inputs.
 
 График трассы напряжения и динамики эффективного порога для Mode D сохранен как:
 ![EPHYS Probe 01 Trace](images/ephys_probe_01_replay_rust.png)
@@ -240,5 +252,46 @@ Purpose:
 - **Плавный профиль**: STA / восстановление мембраны имеет гладкий биологически реалистичный вид без ухода в silence или runaway при небольших изменениях входа.
 - **Точность f-I кривой и гипервозбудимость**: SFA появилась, наклон на высоких токах (high-current slope) похож на биологический, но чувствительность на низких токах (low-current excitability) существенно завышена (при 30-40 pA в симуляции уже регистрируется 16-19 спайков, тогда как в биологическом эксперименте нейрон молчит).
 - **Детерминизм**: Результаты полностью воспроизводимы и стабильны во всех запусках.
+
+---
+
+## Phase 2 Results & Summary (Mechanism Attribution)
+
+Мы выполнили Phase 2 исследования `full_neuron_replay_314900022-v1`, проведя формальный анализ EPHYS_PROBE_01 для выявления вклада физических механизмов в Spike Frequency Adaptation (SFA) и привыкание (Habituation).
+
+### 1. Порядок выполнения экспериментов (Execution Sequence)
+Для полной репродукции результатов Phase 1 и Phase 2 необходимо строго следовать следующему порядку команд из корня репозитория:
+1. **Генерация Python baseline трассы** (для тестирования математического паритета):
+   ```bash
+   .venv/bin/python3 docs/engine/research/archive/_active/full_neuron_replay_314900022/scripts/ephys_probe_01_replay_audit.py
+   ```
+2. **Запуск интеграционных Rust-тестов** (строгий потиковый паритет и линтинг):
+   ```bash
+   cd AxiEngine
+   cargo test -p test-harness --features "mvp-cpu-replay,baker-probe" --test full_neuron_replay -- --nocapture
+   cargo fmt --check
+   cargo clippy -p test-harness --features "mvp-cpu-replay,baker-probe" --test full_neuron_replay -- -D warnings
+   cd ..
+   ```
+3. **Генерация калибровочных графиков**:
+   ```bash
+   .venv/bin/python3 docs/engine/research/archive/_active/full_neuron_replay_314900022/scripts/plot_replay.py
+   ```
+
+### 2. Результаты вклада механизмов (Mechanism Attribution)
+На основе покомпонентного тестирования четырех режимов EPHYS_PROBE_01 сделаны следующие выводы:
+*   **Чистый AHP (`ahp_only`)**: Снижает мембранный потенциал сразу после спайка до -75 mV (провал 5 mV), увеличивая межспайковый интервал с 73 до 87 тиков. Однако интервалы остаются строго плоскими (ISI Growth Ratio = 1.00), то есть AHP **не создает** привыкания.
+*   **Чистый Гомеостаз (`homeostasis_only`)**: Является **ведущим (threshold-driven) механизмом привыкания**. Накопление `threshold_offset` вызывает экспоненциальное увеличение межспайкового интервала с 76 до 245 тиков (ISI Growth Ratio = 3.22).
+*   **Совместная работа (`ahp_plus_homeostasis`)**: Обеспечивает сбалансированную физиологическую динамику со снижением частоты разряда (58 спайков) и плавным ростом ISI с 90 до 247 тиков (ISI Growth Ratio = 2.74).
+*   **Рефрактерный период**: Блокирует интеграцию заряда на 14 тиков, формируя плоское плато потенциала после спайка и предотвращая runaway-сверхвозбудимость.
+
+### 3. Подтверждение соответствия продакшн-физике
+*   `homeostasis_decay` применяется в самом начале тика до GLIF обновления (decay-before-check).
+*   `homeostasis_penalty` добавляется к смещению порога только в конце тика при финализации спайка.
+*   Ветка рефрактерности только декрементирует таймер и не затирает мембранный потенциал принудительно.
+*    heart_beat спонтанная активность отключена для baseline сравнения.
+*   Раннер является изолированным исследовательским симулятором сомы (`i_ext[tick]`), а не распределенной сетевой моделью `DayBatchCmd`.
+
+Полный аналитический отчет со всеми сгенерированными графиками находится в [reports/ephys_probe_01_replay_audit_v1.md](reports/ephys_probe_01_replay_audit_v1.md).
 
 

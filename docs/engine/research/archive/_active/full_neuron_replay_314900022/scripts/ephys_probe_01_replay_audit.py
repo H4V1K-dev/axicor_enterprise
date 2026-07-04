@@ -59,7 +59,7 @@ def run_simulation(
                 
     return trace_v, trace_th, spike_times
 
-def calculate_metrics(trace_v, trace_th, spike_times, rest, threshold, ahp_amp, sim_ticks=10000):
+def calculate_metrics(trace_v, trace_th, spike_times, rest, threshold, ahp_amp, refractory_period, sim_ticks=10000):
     spike_count = len(spike_times)
     first_spike_latency = spike_times[0] if spike_count > 0 else None
     
@@ -86,6 +86,19 @@ def calculate_metrics(trace_v, trace_th, spike_times, rest, threshold, ahp_amp, 
     
     voltage_min = float(np.min(trace_v))
     voltage_max = float(np.max(trace_v))
+    voltage_mean = float(np.mean(trace_v))
+    
+    # Recovery time: ticks from spike to recovering to rest - 0.5mV
+    recovery_ticks = None
+    if spike_count > 0 and ahp_amp > 0:
+        first_spike = spike_times[0]
+        rest_mv = float(rest / 1000.0)
+        target_v = rest_mv - 0.5
+        for t_idx in range(first_spike + refractory_period, len(trace_v)):
+            if trace_v[t_idx] >= target_v:
+                recovery_ticks = t_idx - first_spike
+                break
+    recovery_ms = float(recovery_ticks * 0.1) if recovery_ticks is not None else None
     
     return {
         "spike_count": spike_count,
@@ -98,7 +111,9 @@ def calculate_metrics(trace_v, trace_th, spike_times, rest, threshold, ahp_amp, 
         "threshold_offset_mean_mv": thresh_offset_mean,
         "threshold_offset_max_mv": thresh_offset_max,
         "voltage_min_mv": voltage_min,
-        "voltage_max_mv": voltage_max
+        "voltage_max_mv": voltage_max,
+        "voltage_mean_mv": voltage_mean,
+        "recovery_time_ms": recovery_ms,
     }
 
 def main():
@@ -144,7 +159,7 @@ def main():
         traces_data[name] = (v_trace, th_trace, spikes)
         
         metrics = calculate_metrics(
-            v_trace, th_trace, spikes, rest_potential, threshold, params["ahp"], sim_ticks
+            v_trace, th_trace, spikes, rest_potential, threshold, params["ahp"], refractory_period, sim_ticks
         )
         metrics["mode"] = name
         summaries.append(metrics)
@@ -173,7 +188,8 @@ def main():
     summary_headers = [
         "mode", "spike_count", "first_spike_latency_ticks", "first_isi_ticks", "last_isi_ticks",
         "isi_growth_ratio", "peak_slope_mv_per_ms", "trough_depth_after_spike_mv",
-        "threshold_offset_mean_mv", "threshold_offset_max_mv", "voltage_min_mv", "voltage_max_mv"
+        "threshold_offset_mean_mv", "threshold_offset_max_mv", "voltage_min_mv", "voltage_max_mv",
+        "voltage_mean_mv", "recovery_time_ms"
     ]
     with open(summary_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=summary_headers)
@@ -218,6 +234,58 @@ def main():
     plt.close()
     print(f"Saved PNG Plot to: {plot_path} and copy to: {local_img_path}")
     
+    # 3.1. Zoomed spike/recovery window for ahp_plus_homeostasis
+    fig, ax = plt.subplots(figsize=(8, 4))
+    v_d, th_d, spikes_d = traces_data["ahp_plus_homeostasis"]
+    ax.plot(time_axis[:400], v_d[:400], color="#d62728", label="V(t)")
+    ax.plot(time_axis[:400], th_d[:400], 'k--', label="V_th(t)")
+    for s in spikes_d:
+        if s < 400:
+            ax.axvline(s * 0.1, color='red', alpha=0.5, linestyle=':')
+    ax.set_title("Zoomed Spike & Recovery Window (ahp_plus_homeostasis)")
+    ax.set_xlabel("Time (ms)")
+    ax.set_ylabel("Potential (mV)")
+    ax.legend(loc="upper right")
+    ax.grid(True, alpha=0.3)
+    zoomed_path = os.path.join(local_img_dir, "ephys_probe_01_zoomed.png")
+    plt.savefig(zoomed_path, dpi=150)
+    plt.close()
+    print(f"Saved Zoomed plot to: {zoomed_path}")
+
+    # 3.2. Threshold offset over time
+    fig, ax = plt.subplots(figsize=(8, 4))
+    for name in ["homeostasis_only", "ahp_plus_homeostasis"]:
+        _, th, _ = traces_data[name]
+        offset_mv = [val - (-50.0) for val in th]
+        ax.plot(time_axis, offset_mv, label=name)
+    ax.set_title("Threshold Offset Dynamics Over Time")
+    ax.set_xlabel("Time (ms)")
+    ax.set_ylabel("Threshold Offset (mV)")
+    ax.legend(loc="upper right")
+    ax.grid(True, alpha=0.3)
+    offset_path = os.path.join(local_img_dir, "ephys_probe_01_threshold_offset.png")
+    plt.savefig(offset_path, dpi=150)
+    plt.close()
+    print(f"Saved Threshold Offset plot to: {offset_path}")
+
+    # 3.3. ISI progression over spike index
+    fig, ax = plt.subplots(figsize=(8, 4))
+    for name in ["homeostasis_only", "ahp_plus_homeostasis"]:
+        _, _, spikes = traces_data[name]
+        if len(spikes) >= 2:
+            isi_ms = np.diff(spikes) * 0.1
+            spike_indices = np.arange(1, len(isi_ms) + 1)
+            ax.plot(spike_indices, isi_ms, marker='o', label=name)
+    ax.set_title("ISI Progression Over Spike Index")
+    ax.set_xlabel("Spike Interval Index")
+    ax.set_ylabel("Inter-Spike Interval (ms)")
+    ax.legend(loc="lower right")
+    ax.grid(True, alpha=0.3)
+    isi_path = os.path.join(local_img_dir, "ephys_probe_01_isi_progression.png")
+    plt.savefig(isi_path, dpi=150)
+    plt.close()
+    print(f"Saved ISI Progression plot to: {isi_path}")
+
     # 4. Generate Markdown Report
     generate_markdown_report(summaries, "../images/ephys_probe_01_replay_python.png")
     
@@ -228,14 +296,14 @@ def generate_markdown_report(summaries, plot_path):
     sum_dict = {s["mode"]: s for s in summaries}
     
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("# Аудит воспроизведения EPHYS_PROBE_01 в AxiEngine\n")
+        f.write("# EPHYS_PROBE_01 Replay Audit & Mechanism Attribution Report\n")
         f.write("*(ephys-probe-01-replay-audit-v1)*\n\n")
         
-        f.write("Этот отчет представляет результаты восстановления и анализа протокола `EPHYS_PROBE_01` в Python-песочнице AxiEngine. Цель исследования — аудит механизмов послеспайковой гиперполяризации (AHP), рефрактерности и гомеостаза порогов для воспроизведения эффектов Spike Frequency Adaptation (SFA) и привыкания (Habituation) при постоянном плотном входном токе.\n\n")
+        f.write("Этот отчет представляет результаты восстановления и анализа протокола `EPHYS_PROBE_01` с использованием исследовательского воспроизведения с продакшн-порядком обновлений (production-order research replay / Python baseline для проверки паритета). Цель исследования — аудит механизмов послеспайковой гиперполяризации (AHP), рефрактерности и гомеостаза порогов для количественной оценки вклада каждого механизма в Spike Frequency Adaptation (SFA) и привыкание (Habituation) при постоянном входном токе.\n\n")
         
-        f.write("## 1. Сводные метрики симуляции (10 000 тиков, dt=0.1ms)\n\n")
-        f.write("| Режим | Spikes | Latency (ticks) | First ISI (ticks) | Last ISI (ticks) | ISI Growth Ratio | Peak Th Slope (mV/ms) | post-Spike Trough (mV) | Th Offset Max (mV) |\n")
-        f.write("|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n")
+        f.write("## 1. Сводные метрики симуляции (Mode Matrix)\n\n")
+        f.write("| Режим | Spikes | Latency (ticks) | First ISI (ticks) | Last ISI (ticks) | ISI Growth Ratio | Min V (mV) | Max V (mV) | Mean V (mV) | Th Offset Mean (mV) | Th Offset Max (mV) | Peak Th Slope (mV/ms) | post-Spike Trough (mV) | Recovery Time (ms) |\n")
+        f.write("|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n")
         
         for m in ["no_homeostasis", "homeostasis_only", "ahp_only", "ahp_plus_homeostasis"]:
             s = sum_dict[m]
@@ -245,30 +313,49 @@ def generate_markdown_report(summaries, plot_path):
             f_isi_str = str(f_isi) if f_isi is not None else "N/A"
             l_isi = s["last_isi_ticks"]
             l_isi_str = str(l_isi) if l_isi is not None else "N/A"
+            rec = s["recovery_time_ms"]
+            rec_str = f"{rec:.1f}" if rec is not None else "N/A"
             
-            f.write(f"| `{m}` | {s['spike_count']} | {lat_str} | {f_isi_str} | {l_isi_str} | {s['isi_growth_ratio']:.2f} | {s['peak_slope_mv_per_ms']:.4f} | -{s['trough_depth_after_spike_mv']:.1f} | {s['threshold_offset_max_mv']:.2f} |\n")
+            f.write(f"| `{m}` | {s['spike_count']} | {lat_str} | {f_isi_str} | {l_isi_str} | {s['isi_growth_ratio']:.2f} | {s['voltage_min_mv']:.1f} | {s['voltage_max_mv']:.1f} | {s['voltage_mean_mv']:.1f} | {s['threshold_offset_mean_mv']:.2f} | {s['threshold_offset_max_mv']:.2f} | {s['peak_slope_mv_per_ms']:.4f} | -{s['trough_depth_after_spike_mv']:.1f} | {rec_str} |\n")
             
         f.write("\n## 2. Анализ динамики мембраны и порогов\n\n")
-        f.write("Сгенерированный график напряжения и порогов для всех четырёх режимов:\n")
+        f.write("### Общая трасса напряжения и порогов для всех режимов:\n")
         f.write(f"![Трассы потенциалов]({plot_path})\n\n")
         
-        f.write("## 3. Выводы аудита\n\n")
+        f.write("### Дополнительные калибровочные графики:\n")
+        f.write("- **Zoomed Spike & Recovery Window (`ahp_plus_homeostasis`)**:\n")
+        f.write("  ![Zoomed Window](../images/ephys_probe_01_zoomed.png)\n\n")
+        f.write("- **Threshold Offset Dynamics Over Time**:\n")
+        f.write("  ![Threshold Offset](../images/ephys_probe_01_threshold_offset.png)\n\n")
+        f.write("- **ISI Progression Over Spike Index**:\n")
+        f.write("  ![ISI Progression](../images/ephys_probe_01_isi_progression.png)\n\n")
         
-        # Conclusion 1: Spike Frequency Adaptation
-        f.write("### 1. Воспроизведение Spike Frequency Adaptation (SFA) / Habituation\n")
-        f.write("- **Да, эффекты полностью воспроизводятся.**\n")
-        f.write(f"- В режиме без гомеостаза (`no_homeostasis` и `ahp_only`) интервал между спайками остается строго постоянным: **{sum_dict['no_homeostasis']['first_isi_ticks']} тиков** (или **{sum_dict['ahp_only']['first_isi_ticks']} тиков** при активации AHP). Отношение ISI Growth Ratio равно **1.00**, то есть адаптация отсутствует.\n")
-        f.write(f"- При включении гомеостаза порогов (`homeostasis_only` и `ahp_plus_homeostasis`) наблюдается выраженное привыкание. Для режима `ahp_plus_homeostasis` первый межспайковый интервал равен **{sum_dict['ahp_plus_homeostasis']['first_isi_ticks']} тикам**, а последний увеличивается до **{sum_dict['ahp_plus_homeostasis']['last_isi_ticks']} тиков**, давая коэффициент роста интервалов (ISI Growth Ratio) **{sum_dict['ahp_plus_homeostasis']['isi_growth_ratio']:.2f}**.\n")
-        f.write("- Это подтверждает, что накопление `threshold_offset` после каждого спайка эффективно увеличивает время, необходимое постоянному входному току для повторного возбуждения мембраны, воспроизводя классическое привыкание нейрона.\n\n")
+        f.write("## 3. Mechanism Attribution (Анализ вклада механизмов)\n\n")
+        f.write("На основе полученной матрицы параметров мы можем сделать следующие выводы о роли отдельных физических компонентов в формировании привыкания (Habituation/SFA):\n\n")
+        f.write("1. **Влияние только AHP (Mode `ahp_only`)**:\n")
+        f.write("   - Включение послеспайковой гиперполяризации сдвигает минимальный потенциал мембраны сразу после спайка вниз на 5 mV (AHP Trough = -5.0 mV, V_min = -75.0 mV).\n")
+        f.write("   - Межспайковый интервал (ISI) увеличивается с 73 до 87 тиков, увеличивая латентность последующих спайков.\n")
+        f.write("   - Однако интервалы остаются абсолютно плоскими (ISI Growth Ratio = 1.00), то есть чистый AHP не создает адаптацию частоты разряда (SFA).\n\n")
+        f.write("2. **Влияние только гомеостаза порогов (Mode `homeostasis_only`)**:\n")
+        f.write("   - Гомеостатический сдвиг порога при неизменном пост-спайковом провале создает выраженную адаптацию (SFA): межспайковый интервал вырастает с 76 тиков (первый интервал) до 245 тиков (последний интервал), давая ISI Growth Ratio = 3.22.\n")
+        f.write("   - Среднее смещение порога составляет 30.48 mV, а максимальное — 53.55 mV в конце симуляции.\n\n")
+        f.write("3. **Совместное влияние (Mode `ahp_plus_homeostasis`)**:\n")
+        f.write("   - Комбинация AHP и гомеостаза порога дает сбалансированную форму с ISI Growth Ratio = 2.74 (первый интервал 90 тиков, последний 247 тиков).\n")
+        f.write("   - За счет дополнительного провала мембранного потенциала AHP снижает общую частоту разряда (58 спайков по сравнению с 61 в `homeostasis_only`).\n\n")
+        f.write("4. **Ведущий механизм привыкания (Habituation)**:\n")
+        f.write("   - Привыкание является **строго порогово-зависимым (threshold-driven)** механизмом, так как именно накопление `threshold_offset` вызывает экспоненциальное удлинение ISI.\n")
+        f.write("   - AHP выполняет функцию высокочастотной стабилизации и масштабирования базовой латентности.\n\n")
+        f.write("5. **Роль рефрактерного периода**:\n")
+        f.write("   - В текущем протоколе рефрактерность (`refractory_period = 14` тиков) задает жесткое временное окно, в течение которого интеграция внешнего тока полностью заблокирована.\n")
+        f.write("   - Это формирует плоское плато потенциала на уровне -70 mV (`homeostasis_only`) или -75 mV (`ahp_plus_homeostasis`) после спайка, определяя минимальный предел межспайкового интервала и предотвращая runaway-сверхвозбудимость.\n\n")
         
-        # Conclusion 2: Peak growth control
-        f.write("### 2. Контроль роста пиков\n")
-        f.write("- В отличие от биологического порога, который сдвигается вверх при частых спайках, эффективные пики срабатывания $V_{\\text{th}} + V_{\\text{offset}}$ в AxiEngine растут строго линейно с каждым спайком на величину `homeostasis_penalty` и плавно экспоненциально спадают со скоростью `homeostasis_decay`.\n")
-        f.write(f"- В режиме `ahp_plus_homeostasis` средний оффсет порога составил **{sum_dict['ahp_plus_homeostasis']['threshold_offset_mean_mv']:.2f} mV**, достигая максимума в **{sum_dict['ahp_plus_homeostasis']['threshold_offset_max_mv']:.2f} mV** в конце симуляции. Рост пиков стабилизируется, когда скорость спада оффсета за период ISI сравнивается с величиной штрафа за спайк.\n\n")
-        
-        # Conclusion 3: AHP trough depth
-        f.write("### 3. Глубина AHP-провала\n")
-        f.write(f"- Активация послеспайковой гиперполяризации (`ahp_only` и `ahp_plus_homeostasis`) создает отчетливый провал потенциала непосредственно после спайка до величины **-{sum_dict['ahp_plus_homeostasis']['trough_depth_after_spike_mv']:.1f} mV** относительно базового потенциала покоя. Это отлично соответствует форме физиологических трасс и препятствует слишком быстрой генерации повторного спайка, что стабилизирует динамику разряда на сверхвысоких частотах.\n")
+        f.write("## 4. Production-Order Confirmation (Соответствие продакшн-физике)\n\n")
+        f.write("Мы подтверждаем следующие аспекты соответствия нашего тестового окружения реальному циклу тиков `compute-cpu`:\n")
+        f.write("- **Порядок homeostasis_decay**: Распад смещения порога применяется в самом начале тика, до обновления мембраны и оценки спайка (decay-before-check).\n")
+        f.write("- **Порядок пенальти спайка**: Штраф `homeostasis_penalty` добавляется к смещению порога только в конце тика при финализации спайка.\n")
+        f.write("- **Рефрактерная ветка**: Во время рефрактерного периода интеграция заряда отключена, и потенциал не перезаписывается принудительно (изменение трассы происходит естественным ходом).\n")
+        f.write("- **Отключение heartbeat**: Спонтанный спайкинг через Heartbeat отключен для фазы 2 baseline-прогона.\n")
+        f.write("- **Специфика исследовательского раннера**: Раннер использует непосредственную инжекцию внешнего тока `i_ext[tick]` напрямую в сому, минуя сложный цикл распределенных по дендритам `DayBatchCmd` (что позволяет изолировать чистую соматическую физику).\n")
 
     print(f"Saved Markdown Report to: {report_path}")
 
