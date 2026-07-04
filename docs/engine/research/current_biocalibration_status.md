@@ -27,6 +27,7 @@ Status: active research index, not a final report.
 | :--- | :--- | :--- |
 | [2026-07-01 legacy baseline import](archive/2026-07-01_legacy_baseline_import/README.md) | archived | Просканирована legacy-библиотека, зафиксированы правила импорта и риски. Legacy-параметры полезны как стартовые гипотезы, но не как финальная биологическая истина. |
 | [2026-07-02 biocalibration bootstrap](archive/2026-07-02_biocalibration_bootstrap/README.md) | archived | Собраны Allen/NWB данные, сделаны первые калибровочные пакеты, probes по 314900022, adaptive leak и EPHYS replay. Получены сильные сигналы, но полный нейронный контур еще не закрыт. |
+| [2026-07-04 biology metrics verification](archive/2026-07-04_biology_metrics_verification/README.md) | archived | Мигрированы каноничные профили (VISl4, VISp5, VISp23), проведена длинная симуляция (1,000,000 тиков). Подтверждено плановое поведение спонтанной и синаптической физики (CV, LV, STA, усталость). |
 
 ## 3. Что сейчас известно
 
@@ -71,6 +72,13 @@ Status: active research index, not a final report.
 - **Что ослабит**: Расхождения в state planes, которые нельзя объяснить адаптацией контрактов.
 - **Planned outputs**: README, test-only runner, parity tests, mismatch report.
 
+### [Completed] Biological Physics Verification (`archive/2026-07-04_biology_metrics_verification/`)
+
+- **Вопрос**: Соответствует ли поведение новой CPU-физики (Gradient Synaptic Fatigue и Stochastic Heartbeat) реальным биологическим показателям при калибровке на каноничных профилях?
+- **Зачем**: Подтвердить корректность интеграции Leak, AHP, пороговой динамики и синаптической усталости на длинной симуляции (1,000,000 тиков).
+- **Что подтвердило**: Реалистичные частоты спонтанного спайкирования (VISl4: 1.03 Hz, VISp5: 0.96 Hz, VISp23: 3.98 Hz) с CV/LV ~1.0. Под Poisson-шумом в 50 Hz получен регулярный эмерджентный разряд с CV ~0.15-0.31, синаптической усталостью 76-83% и плавными пост-спайковыми STA-профилями.
+- **Outputs**: Скрипт миграции, интеграционный тест-раннер, отчет в архиве.
+
 ### Следующий шаг
 
 ```text
@@ -83,6 +91,7 @@ full-neuron-replay-314900022-v1
 
 ## 8. Ключевые архивы
 
+- [Biological Physics Verification](archive/2026-07-04_biology_metrics_verification/README.md)
 - [GSOP STDP Fatigue v1](archive/gsop_stdp_fatigue_v1/README.md)
 - [Legacy baseline import](archive/2026-07-01_legacy_baseline_import/README.md)
 - [Biocalibration bootstrap](archive/2026-07-02_biocalibration_bootstrap/README.md)
