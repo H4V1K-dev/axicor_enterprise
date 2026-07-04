@@ -68,7 +68,7 @@ cargo fmt --check
 ## Result
 
 - Baseline (`leak_shift = 8`, `rest = -73443 uV`): `spikes_30 = 16`, `spikes_40 = 19`, `spikes_190 = 40`, Allen f-I RMSE = 12.89. **FAIL**.
-- **Winner Candidate (`leak_shift = 4`, `rest = -70000 uV`)**:
+- **Phase 4 Passive Winner Candidate (`leak_shift = 4`, `rest = -70000 uV`)**:
   - `spikes_30` = 0 (target 0)
   - `spikes_40` = 0 (target 0)
   - `spikes_50` = 3 (bio target 3.5)
@@ -76,11 +76,21 @@ cargo fmt --check
   - Allen f-I RMSE = **1.89** (dropped from 12.89 to 1.89)
   - Monotonicity: True
   - Acceptance Gate Status: **PASS**
+- **Phase 5 SFA Winner Candidate (`homeostasis_penalty = 1940`, `homeostasis_decay = 4`)**:
+  - `spikes_30` = 0
+  - `spikes_40` = 0
+  - `spikes_50` = 4 (bio target 3.5)
+  - `spikes_190` = 35 (bio target 36)
+  - ISI Growth Ratio (190 pA) = **2.05** (strong biological adaptation)
+  - Allen f-I RMSE = **1.50** (further improved from 1.89 to 1.50)
+  - Acceptance Gate Status: **PASS** (verified candidate for spike-induced adaptation on top of Phase 4 passive membrane candidate)
 
 ## Interpretation
 
-Увеличение силы пассивной утечки через параметр `leak_shift = 4` (повышение константы сброса потенциала в `update_glif_voltage`) полностью устраняет нефизичную гипервозбудимость на малых токах 30–40 pA. При этом мембранный потенциал успевает накапливать достаточный заряд при сильном внешнем токе 190 pA, сохраняя высокотоковый разряд (35 спайков) и SFA.
+1. Увеличение силы пассивной утечки через параметр `leak_shift = 4` полностью устраняет нефизичную гипервозбудимость на малых токах 30–40 pA.
+2. Изолированный подбор адаптации (`homeostasis_penalty = 1940`, `homeostasis_decay = 4`) обеспечил биологически достоверную частотную адаптацию разряда (ISI Growth = 2.05) без нарушений в пассивном окне или на реобазе, снизив Allen f-I RMSE до **1.50**.
 
 ## Next Step
 
-Обновить параметры профиля `L4_spiny_VISl4_4.toml` (установить `leak_shift = 4`) и применить результат в последующих калибровочных тестах.
+Phase 6: AHP & Refractory Shape Calibration (`ahp_amplitude` и `refractory_period`).
+
