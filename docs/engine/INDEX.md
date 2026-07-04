@@ -97,7 +97,7 @@ graph LR
 | Крейт | Спецификация | Статус | Назначение |
 |---|---|---|---|
 | `types` | [types_spec.md](spec_L0/types_spec.md) | **Approved v2.2** | Атомарные типы (`Tick`, `Voltage`), packed ABI (`PackedPosition`, `PackedTarget`, `SomaFlags`), seed/hash, константы. |
-| `physics` | [physics_spec.md](spec_L0/physics_spec.md) | **Approved v2.2 / Implemented** | Математика GLIF, AHP, homeostasis, Active Tail, GSOP, DDS heartbeat, `v_seg`. |
+| `physics` | [physics_spec.md](spec_L0/physics_spec.md) | **Approved v2.2 / Implemented** | Математика GLIF, AHP, homeostasis, Active Tail, GSOP, Stochastic Heartbeat, `v_seg`. |
 
 ### Слой 1 (Layer 1: Data Contracts & Deserialization)
 

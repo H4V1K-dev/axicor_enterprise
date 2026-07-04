@@ -651,7 +651,7 @@ pub trait ResearchVariantExt {
 
 impl ResearchVariantExt for VariantParameters {
     fn fatigue_capacity(&self) -> u8 {
-        255
+        self.fatigue_capacity
     }
 }
 

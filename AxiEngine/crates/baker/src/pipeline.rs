@@ -51,8 +51,9 @@ pub fn bake_local_shard(
             return Err(BakerError::LayoutError);
         }
 
-        let heartbeat_m =
-            physics::compile_dds_heartbeat(nt.spontaneous.spontaneous_firing_period_ticks as u64);
+        let heartbeat_m = physics::compile_stochastic_heartbeat_threshold(
+            nt.spontaneous.spontaneous_firing_period_ticks as u64,
+        );
 
         let mut inertia_curve = [0u8; 8];
         inertia_curve.copy_from_slice(&nt.gsop.inertia_curve);
@@ -68,7 +69,7 @@ pub fn bake_local_shard(
             gsop_depression: nt.gsop.gsop_depression,
             homeostasis_decay: nt.homeostasis.homeostasis_decay,
             refractory_period: nt.timing.refractory_period,
-            synapse_refractory_period: nt.timing.synapse_refractory_period,
+            fatigue_capacity: nt.timing.fatigue_capacity,
             signal_propagation_length: nt.signal.signal_propagation_length,
             is_inhibitory: if nt.gsop.is_inhibitory { 1 } else { 0 },
             inertia_curve,

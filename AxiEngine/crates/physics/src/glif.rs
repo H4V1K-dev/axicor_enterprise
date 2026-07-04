@@ -1,6 +1,6 @@
-//! Generalized Leaky Integrate-and-Fire (GLIF) membrane dynamics and Direct Digital Synthesis (DDS) heartbeat.
+//! Generalized Leaky Integrate-and-Fire (GLIF) membrane dynamics and Stochastic Heartbeat.
 
-use crate::constants::{DDS_PHASE_MASK, DDS_SCATTER_PRIME, MAX_HEARTBEAT_M};
+use crate::constants::{HEARTBEAT_PHASE_MASK, HEARTBEAT_SCATTER_PRIME, MAX_HEARTBEAT_M};
 
 /// Evaluates whether a biological GLIF membrane potential crosses the effective spiking threshold.
 ///
@@ -11,29 +11,39 @@ pub fn is_glif_spike(voltage_new: i32, v_th: i32, thresh_offset: i32) -> bool {
     voltage_new >= v_th_eff
 }
 
-/// Evaluates spontaneous Direct Digital Synthesis (DDS) heartbeat spike detection.
+/// Computes a fast 64-bit deterministic integer hash for spatial/temporal pseudorandom generation.
+#[inline]
+pub fn stochastic_hash(current_tick: u64, tid: u32) -> u64 {
+    let mut h = current_tick.wrapping_add((tid as u64).wrapping_mul(HEARTBEAT_SCATTER_PRIME));
+    h ^= h >> 30;
+    h = h.wrapping_mul(0xbf58476d1ce4e5b9);
+    h ^= h >> 27;
+    h = h.wrapping_mul(0x94d049bb133111eb);
+    h ^= h >> 31;
+    h
+}
+
+/// Evaluates spontaneous Stochastic Heartbeat spike detection.
 ///
 /// # Arguments
 /// * `current_tick` - Current simulation tick (`u64`).
-/// * `heartbeat_m` - Compiled DDS phase step parameter (`u32`).
+/// * `heartbeat_m` - Compiled Stochastic Heartbeat rate parameter (`u32`).
 /// * `tid` - Unique thread/neuron ID (`u32`).
 ///
 /// # Returns
 /// - `true` every tick if `heartbeat_m == MAX_HEARTBEAT_M` (`period_ticks == 1`).
 /// - `false` if `heartbeat_m == 0`.
-/// - `(phase < heartbeat_m)` otherwise, where `phase` is calculated using pseudorandom spatial decorrelation.
+/// - `(rnd < heartbeat_m)` otherwise, where `rnd` is calculated via deterministic integer hash (`stochastic_hash`).
 ///
 /// Implements branchless boolean evaluation adhering strictly to `INV-PHYS-001`.
 #[inline]
 pub fn heartbeat_spike(current_tick: u64, heartbeat_m: u32, tid: u32) -> bool {
     let is_max = heartbeat_m == MAX_HEARTBEAT_M;
     let is_zero = heartbeat_m == 0;
-    let phase = ((current_tick.wrapping_mul(heartbeat_m as u64))
-        .wrapping_add((tid as u64).wrapping_mul(DDS_SCATTER_PRIME)))
-        & DDS_PHASE_MASK;
-    let is_phase = phase < (heartbeat_m as u64);
+    let rnd = stochastic_hash(current_tick, tid) & HEARTBEAT_PHASE_MASK;
+    let is_hit = rnd < (heartbeat_m as u64);
 
-    is_max || (!is_zero && is_phase)
+    is_max || (!is_zero && is_hit)
 }
 
 /// Computes adaptive GLIF membrane potential integration and exponential leak decay.

@@ -16,11 +16,46 @@ pub fn inertia_rank(abs_weight: u32) -> usize {
     ((abs_weight >> INERTIA_RANK_SHIFT) as usize).min(MAX_INERTIA_RANK)
 }
 
-/// Applies GSOP synaptic plasticity to update a single synaptic weight while enforcing Dale's Law.
+/// Recovers dendritic fatigue by subtracting `FATIGUE_RECOVERY_RATE` per tick.
+#[inline]
+pub fn recover_fatigue(fatigue: u8) -> u8 {
+    fatigue.saturating_sub(crate::constants::FATIGUE_RECOVERY_RATE)
+}
+
+/// Calculates available dendritic capacity `(capacity - fatigue)` for weight attenuation.
+#[inline]
+pub fn fatigue_available(fatigue: u8, capacity: u8) -> u8 {
+    let cap = capacity.max(1);
+    let fat = fatigue.min(cap);
+    cap - fat
+}
+
+/// Attenuates synaptic weight based on dendritic fatigue ratio `available / capacity`.
+#[inline]
+pub fn apply_synaptic_fatigue(weight: i32, fatigue: u8, capacity: u8) -> i32 {
+    let cap = capacity.max(1) as i64;
+    let avail = fatigue_available(fatigue, capacity) as i64;
+    ((weight as i64 * avail) / cap) as i32
+}
+
+/// Increments dendritic fatigue upon receiving a presynaptic active tail hit.
+#[inline]
+pub fn fatigue_after_spike(fatigue: u8, capacity: u8) -> u8 {
+    let cap = capacity.max(1);
+    fatigue
+        .saturating_add(crate::constants::FATIGUE_SPIKE_COST)
+        .min(cap)
+}
+
+/// Applies All-to-All Spatial STDP synaptic plasticity with dendritic fatigue penalty.
 ///
 /// # Arguments
 /// * `weight` - Current synaptic mass (`i32`).
-/// * `is_active` - Whether the target dendrite segment contacted an active axonal tail.
+/// * `heads` - Axonal head segment positions (`&[u32; 8]`).
+/// * `seg_idx` - Target dendrite segment index (`u32`).
+/// * `signal_propagation_length` - Axon active tail propagation length (`u32`).
+/// * `fatigue` - Current dendritic fatigue level (`u8`).
+/// * `fatigue_capacity` - Maximum fatigue capacity (`u8`).
 /// * `gsop_potentiation` - Base potentiation pulse amount (LTP).
 /// * `gsop_depression` - Base depression pulse amount (LTD).
 /// * `dopamine` - Global dopamine neuromodulation level.
@@ -31,11 +66,14 @@ pub fn inertia_rank(abs_weight: u32) -> usize {
 ///
 /// # Returns
 /// Updated synaptic mass (`i32`) strictly maintaining biological sign and clamped to `[MIN_WEIGHT_LIMIT, MAX_WEIGHT_LIMIT]`.
-/// Implements branchless sign extraction, delta selection, and clamping adhering strictly to `INV-PHYS-001`.
-#[allow(clippy::too_many_arguments)] // Takes raw scalar parameters matching physical specs without layout DTOs.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_gsop_plasticity(
     weight: i32,
-    is_active: bool,
+    heads: &[u32; 8],
+    seg_idx: u32,
+    signal_propagation_length: u32,
+    fatigue: u8,
+    fatigue_capacity: u8,
     gsop_potentiation: i32,
     gsop_depression: i32,
     dopamine: i32,
@@ -44,15 +82,12 @@ pub fn apply_gsop_plasticity(
     burst_count: u32,
     inertia_curve: &[i32; 8],
 ) -> i32 {
-    // 1. Extract biological sign (+1 or -1) and absolute weight branchlessly (INV-PHYS-001, INV-PHYS-004)
     let sign: i32 = 1 - ((weight >> 31) & 2);
     let abs_w = weight.unsigned_abs();
 
-    // 2. Branchless inertia rank lookup
     let rank = inertia_rank(abs_w);
     let inertia = inertia_curve[rank] as i64;
 
-    // 3. Dopamine neuromodulation
     let pot_mod = (dopamine as i64 * d1_affinity as i64) / 128;
     let dep_mod = (dopamine as i64 * d2_affinity as i64) / 128;
 
@@ -60,18 +95,47 @@ pub fn apply_gsop_plasticity(
     let final_dep = (gsop_depression as i64 - dep_mod).max(0);
 
     let burst_mult = (burst_count as i64).max(1);
+    let prop = signal_propagation_length as u64;
 
-    // 4. Delta impulse calculation with branchless mask selection
-    let delta_pot = (final_pot * inertia * burst_mult) / 128;
-    let delta_dep = (final_dep * inertia * burst_mult) / 128;
+    let mut total_ltp: i64 = 0;
+    let mut total_ltd: i64 = 0;
 
-    let active_mask = 0i64.wrapping_sub(is_active as i64);
-    let delta = (delta_pot & active_mask) | ((-delta_dep) & !active_mask);
+    if prop > 0 {
+        for &head in heads {
+            if head == types::AXON_SENTINEL {
+                continue;
+            }
+            let head_u64 = head as u64;
+            let seg_u64 = seg_idx as u64;
 
-    // 5. Apply delta and clamp absolute mass (Mass Floor Guard & Headroom Guard)
-    let new_abs_raw = abs_w as i64 + delta;
+            // Causal LTP: spike passed segment (head >= seg_idx)
+            let dist_ltp = head_u64.wrapping_sub(seg_u64);
+            if dist_ltp < prop {
+                let cooling = prop - dist_ltp;
+                let base_ltp = (final_pot * inertia * burst_mult) / 128;
+                total_ltp += (base_ltp * cooling as i64) / prop as i64;
+            }
+
+            // Anti-causal LTD: spike approaching segment (seg_idx >= head)
+            let dist_ltd = seg_u64.wrapping_sub(head_u64);
+            if dist_ltd < prop {
+                let cooling = prop - dist_ltd;
+                let base_ltd = (final_dep * inertia * burst_mult) / 128;
+                total_ltd += (base_ltd * cooling as i64) / prop as i64;
+            }
+        }
+    }
+
+    // Fatigue penalty
+    let base_ltd = (final_dep * inertia * burst_mult) / 128;
+    let cap = fatigue_capacity.max(1) as i64;
+    let fat = (fatigue.min(fatigue_capacity)) as i64;
+    let fatigue_penalty = (fat * base_ltd) / cap;
+
+    let net_delta = total_ltp - total_ltd - fatigue_penalty;
+
+    let new_abs_raw = abs_w as i64 + net_delta;
     let new_abs = new_abs_raw.clamp(MIN_WEIGHT_LIMIT as i64, MAX_WEIGHT_LIMIT as i64) as u32;
 
-    // 6. Restore biological sign branchlessly (Dale's Law Preservation / INV-PHYS-007)
     (new_abs as i32) * sign
 }

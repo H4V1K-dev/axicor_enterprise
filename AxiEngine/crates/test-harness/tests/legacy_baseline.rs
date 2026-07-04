@@ -21,7 +21,11 @@ struct LegacyNeuronType {
     gsop_depression: u16,
     homeostasis_decay: u8,
     refractory_period: u8,
-    synapse_refractory_period: u8,
+    #[serde(
+        alias = "synapse_refractory_period",
+        default = "default_fatigue_capacity"
+    )]
+    fatigue_capacity: u8,
     signal_propagation_length: u32,
     is_inhibitory: bool,
     inertia_curve: Vec<u8>,
@@ -50,6 +54,10 @@ struct LegacyNeuronFile {
     neuron_type: Vec<LegacyNeuronType>,
 }
 
+fn default_fatigue_capacity() -> u8 {
+    255
+}
+
 fn map_legacy_to_config(
     legacy: &LegacyNeuronType,
     disable_spontaneous: bool,
@@ -64,7 +72,7 @@ fn map_legacy_to_config(
         },
         timing: config::TimingParams {
             refractory_period: legacy.refractory_period,
-            synapse_refractory_period: legacy.synapse_refractory_period,
+            fatigue_capacity: legacy.fatigue_capacity.max(1),
         },
         signal: config::SignalParams {
             signal_propagation_length: legacy.signal_propagation_length as u8,
@@ -475,13 +483,17 @@ fn run_scenario_decomp(
     let dds_heartbeat_m_exc = if spontaneous_disabled {
         0
     } else {
-        physics::compile_dds_heartbeat(exc_legacy.spontaneous_firing_period_ticks as u64)
+        physics::compile_stochastic_heartbeat_threshold(
+            exc_legacy.spontaneous_firing_period_ticks as u64,
+        )
     };
 
     let dds_heartbeat_m_inh = if spontaneous_disabled {
         0
     } else {
-        physics::compile_dds_heartbeat(inh_legacy.spontaneous_firing_period_ticks as u64)
+        physics::compile_stochastic_heartbeat_threshold(
+            inh_legacy.spontaneous_firing_period_ticks as u64,
+        )
     };
 
     let estimated_spontaneous_seeds_per_tick = if spontaneous_disabled {

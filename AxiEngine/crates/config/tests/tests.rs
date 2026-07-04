@@ -72,7 +72,7 @@ ahp_amplitude = 100
 
 [neuron_types.timing]
 refractory_period = 2
-synapse_refractory_period = 3
+fatigue_capacity = 255
 
 [neuron_types.signal]
 signal_propagation_length = 5

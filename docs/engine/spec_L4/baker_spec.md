@@ -27,7 +27,7 @@
 | `types` (Слой 0) | `MasterSeed`, `PackedPosition`, `PackedTarget`, `SomaFlags`, `AXON_SENTINEL`, `EMPTY_PIXEL` | Базовые типы зерён ГПСЧ, координат, упакованных таргетов и маркеров-сентинелов. |
 | `layout` (Слой 1) | `StateFileHeader`, `AxonsFileHeader`, `PathsFileHeader`, `VariantParameters`, `BurstHeads8`, `StateOffsets`, математика размеров блобов, выравнивание `align_to_padded_n` | Формирование C-ABI бинарных макетов, заголовков файлов и смещений SoA-плоскостей. |
 | `config` (Слой 1) | `ShardConfig`, `NeuronType`, `validate_shard` | Валидация анатомии шарда и доступ к профилям типов нейронов. |
-| `physics` (Слой 0) | Хелперы деривации констант (`compile_dds_heartbeat`, `MASS_TO_CHARGE_SHIFT`, `MIN_WEIGHT_LIMIT`) | Деривация физических параметров и констант весов. |
+| `physics` (Слой 0) | Хелперы деривации констант (`compile_stochastic_heartbeat_threshold`, `MASS_TO_CHARGE_SHIFT`, `MIN_WEIGHT_LIMIT`) | Деривация физических параметров и констант весов. |
 | `topology` | `generate_single_shard_topology`, `grow_local_axons`, `form_local_synapses`, DTO структуры результатов | Вызов алгоритмов размещения сом, роста аксонов и формирования локальных синаптических связей. |
 | `vfs` (Слой 2) | `ArchiveEntry`, `pack_entries`, `VfsError` | Низкоуровневая упаковка готовых байтовых артефактов в `.axic`. |
 
@@ -207,7 +207,7 @@ pub fn bake_local_shard_axic(
 ## §7. Сборка VariantParameters
 Для каждого типа нейрона в `neuron_types` (индекс в массиве определяет `VariantId`) компилируется структура `layout::VariantParameters`:
 - Значения `threshold`, `leak_shift`, `refractory_period`, `ahp_amplitude` и homeostasis берутся из соответствующих полей `NeuronType`.
-- **DDS Heartbeat**: Поле `heartbeat_m` вычисляется с помощью физической функции `physics::compile_dds_heartbeat(spontaneous_firing_period_ticks)`.
+- **Stochastic Heartbeat**: Поле `heartbeat_m` вычисляется с помощью физической функции `physics::compile_stochastic_heartbeat_threshold(spontaneous_firing_period_ticks)`.
 - Поле `initial_synapse_weight` в `VariantParameters` сохраняется как человекочитаемое charge-scale значение, в то время как веса связей в `.state` пишутся в Mass Domain.
 
 ---

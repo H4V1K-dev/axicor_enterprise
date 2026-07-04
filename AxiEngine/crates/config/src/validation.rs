@@ -296,6 +296,12 @@ pub fn validate_shard(config: &ShardConfig) -> Result<(), ConfigError> {
                 nt.name
             )));
         }
+        if nt.timing.fatigue_capacity == 0 {
+            return Err(ConfigError::ValidationError(format!(
+                "Neuron type '{}' fatigue_capacity must be > 0",
+                nt.name
+            )));
+        }
 
         // Signal
         if nt.signal.signal_propagation_length == 0 {

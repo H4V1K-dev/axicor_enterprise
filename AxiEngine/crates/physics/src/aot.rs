@@ -66,16 +66,16 @@ fn libm_floor(x: f32) -> f32 {
     }
 }
 
-/// Compiles the Direct Digital Synthesis (DDS) phase step parameter `heartbeat_m`.
+/// Compiles the stochastic HeartBeat Bernoulli probability threshold `heartbeat_m`.
 ///
 /// # Arguments
-/// * `period_ticks` - Desired spontaneous spiking period in simulation ticks.
+/// * `period_ticks` - Desired spontaneous spiking expected interval in simulation ticks.
 ///
 /// # Details
 /// - Returns `0` if `period_ticks == 0` or `period_ticks > 65536` (disabling heartbeat).
 /// - Returns [`MAX_HEARTBEAT_M`] (65535) if `period_ticks == 1` (spiking every tick).
 /// - Returns `min(65536 / period_ticks, 65535)` for `2 <= period_ticks <= 65536`.
-pub fn compile_dds_heartbeat(period_ticks: u64) -> u32 {
+pub fn compile_stochastic_heartbeat_threshold(period_ticks: u64) -> u32 {
     if period_ticks == 0 || period_ticks > 65536 {
         0
     } else if period_ticks == 1 {

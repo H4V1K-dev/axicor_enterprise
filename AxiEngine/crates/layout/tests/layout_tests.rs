@@ -37,7 +37,7 @@ fn test_variant_parameters_field_offsets() {
     assert_eq!(offset_of!(VariantParameters, gsop_depression), 24);
     assert_eq!(offset_of!(VariantParameters, homeostasis_decay), 26);
     assert_eq!(offset_of!(VariantParameters, refractory_period), 28);
-    assert_eq!(offset_of!(VariantParameters, synapse_refractory_period), 29);
+    assert_eq!(offset_of!(VariantParameters, fatigue_capacity), 29);
     assert_eq!(offset_of!(VariantParameters, signal_propagation_length), 30);
     assert_eq!(offset_of!(VariantParameters, is_inhibitory), 31);
     assert_eq!(offset_of!(VariantParameters, inertia_curve), 32);

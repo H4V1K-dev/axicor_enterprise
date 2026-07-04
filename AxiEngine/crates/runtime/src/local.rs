@@ -282,7 +282,7 @@ mod tests {
             },
             timing: config::TimingParams {
                 refractory_period: 2,
-                synapse_refractory_period: 2,
+                fatigue_capacity: 255,
             },
             signal: config::SignalParams {
                 signal_propagation_length: 10,

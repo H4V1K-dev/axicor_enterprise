@@ -63,11 +63,13 @@ pub fn run_day_batch(
         let dendrite_targets =
             bytemuck::cast_slice::<u8, u32>(&targets_bytes[..layout::MAX_DENDRITES * padded_n * 4]);
 
-        let (weights_bytes, _rest_state) =
+        let (weights_bytes, rest_state) =
             rest_state.split_at_mut(offsets.off_dtimers - offsets.off_weights);
         let dendrite_weights = bytemuck::cast_slice_mut::<u8, i32>(
             &mut weights_bytes[..layout::MAX_DENDRITES * padded_n * 4],
         );
+
+        let dendrite_timers = &mut rest_state[..layout::MAX_DENDRITES * padded_n];
 
         let axon_heads =
             bytemuck::cast_slice_mut::<u8, u32>(&mut axons_bytes[16..16 + total_axons * 32]);
@@ -140,7 +142,7 @@ pub fn run_day_batch(
                 }
             }
 
-            // Stage 5 & 6: Neuron State Update, Spiking & GSOP Plasticity
+            // Stage 5: Neuron State Update, Fatigue Recovery & Integration, Somatic Reset
             for i in 0..padded_n {
                 let mut flags = types::SomaFlags(soma_flags[i]);
                 let type_id = flags.type_id() as usize;
@@ -151,17 +153,21 @@ pub fn run_day_batch(
                     variant.homeostasis_decay as i32,
                 );
 
-                let t = timers[i];
-                let mut is_glif = false;
-                if t > 0 {
-                    timers[i] = t - 1;
-                } else {
-                    let mut i_in: i32 = 0;
-                    for d in 0..layout::MAX_DENDRITES {
-                        let raw_target = dendrite_targets[d * padded_n + i];
-                        if types::PackedTarget(raw_target).is_inactive() {
-                            continue;
-                        }
+                // 1. Fatigue Recovery & Charge Integration across live dendrites
+                let mut i_in: i32 = 0;
+                let is_refractory = timers[i] > 0;
+
+                for d in 0..layout::MAX_DENDRITES {
+                    let slot_idx = d * padded_n + i;
+                    let raw_target = dendrite_targets[slot_idx];
+                    if types::PackedTarget(raw_target).is_inactive() {
+                        dendrite_timers[slot_idx] = 0;
+                        continue;
+                    }
+
+                    let mut fatigue = physics::recover_fatigue(dendrite_timers[slot_idx]);
+
+                    if !is_refractory {
                         if let Some((axon_id, seg_idx)) = types::PackedTarget(raw_target).unpack() {
                             let a_id = axon_id as usize;
                             if a_id < total_axons {
@@ -181,13 +187,30 @@ pub fn run_day_batch(
                                     seg_idx,
                                     variant.signal_propagation_length as u32,
                                 ) {
-                                    let w = dendrite_weights[d * padded_n + i];
-                                    i_in = i_in.wrapping_add(physics::weight_to_charge(w));
+                                    let w = dendrite_weights[slot_idx];
+                                    let att_w = physics::apply_synaptic_fatigue(
+                                        w,
+                                        fatigue,
+                                        variant.fatigue_capacity,
+                                    );
+                                    i_in = i_in.wrapping_add(physics::weight_to_charge(att_w));
+                                    fatigue = physics::fatigue_after_spike(
+                                        fatigue,
+                                        variant.fatigue_capacity,
+                                    );
                                 }
                             }
                         }
                     }
 
+                    dendrite_timers[slot_idx] = fatigue;
+                }
+
+                // 2. Membrane Potential & Spiking Evaluation
+                let mut is_glif = false;
+                if is_refractory {
+                    timers[i] -= 1;
+                } else {
                     let v_new = physics::update_glif_voltage(
                         soma_voltage[i],
                         i_in,
@@ -199,14 +222,7 @@ pub fn run_day_batch(
                         variant.adaptive_mode as i32,
                     );
                     is_glif = physics::is_glif_spike(v_new, variant.threshold, threshold_offset[i]);
-                    if is_glif {
-                        soma_voltage[i] = variant
-                            .rest_potential
-                            .wrapping_sub(variant.ahp_amplitude as i32);
-                        timers[i] = variant.refractory_period;
-                        threshold_offset[i] =
-                            threshold_offset[i].wrapping_add(variant.homeostasis_penalty);
-                    } else {
+                    if !is_glif {
                         soma_voltage[i] = v_new;
                     }
                 }
@@ -217,21 +233,15 @@ pub fn run_day_batch(
 
                 flags.set_spiking(final_spike);
                 if final_spike {
+                    soma_voltage[i] = variant
+                        .rest_potential
+                        .wrapping_sub(variant.ahp_amplitude as i32);
+                    timers[i] = variant.refractory_period;
+                    threshold_offset[i] =
+                        threshold_offset[i].wrapping_add(variant.homeostasis_penalty);
+
                     flags.set_burst_count(flags.burst_count().saturating_add(1));
                     generated_spikes_count = generated_spikes_count.saturating_add(1);
-
-                    let axon_id = soma_to_axon[i];
-                    if (axon_id as usize) < total_axons {
-                        let base = (axon_id as usize) * 8;
-                        axon_heads[base + 7] = axon_heads[base + 6];
-                        axon_heads[base + 6] = axon_heads[base + 5];
-                        axon_heads[base + 5] = axon_heads[base + 4];
-                        axon_heads[base + 4] = axon_heads[base + 3];
-                        axon_heads[base + 3] = axon_heads[base + 2];
-                        axon_heads[base + 2] = axon_heads[base + 1];
-                        axon_heads[base + 1] = axon_heads[base];
-                        axon_heads[base] = physics::initial_axon_head(cmd.v_seg);
-                    }
 
                     if cmd.mapped_soma_ids.contains(&(i as u32)) {
                         let current_out_count = cmd.output_spike_counts[tick_idx];
@@ -247,55 +257,89 @@ pub fn run_day_batch(
                             dropped_spikes_count = dropped_spikes_count.saturating_add(1);
                         }
                     }
+                }
 
-                    let burst_count = flags.burst_count();
-                    let mut inertia_curve = [0i32; 8];
-                    for (k, val) in variant.inertia_curve.iter().enumerate() {
-                        inertia_curve[k] = *val as i32;
+                soma_flags[i] = flags.0;
+            }
+
+            // Stage 6: GSOP Plasticity Pass (All-to-All STDP)
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..padded_n {
+                let flags = types::SomaFlags(soma_flags[i]);
+                if !flags.spiking() {
+                    continue;
+                }
+
+                let type_id = flags.type_id() as usize;
+                let variant = &resource.variant_table[type_id.min(layout::VARIANT_LUT_LEN - 1)];
+                let burst_count = flags.burst_count();
+
+                let mut inertia_curve = [0i32; 8];
+                for (k, val) in variant.inertia_curve.iter().enumerate() {
+                    inertia_curve[k] = *val as i32;
+                }
+
+                for d in 0..layout::MAX_DENDRITES {
+                    let slot_idx = d * padded_n + i;
+                    let raw_target = dendrite_targets[slot_idx];
+                    if types::PackedTarget(raw_target).is_inactive() {
+                        continue;
                     }
 
-                    for d in 0..layout::MAX_DENDRITES {
-                        let raw_target = dendrite_targets[d * padded_n + i];
-                        if types::PackedTarget(raw_target).is_inactive() {
-                            continue;
-                        }
-                        if let Some((axon_id, seg_idx)) = types::PackedTarget(raw_target).unpack() {
-                            let a_id = axon_id as usize;
-                            if a_id < total_axons {
-                                let base = a_id * 8;
-                                let heads = [
-                                    axon_heads[base],
-                                    axon_heads[base + 1],
-                                    axon_heads[base + 2],
-                                    axon_heads[base + 3],
-                                    axon_heads[base + 4],
-                                    axon_heads[base + 5],
-                                    axon_heads[base + 6],
-                                    axon_heads[base + 7],
-                                ];
-                                let hit = physics::active_tail_hit(
-                                    &heads,
-                                    seg_idx,
-                                    variant.signal_propagation_length as u32,
-                                );
-                                let w = dendrite_weights[d * padded_n + i];
-                                let w_new = physics::apply_gsop_plasticity(
-                                    w,
-                                    hit,
-                                    variant.gsop_potentiation as i32,
-                                    variant.gsop_depression as i32,
-                                    cmd.dopamine as i32,
-                                    variant.d1_affinity as i32,
-                                    variant.d2_affinity as i32,
-                                    burst_count as u32,
-                                    &inertia_curve,
-                                );
-                                dendrite_weights[d * padded_n + i] = w_new;
-                            }
+                    if let Some((axon_id, seg_idx)) = types::PackedTarget(raw_target).unpack() {
+                        let a_id = axon_id as usize;
+                        if a_id < total_axons {
+                            let base = a_id * 8;
+                            let heads = [
+                                axon_heads[base],
+                                axon_heads[base + 1],
+                                axon_heads[base + 2],
+                                axon_heads[base + 3],
+                                axon_heads[base + 4],
+                                axon_heads[base + 5],
+                                axon_heads[base + 6],
+                                axon_heads[base + 7],
+                            ];
+                            let w = dendrite_weights[slot_idx];
+                            let fat = dendrite_timers[slot_idx];
+                            let w_new = physics::apply_gsop_plasticity(
+                                w,
+                                &heads,
+                                seg_idx,
+                                variant.signal_propagation_length as u32,
+                                fat,
+                                variant.fatigue_capacity,
+                                variant.gsop_potentiation as i32,
+                                variant.gsop_depression as i32,
+                                cmd.dopamine as i32,
+                                variant.d1_affinity as i32,
+                                variant.d2_affinity as i32,
+                                burst_count as u32,
+                                &inertia_curve,
+                            );
+                            dendrite_weights[slot_idx] = w_new;
                         }
                     }
                 }
-                soma_flags[i] = flags.0;
+            }
+
+            // Stage 7: Local Spike Axon Head Emission
+            for i in 0..padded_n {
+                let flags = types::SomaFlags(soma_flags[i]);
+                if flags.spiking() {
+                    let axon_id = soma_to_axon[i];
+                    if (axon_id as usize) < total_axons {
+                        let base = (axon_id as usize) * 8;
+                        axon_heads[base + 7] = axon_heads[base + 6];
+                        axon_heads[base + 6] = axon_heads[base + 5];
+                        axon_heads[base + 5] = axon_heads[base + 4];
+                        axon_heads[base + 4] = axon_heads[base + 3];
+                        axon_heads[base + 3] = axon_heads[base + 2];
+                        axon_heads[base + 2] = axon_heads[base + 1];
+                        axon_heads[base + 1] = axon_heads[base];
+                        axon_heads[base] = physics::initial_axon_head(cmd.v_seg);
+                    }
+                }
             }
         }
     });

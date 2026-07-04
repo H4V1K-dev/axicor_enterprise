@@ -320,7 +320,7 @@ pub enum ComputeApiError {
 7. **[RESOLVED] Debug Snapshot API для test-harness (REV-TEST-001)**:
    - *Решение*: В `ComputeBackend` добавлен метод по умолчанию `debug_snapshot(&mut self, handle, snapshot: ShardSnapshotMut<'_>)`, возвращающий `UnsupportedFeature` по умолчанию.
 8. **[RESOLVED] Детерминизм и отсутствие RNG Seed в `DayBatchCmd`**:
-   - *Решение*: Подтверждено, что горячий цикл полностью детерминирован (DDS heartbeat вычисляется от `tick_base`, neuron id и `heartbeat_m`). Передача RNG Seed в `DayBatchCmd` не требуется.
+   - *Решение*: Подтверждено, что горячий цикл полностью детерминирован (Stochastic Heartbeat вычисляется от `tick_base`, neuron id и `heartbeat_m`). Передача RNG Seed в `DayBatchCmd` не требуется.
 9. **[RESOLVED] Загрузка `.axons` блоба (Pass 2)**:
    - *Решение*: В v2.1 допускается только полная загрузка `ShardUpload`. Частичная загрузка аксонов является будущим расширением. Полный размер файла аксонов валидируется по формуле `16 + total_axons * 32`.
 10. **[RESOLVED] Передача таблицы вариантов нейронов `variant_table` в `ShardUpload` (REV-COMPUTE-CUDA-002 / Pass 2.2)**:

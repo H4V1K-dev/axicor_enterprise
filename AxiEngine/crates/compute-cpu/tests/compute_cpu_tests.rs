@@ -17,7 +17,7 @@ const ZERO_VARIANT: VariantParameters = VariantParameters {
     gsop_depression: 5,
     homeostasis_decay: 2,
     refractory_period: 2,
-    synapse_refractory_period: 0,
+    fatigue_capacity: 255,
     signal_propagation_length: 5,
     is_inhibitory: 0,
     inertia_curve: [128; 8],
@@ -823,4 +823,726 @@ fn test_cpu_debug_snapshot_byte_exact() {
 
     assert_eq!(snap_state[0], 0xAB);
     assert_eq!(snap_axons[0], 0xCD);
+}
+
+#[test]
+fn test_stochastic_heartbeat_somatic_reset_cost() {
+    let mut backend = create_backend();
+
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 10,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    let (mut state_blob, axons_blob) = create_test_blobs(64, 10);
+    let mut variants = dummy_variants();
+    // Variant 0 has heartbeat enabled
+    variants[0].heartbeat_m = physics::MAX_HEARTBEAT_M;
+    variants[0].refractory_period = 5;
+    variants[0].ahp_amplitude = 200;
+    variants[0].homeostasis_penalty = 100;
+    // Variant 1 has heartbeat disabled
+    variants[1].heartbeat_m = 0;
+
+    let offsets = layout::compute_state_offsets(64);
+    // Assign soma 0 -> variant 0, somas 1..64 -> variant 1
+    let flags_slice = &mut state_blob[offsets.off_flags..offsets.off_thresh];
+    for f in flags_slice.iter_mut().skip(1) {
+        *f = types::SomaFlags::new(false, 0, 1).0;
+    }
+
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    let mut output_spikes = [0u32; 64];
+    let mut output_spike_counts = [0u32; 1];
+    let mapped_soma_ids = [0u32];
+    let incoming_spike_counts = [0u32];
+
+    let cmd = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 100,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: None,
+        incoming_spike_counts: &incoming_spike_counts,
+        max_spikes_per_tick: 64,
+        num_outputs: 1,
+        mapped_soma_ids: &mapped_soma_ids,
+        output_spikes: &mut output_spikes,
+        output_spike_counts: &mut output_spike_counts,
+    };
+
+    let res = backend.run_day_batch(handle, cmd).unwrap();
+    assert_eq!(res.generated_spikes_count, 1);
+    assert_eq!(output_spike_counts[0], 1);
+
+    // Verify Somatic Reset Cost via debug_snapshot
+    let mut snap_state = vec![0u8; state_blob.len()];
+    let mut snap_axons = vec![0u8; axons_blob.len()];
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+
+    let soma_voltage =
+        bytemuck::cast_slice::<u8, i32>(&snap_state[offsets.off_voltage..offsets.off_flags]);
+    let timers = &snap_state[offsets.off_timers..offsets.off_s2a];
+    let thresh_offset =
+        bytemuck::cast_slice::<u8, i32>(&snap_state[offsets.off_thresh..offsets.off_timers]);
+
+    assert_eq!(soma_voltage[0], variants[0].rest_potential - 200);
+    assert_eq!(timers[0], 5);
+    assert_eq!(thresh_offset[0], 100);
+}
+
+#[test]
+fn test_dendrite_fatigue_accumulation_and_recovery() {
+    let mut backend = create_backend();
+
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 10,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    let (mut state_blob, axons_blob) = create_test_blobs(64, 10);
+    let mut variants = dummy_variants();
+    variants[0].fatigue_capacity = 255;
+    variants[0].refractory_period = 0; // Keep soma non-refractory for test
+
+    let offsets = layout::compute_state_offsets(64);
+    // Wire dendrite slot 0 of soma 0 to axon 1, seg 0
+    let packed_target = types::PackedTarget::pack(1, 0).0;
+    let targets_slice = bytemuck::cast_slice_mut::<u8, u32>(
+        &mut state_blob[offsets.off_targets..offsets.off_weights],
+    );
+    targets_slice[0] = packed_target;
+
+    let weights_slice = bytemuck::cast_slice_mut::<u8, i32>(
+        &mut state_blob[offsets.off_weights..offsets.off_dtimers],
+    );
+    weights_slice[0] = 100_000;
+
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    // Inject incoming spike on axon 1
+    let mut incoming_spikes = [0u32; 64];
+    incoming_spikes[0] = 1;
+    let incoming_spike_counts = [1u32];
+    let mut output_spikes = [0u32; 64];
+    let mut output_spike_counts = [0u32; 1];
+
+    let cmd = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 10,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: Some(&incoming_spikes),
+        incoming_spike_counts: &incoming_spike_counts,
+        max_spikes_per_tick: 64,
+        num_outputs: 0,
+        mapped_soma_ids: &[],
+        output_spikes: &mut output_spikes,
+        output_spike_counts: &mut output_spike_counts,
+    };
+
+    backend.run_day_batch(handle, cmd).unwrap();
+
+    let mut snap_state = vec![0u8; state_blob.len()];
+    let mut snap_axons = vec![0u8; axons_blob.len()];
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+
+    // Dendrite timer at slot 0 should have accumulated FATIGUE_SPIKE_COST (50) on tick 1 hit
+    let dendrite_timers =
+        &snap_state[offsets.off_dtimers..offsets.off_dtimers + 64 * layout::MAX_DENDRITES];
+    assert_eq!(dendrite_timers[0], 50);
+
+    // On tick 2, active tail of length 5 is still propagating over segment 0 -> 2nd hit adds +50 after 1 recovery tick (50 - 1 + 50 = 99)
+    let cmd_idle = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 11,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        max_spikes_per_tick: 64,
+        num_outputs: 0,
+        mapped_soma_ids: &[],
+        output_spikes: &mut output_spikes,
+        output_spike_counts: &mut output_spike_counts,
+    };
+
+    backend.run_day_batch(handle, cmd_idle).unwrap();
+
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+
+    let dendrite_timers =
+        &snap_state[offsets.off_dtimers..offsets.off_dtimers + 64 * layout::MAX_DENDRITES];
+    assert_eq!(dendrite_timers[0], 99);
+}
+
+#[test]
+fn test_stochastic_heartbeat_deterministic_replay() {
+    let mut backend1 = create_backend();
+    let mut backend2 = create_backend();
+
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 10,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle1 = backend1.alloc_shard(spec).unwrap();
+    let handle2 = backend2.alloc_shard(spec).unwrap();
+
+    let (state_blob, axons_blob) = create_test_blobs(64, 10);
+    let mut variants = dummy_variants();
+    variants[0].heartbeat_m = 30000; // ~45% probability per tick
+
+    backend1
+        .upload_shard(
+            handle1,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    backend2
+        .upload_shard(
+            handle2,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    let mut out_spikes1 = [0u32; 64];
+    let mut out_counts1 = [0u32; 1];
+    let mut out_spikes2 = [0u32; 64];
+    let mut out_counts2 = [0u32; 1];
+    let mapped_somas = [0u32];
+
+    let cmd1 = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 500,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        max_spikes_per_tick: 64,
+        num_outputs: 1,
+        mapped_soma_ids: &mapped_somas,
+        output_spikes: &mut out_spikes1,
+        output_spike_counts: &mut out_counts1,
+    };
+
+    let cmd2 = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 500,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        max_spikes_per_tick: 64,
+        num_outputs: 1,
+        mapped_soma_ids: &mapped_somas,
+        output_spikes: &mut out_spikes2,
+        output_spike_counts: &mut out_counts2,
+    };
+
+    let res1 = backend1.run_day_batch(handle1, cmd1).unwrap();
+    let res2 = backend2.run_day_batch(handle2, cmd2).unwrap();
+
+    assert_eq!(res1.generated_spikes_count, res2.generated_spikes_count);
+    assert_eq!(out_counts1[0], out_counts2[0]);
+    assert_eq!(out_spikes1, out_spikes2);
+}
+
+#[test]
+fn test_inactive_dendrite_slot_reset() {
+    let mut backend = create_backend();
+
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 10,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    let (mut state_blob, axons_blob) = create_test_blobs(64, 10);
+    let variants = dummy_variants();
+
+    let offsets = layout::compute_state_offsets(64);
+    // Explicitly set an inactive target with non-zero fatigue timer (100)
+    let targets_slice = bytemuck::cast_slice_mut::<u8, u32>(
+        &mut state_blob[offsets.off_targets..offsets.off_weights],
+    );
+    targets_slice[0] = types::PackedTarget::NONE.0; // Inactive target
+
+    let timers_slice =
+        &mut state_blob[offsets.off_dtimers..offsets.off_dtimers + 64 * layout::MAX_DENDRITES];
+    timers_slice[0] = 100; // Stale fatigue value
+
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    let mut output_spikes = [0u32; 64];
+    let mut output_spike_counts = [0u32; 1];
+
+    let cmd = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 10,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        max_spikes_per_tick: 64,
+        num_outputs: 0,
+        mapped_soma_ids: &[],
+        output_spikes: &mut output_spikes,
+        output_spike_counts: &mut output_spike_counts,
+    };
+
+    backend.run_day_batch(handle, cmd).unwrap();
+
+    let mut snap_state = vec![0u8; state_blob.len()];
+    let mut snap_axons = vec![0u8; axons_blob.len()];
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+
+    // Verify inactive slot fatigue was reset to 0
+    let dendrite_timers =
+        &snap_state[offsets.off_dtimers..offsets.off_dtimers + 64 * layout::MAX_DENDRITES];
+    assert_eq!(dendrite_timers[0], 0);
+}
+
+#[test]
+fn test_dendrite_fatigue_attenuation_forward_pass() {
+    // Tests that higher dendrite fatigue attenuates input weight during forward pass
+    let mut backend = create_backend();
+
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 10,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    let (mut state_blob, axons_blob) = create_test_blobs(64, 10);
+    let mut variants = dummy_variants();
+    variants[0].fatigue_capacity = 200; // Capacity 200
+
+    let offsets = layout::compute_state_offsets(64);
+
+    // Setup 2 somas with active dendritic input from axon 0 at segment 1
+    let targets_slice = bytemuck::cast_slice_mut::<u8, u32>(
+        &mut state_blob[offsets.off_targets..offsets.off_weights],
+    );
+    let packed_target = types::PackedTarget::pack(0, 0).0; // Axon 0, segment 0
+    targets_slice[0] = packed_target; // Soma 0 slot 0
+    targets_slice[1] = packed_target; // Soma 1 slot 0
+
+    let weights_slice = bytemuck::cast_slice_mut::<u8, i32>(
+        &mut state_blob[offsets.off_weights..offsets.off_dtimers],
+    );
+    weights_slice[0] = 6_553_600; // 100 in charge domain (100 << 16)
+    weights_slice[1] = 6_553_600; // 100 in charge domain
+
+    let timers_slice =
+        &mut state_blob[offsets.off_dtimers..offsets.off_dtimers + 64 * layout::MAX_DENDRITES];
+    timers_slice[0] = 0; // Soma 0: No fatigue -> full 100 input
+    timers_slice[1] = 100; // Soma 1: 50% fatigue (100/200) -> 50 input
+
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    let mut snap_state = vec![0u8; state_blob.len()];
+    let mut snap_axons = vec![0u8; axons_blob.len()];
+
+    // Inject spike into virtual axon 0
+    let mut bitmask = vec![0u32; 1];
+    bitmask[0] = 1; // Spiking axon 0
+    let mapped_somas = vec![0u32; 1];
+    let mut out_spikes = vec![0u32; 64];
+    let mut out_counts = vec![0u32; 1];
+
+    let cmd = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 0,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: Some(&bitmask),
+        num_virtual_axons: 1,
+        virtual_offset: 0,
+        input_words_per_tick: 1,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        max_spikes_per_tick: 64,
+        num_outputs: 1,
+        mapped_soma_ids: &mapped_somas,
+        output_spikes: &mut out_spikes,
+        output_spike_counts: &mut out_counts,
+    };
+
+    backend.run_day_batch(handle, cmd).unwrap();
+
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+
+    let voltage_slice =
+        bytemuck::cast_slice::<u8, i32>(&snap_state[offsets.off_voltage..offsets.off_flags]);
+    // Soma 0 voltage should be rest + 100 = 100
+    // Soma 1 voltage should be rest + 50 = 50
+    assert_eq!(voltage_slice[0], 100);
+    assert_eq!(voltage_slice[1], 50);
+
+    // Also check fatigue accumulation after spike hit:
+    // Soma 0 fatigue went 0 -> min(0 + 50, 200) = 50
+    // Soma 1 fatigue went 100 - 1 (recovery) + 50 = 149
+    let dendrite_timers =
+        &snap_state[offsets.off_dtimers..offsets.off_dtimers + 64 * layout::MAX_DENDRITES];
+    assert_eq!(dendrite_timers[0], 50);
+    assert_eq!(dendrite_timers[1], 149);
+}
+
+#[test]
+fn test_dendrite_fatigue_recovery_during_soma_refractory() {
+    // Verifies that dendritic fatigue recovers (-1/tick) even when soma is in refractory period
+    let mut backend = create_backend();
+
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 10,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    let (mut state_blob, axons_blob) = create_test_blobs(64, 10);
+    let variants = dummy_variants();
+
+    let offsets = layout::compute_state_offsets(64);
+    let targets_slice = bytemuck::cast_slice_mut::<u8, u32>(
+        &mut state_blob[offsets.off_targets..offsets.off_weights],
+    );
+    targets_slice[0] = types::PackedTarget::pack(0, 1).0; // Target slot 0
+
+    // Put soma in refractory period (timer = 5)
+    state_blob[offsets.off_timers] = 5;
+
+    // Set dendrite timer = 40
+    let timers_slice =
+        &mut state_blob[offsets.off_dtimers..offsets.off_dtimers + 64 * layout::MAX_DENDRITES];
+    timers_slice[0] = 40;
+
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    let mut out_spikes = vec![0u32; 64];
+    let mut out_counts = vec![0u32; 1];
+
+    let cmd = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 0,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        max_spikes_per_tick: 64,
+        num_outputs: 0,
+        mapped_soma_ids: &[],
+        output_spikes: &mut out_spikes,
+        output_spike_counts: &mut out_counts,
+    };
+
+    backend.run_day_batch(handle, cmd).unwrap();
+
+    let mut snap_state = vec![0u8; state_blob.len()];
+    let mut snap_axons = vec![0u8; axons_blob.len()];
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+
+    // Verify soma timer decremented 5 -> 4
+    assert_eq!(snap_state[offsets.off_timers], 4);
+
+    // Verify dendrite fatigue decremented 40 -> 39
+    let dendrite_timers =
+        &snap_state[offsets.off_dtimers..offsets.off_dtimers + 64 * layout::MAX_DENDRITES];
+    assert_eq!(dendrite_timers[0], 39);
+}
+
+#[test]
+fn test_cpu_soma_order_independence() {
+    // Verifies that a spike from Soma A (offset 0) to Soma B (offset 1) is NOT integrated
+    // in the same tick (proving order independence), but is integrated in the next tick after propagation.
+    let mut backend = create_backend();
+
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 10,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    let (mut state_blob, axons_blob) = create_test_blobs(64, 10);
+    let variants = dummy_variants();
+
+    let offsets = layout::compute_state_offsets(64);
+
+    // 1. Map somas to axons: Soma 0 -> Axon 0, Soma 1 -> Axon 1
+    let s2a_slice =
+        bytemuck::cast_slice_mut::<u8, u32>(&mut state_blob[offsets.off_s2a..offsets.off_targets]);
+    for i in 0..64 {
+        s2a_slice[i] = i as u32;
+    }
+
+    // 2. Connect Soma 1's dendrite slot 0 to target Axon 0, segment 0
+    let targets_slice = bytemuck::cast_slice_mut::<u8, u32>(
+        &mut state_blob[offsets.off_targets..offsets.off_weights],
+    );
+    targets_slice[1] = types::PackedTarget::pack(0, 0).0; // Soma 1 (index 1) target slot 0
+
+    // 3. Set weight of Soma 1's dendrite slot 0 to 2000 << 16 (high weight)
+    let weights_slice = bytemuck::cast_slice_mut::<u8, i32>(
+        &mut state_blob[offsets.off_weights..offsets.off_dtimers],
+    );
+    weights_slice[1] = 2000 << 16;
+
+    // 4. Initialize Soma 0 voltage to 2000 (well above threshold 1000 so it spikes immediately)
+    let voltage_slice = bytemuck::cast_slice_mut::<u8, i32>(
+        &mut state_blob[offsets.off_voltage..offsets.off_flags],
+    );
+    voltage_slice[0] = 2000;
+    voltage_slice[1] = 0; // Soma 1 starts at 0
+
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    let mut out_spikes = vec![0u32; 64];
+    let mut out_counts = vec![0u32; 1];
+
+    // --- Tick 0 ---
+    let cmd1 = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 0,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        max_spikes_per_tick: 64,
+        num_outputs: 0,
+        mapped_soma_ids: &[],
+        output_spikes: &mut out_spikes,
+        output_spike_counts: &mut out_counts,
+    };
+
+    backend.run_day_batch(handle, cmd1).unwrap();
+
+    let mut snap1_state = vec![0u8; state_blob.len()];
+    let mut snap1_axons = vec![0u8; axons_blob.len()];
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap1_state,
+                axons_blob: &mut snap1_axons,
+            },
+        )
+        .unwrap();
+
+    let flags1 = &snap1_state[offsets.off_flags..offsets.off_thresh];
+    let v1 = bytemuck::cast_slice::<u8, i32>(&snap1_state[offsets.off_voltage..offsets.off_flags]);
+
+    // Soma 0 should have spiked in Tick 0
+    assert!(
+        types::SomaFlags(flags1[0]).spiking(),
+        "Soma 0 should spike in Tick 0"
+    );
+
+    // Soma 1 should NOT have spiked in Tick 0 (order independence)
+    assert!(
+        !types::SomaFlags(flags1[1]).spiking(),
+        "Soma 1 must not spike in the same tick"
+    );
+    assert_eq!(
+        v1[1], 0,
+        "Soma 1 voltage must remain unaffected in the same tick"
+    );
+
+    // --- Tick 1 ---
+    let mut out_spikes2 = vec![0u32; 64];
+    let mut out_counts2 = vec![0u32; 1];
+    let cmd2 = DayBatchCmd {
+        sync_batch_ticks: 1,
+        tick_base: 1,
+        v_seg: 1,
+        dopamine: 0,
+        input_bitmask: None,
+        num_virtual_axons: 0,
+        virtual_offset: 0,
+        input_words_per_tick: 0,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        max_spikes_per_tick: 64,
+        num_outputs: 0,
+        mapped_soma_ids: &[],
+        output_spikes: &mut out_spikes2,
+        output_spike_counts: &mut out_counts2,
+    };
+
+    backend.run_day_batch(handle, cmd2).unwrap();
+
+    let mut snap2_state = vec![0u8; state_blob.len()];
+    let mut snap2_axons = vec![0u8; axons_blob.len()];
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap2_state,
+                axons_blob: &mut snap2_axons,
+            },
+        )
+        .unwrap();
+
+    let flags2 = &snap2_state[offsets.off_flags..offsets.off_thresh];
+    let v2 = bytemuck::cast_slice::<u8, i32>(&snap2_state[offsets.off_voltage..offsets.off_flags]);
+
+    // Soma 1 should have spiked in Tick 1 after receiving the propagated spike from Soma 0
+    assert!(
+        types::SomaFlags(flags2[1]).spiking(),
+        "Soma 1 should spike in Tick 1"
+    );
+    // After spiking, Soma 1 voltage is reset to: rest_potential (0) - ahp_amplitude (200) = -200
+    assert_eq!(v2[1], -200, "Soma 1 voltage should be reset post-spike");
 }

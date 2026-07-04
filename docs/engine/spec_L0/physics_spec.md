@@ -62,11 +62,11 @@
 
 | Крейт / Модуль | Монопольная Зона Владения (Single Source of Truth) | Строгие Запреты (Что категорически запрещено в крейте) |
 |---|---|---|
-| **`physics`** (Слой 0) | **Чистая математика и физические законы**: формулы GLIF, AHP, homeostasis, GSOP, Active Tail, DDS heartbeat, AOT-деривация `v_seg`, константы `MASS_TO_CHARGE_SHIFT`, `MAX_WEIGHT_LIMIT`, `INERTIA_RANK_SHIFT`, `DDS_PHASE_MOD`. | Запрещены SoA-структуры памяти (`layout`), определение ABI-типов и битовых масок (`types`), FFI-вызовы GPU, сетевые DTO и TOML-схемы. |
+| **`physics`** (Слой 0) | **Чистая математика и физические законы**: формулы GLIF, AHP, homeostasis, GSOP, Active Tail, Stochastic Heartbeat, AOT-деривация `v_seg`, константы `MASS_TO_CHARGE_SHIFT`, `MAX_WEIGHT_LIMIT`, `INERTIA_RANK_SHIFT`. | Запрещены SoA-структуры памяти (`layout`), определение ABI-типов и битовых масок (`types`), FFI-вызовы GPU, сетевые DTO и TOML-схемы. |
 | **`types`** (Слой 0) | **Примитивы и ABI-контракты**: newtypes (`Voltage`, `Weight`, `Tick`, `AxonHead`), битовые маски `SomaFlags`, `PackedTarget`, константы сентинелей (`AXON_SENTINEL`, `EMPTY_PIXEL`). | Запрещена физическая математика GLIF/GSOP, деривация `v_seg`, формулы пластичности и расчёт затухания. |
 | **`layout`** (Слой 1) | **Физическая раскладка памяти**: SoA-массивы (`ShardStateSoA`), лимиты каналов (`MAX_DENDRITES`, `MAX_SEGMENTS_PER_AXON`), выравнивание C-ABI структур (`VariantParameters`, `BurstHeads8`). | Запрещены формулы физики, бизнес-логика симуляции, сетевое пакетирование. |
 | **`config`** (Слой 1) | **Схема конфигурации DSL (TOML)**: парсинг и поверхностная валидация параметров. Для деривации физических величин вызывает `physics`. | Запрещены FFI GPU, вычисления в горячем цикле рантайма, определение структуры VRAM. |
-| **`baker` / `topology`** (Слой 4) | **AOT-линковка и трассировка путей**: сборка графа связей. Вызывают функции `physics` (`compute_v_seg`, `compile_dds_heartbeat`) на этапе пре-бейка. | Запрещено повторное изобретение формул деривации скорости и фаз DDS. |
+| **`baker` / `topology`** (Слой 4) | **AOT-линковка и трассировка путей**: сборка графа связей. Вызывают функции `physics` (`compute_v_seg`, `compile_stochastic_heartbeat_threshold`) на этапе пре-бейка. | Запрещено повторное изобретение формул деривации скорости и порогов стохастического спайкирования. |
 | **`compute` / GPU kernels** (Слой 3) | **Исполнение ядер (CUDA/HIP/CPU)**: оркестрация VRAM и запуск тредов. Реализуют ядерный код строго по математическим контрактам из `physics`. | Запрещена модификация математических законов симуляции относительно `physics`. |
 
 ---
@@ -82,10 +82,10 @@
 | `MAX_WEIGHT_LIMIT` | `i32` | `2_140_000_000` | Максимальный абсолютный вес синапса (Headroom Guard). Оставляет зазор $\approx 7.4$ млн до `i32::MAX` во избежание целочисленного переполнения до clamping. |
 | `INERTIA_RANK_SHIFT` | `u32` | `28` | Битовый сдвиг для O(1) вычисления индекса ранга инерции синапса (`abs_weight >> 28`). |
 | `MAX_INERTIA_RANK` | `usize` | `7` | Верхний граница индекса ранга инерции (диапазон `0..7`, массив `inertia_curve` на 8 элементов). |
-| `DDS_PHASE_MOD` | `u64` | `65_536` | Модуль фазового аккумулятора Direct Digital Synthesis (16-битный фазовый цикл). |
-| `DDS_PHASE_MASK` | `u64` | `0xFFFF` | Битовая маска для выделения 16-битной фазы DDS (`& 0xFFFF`). |
-| `DDS_SCATTER_PRIME` | `u64` | `104729` | Пространственный псевдослучайный множитель (большое простое число) для декорреляции фаз спонтанного спайкирования нейронов по их `tid`. |
-| `MAX_HEARTBEAT_M` | `u32` | `65535` | Максимальное значение шага фазы DDS (16-битный предел). |
+| `HEARTBEAT_PHASE_MOD` | `u64` | `65_536` | Масштаб вероятности и размер хэш-бакета Stochastic Heartbeat (16-битный предел). |
+| `HEARTBEAT_PHASE_MASK` | `u64` | `0xFFFF` | Битовая маска для выделения 16-битного хэш-значения Stochastic Heartbeat (`& 0xFFFF`). |
+| `HEARTBEAT_SCATTER_PRIME` | `u64` | `104729` | Пространственный псевдослучайный множитель (большое простое число) для декорреляции хэшей спонтанного спайкирования нейронов по их `tid`. |
+| `MAX_HEARTBEAT_M` | `u32` | `65535` | Максимальный порог вероятности Stochastic Heartbeat (16-битный предел). |
 
 > [!CAUTION]
 > Константы физической раскладки памяти (такие как `MAX_DENDRITES` = 128 и `MAX_SEGMENTS_PER_AXON` = 256) категорически запрещено объявлять в `physics`. Они являются монопольной собственностью крейта `layout`.
@@ -110,10 +110,9 @@ $$v_{\text{seg}} = \frac{\text{signal\_speed\_um\_tick}}{\text{segment\_length\_
 - $1 \le v_{\text{seg}} \le 255$.
 - Если $v_{\text{seg}}$ дробный, равен 0 или превышает 255, функция обязана вернуть `Err(...)`.
 
-#### 2. Компиляция шага фазы DDS (`compile_dds_heartbeat`)
-Расчет приращения фазы $m$ для спонтанного спайкирования (Heartbeat):
+#### 2. Компиляция порога стохастического Heartbeat (`compile_stochastic_heartbeat_threshold`)
+Расчет порога вероятности $m$ для стохастического спонтанного спайкирования (Bernoulli-процесс):
 - Если `period_ticks == 0` ИЛИ `period_ticks > 65536`, то `heartbeat_m = 0` (спонтанный спайкинг явно отключен).
-  *Обоснование*: При 16-битном аккумуляторе (`DDS_PHASE_MOD = 65536`) минимальный целочисленный шаг `m = 1` соответствует периоду в 65536 тиков. Для любых периодов `period_ticks > 65536` целочисленный шаг опускается до 0, что семантически равносильно отключению спайкирования.
 - Если `period_ticks == 1`, то `heartbeat_m = MAX_HEARTBEAT_M` (65535, генерация спайка на каждом тике).
 - Иначе (при $2 \le \text{period\_ticks} \le 65536$): $\text{heartbeat\_m} = \min\left(\left\lfloor \frac{65536}{\text{period\_ticks}} \right\rfloor, 65535\right)$.
 
@@ -144,66 +143,60 @@ $$\text{hit}_k = (d < L_{\text{prop}})$$
 
 ---
 
-### §5.3. Мембранная Динамика (GLIF & Heartbeat)
+### §5.3. Мембранная Динамика, Синаптическая Усталость и Heartbeat
 
-#### 1. Интеграция и адаптивная утечка GLIF (`update_voltage`)
+#### 1. Синаптическая усталость (Gradient Synaptic Fatigue / STP)
+Переменная `fatigue` (`dendrite_timers`, $0..=\text{fatigue\_capacity}$) описывает истощение ресурса синапса:
+- **Восстановление (Recovery)**: Каждый тик для всех живых слотов $\text{fatigue} = \max(\text{fatigue} - 1, 0)$.
+- **Ослабление импульса (Attenuation)**:
+  $$\text{available} = \text{fatigue\_capacity} - \min(\text{fatigue}, \text{fatigue\_capacity})$$
+  $$\text{weight}_{\text{eff}} = \frac{\text{weight} \times \text{available}}{\text{fatigue\_capacity}}$$
+  $$I_{\text{in}} = \text{weight}_{\text{eff}} \gg 16$$
+- **Накопление при спайке**: При попадании аксонального хвоста $\text{fatigue} = \min(\text{fatigue} + 50, \text{fatigue\_capacity})$.
+
+#### 2. Интеграция и адаптивная утечка GLIF (`update_voltage`)
 Выполняется для каждого активного нейрона вне рефрактерного периода.
-
-1. **Входной ток**: $I_{\text{in}} = \sum \text{charge}_i$, где $\text{charge}_i = \text{weight}_i \gg 16$.
-2. **Адаптивный сдвиг утечки (Adaptive Leak)**:
+1. **Адаптивный сдвиг утечки (Adaptive Leak)**:
    $$\text{adaptive\_sub} = \left(\frac{\text{thresh\_offset} \times \text{adaptive\_leak\_gain}}{256}\right) \times \text{adaptive\_mode}$$
    $$\text{current\_shift} = \max(\text{leak\_shift} - \text{adaptive\_sub}, \text{adaptive\_leak\_min\_shift})$$
-3. **Экспоненциальная утечка (Shift-based Exponential Leak)**:
+2. **Экспоненциальная утечка (Shift-based Exponential Leak)**:
    $$\Delta V_{\text{leak}} = (\text{voltage} - \text{rest\_potential}) \gg \text{current\_shift}$$
    $$\text{voltage}_{\text{new}} = \text{voltage} + I_{\text{in}} - \Delta V_{\text{leak}}$$
 
-#### 2. Двойная детекция спайка и побочные эффекты
+#### 3. Стохастический Heartbeat и Соматический Сброс
 Эффективный порог: $V_{\text{th\_eff}} = V_{\text{th}} + \text{thresh\_offset}$.
 - **Биологический GLIF спайк**: $\text{is\_glif} = (\text{voltage}_{\text{new}} \ge V_{\text{th\_eff}})$.
-- **Спонтанный Heartbeat спайк**:
-  Предикат `is_heartbeat` генерирует регулярный сигнал:
-  - Если `heartbeat_m == MAX_HEARTBEAT_M` (65535, соответствующий `period_ticks == 1`), то `is_heartbeat = true` на каждом тике.
-  - Иначе:
-    $$\text{phase} = \left((\text{current\_tick} \times \text{heartbeat\_m}) + (\text{tid} \times 104729)\right) \ \& \ 0xFFFF$$
-    $$\text{is\_heartbeat} = (\text{heartbeat\_m} > 0) \land (\text{phase} < \text{heartbeat\_m})$$
+- **Спонтанный Stochastic Heartbeat спайк**:
+  Предикат `is_heartbeat` вычисляется как Bernoulli-процесс от tick-local integer hash:
+  $$\text{rnd} = \text{stochastic\_hash}(\text{current\_tick}, \text{soma\_id}) \ \& \ 0xFFFF$$
+  $$\text{is\_heartbeat} = (\text{heartbeat\_m} > 0) \land (\text{rnd} < \text{heartbeat\_m})$$
 - **Итоговый флаг спайка**: $\text{final\_spike} = \text{is\_glif} \lor \text{is\_heartbeat}$.
 
-**Распределение побочных эффектов**:
-- `final_spike == 1`: Инициирует продвижение импульса в аксон (`push_burst_head`) и инкрементирует `burst_count` в `SomaFlags`.
-- `is_glif == 1`: Переводит сому в пост-спайковое состояние — сбрасывает потенциал к $V_{\text{reset}} = V_{\text{rest}} - A_{\text{ahp}}$, активирует рефрактерный таймер `refractory_period` и начисляет пенальти гомеостаза `homeostasis_penalty`.
-- `is_heartbeat == 1` (при `is_glif == 0`): Генерирует выходной сигнал в аксон без изменения внутренних параметров сомы (`voltage`, `timer` и `thresh_offset` сохраняют текущие значения).
-
-#### 3. Затухание гомеостаза (Homeostasis Decay)
-Выполняется каждый тик для всех нейронов (включая находящихся в рефрактерном периоде):
-$$\text{decayed} = \text{thresh\_offset.wrapping\_sub}(\text{homeostasis\_decay})$$
-$$\text{thresh\_offset}_{\text{new}} = \text{decayed} \& \sim(\text{decayed} \gg 31)$$
+**Полный соматический сброс (Somatic Reset Cost)**:
+При любом спайке (`final_spike == true`) сома проходит **полный** соматический сброс:
+- Потенциал мембраны сбрасывается: $V = V_{\text{rest}} - A_{\text{ahp}}$.
+- Рефрактерный таймер активируется: $\text{timer} = \text{refractory\_period}$.
+- Начисляется порог гомеостаза: $\text{thresh\_offset} += \text{homeostasis\_penalty}$.
 
 ---
 
-### §5.4. Синаптическая Пластичность (GSOP)
+### §5.4. All-to-All Spatial STDP и Fatigue Penalty
 
 Выполняется в фазу пластичности для спайкирующих нейронов (`final_spike == 1`).
 
-#### 1. Разделение доменов Mass и Charge
-- **Mass Domain**: Полная точность веса синапса (`i32`, диапазон $\pm 2.14$ млрд).
-- **Charge Domain**: Электрический импульс $I = \text{weight} \gg 16$.
+#### 1. All-to-All Spatial STDP
+Для каждой из 8 голов аксона суммируются вклады LTP и LTD с линейным пространственным охлаждением (Spatial Cooling):
+- **Causal LTP** (спайк прошел сегмент, $h_k \ge \text{seg\_idx}$):
+  $$\text{cooling} = L_{\text{prop}} - (h_k - \text{seg\_idx})$$
+  $$\Delta_{\text{ltp\_k}} = \frac{\text{base\_ltp} \times \text{cooling}}{L_{\text{prop}}}$$
+- **Anti-causal LTD** (спайк приближается к сегменту, $\text{seg\_idx} \ge h_k$):
+  $$\text{cooling} = L_{\text{prop}} - (\text{seg\_idx} - h_k)$$
+  $$\Delta_{\text{ltd\_k}} = \frac{\text{base\_ltd} \times \text{cooling}}{L_{\text{prop}}}$$
+- **Soft Peak ($h_k == \text{seg\_idx}$)**: Голова точно на сегменте квалифицируется как causal и anti-causal одновременно, получая взаимоналожение $\Delta_{\text{ltp\_k}} - \Delta_{\text{ltd\_k}}$.
 
-#### 2. Закон Дейла и Ранг Инерции
-Извлечение знака и абсолютной массы:
-$$\text{sign} = \begin{cases} 1, & \text{weight} \ge 0 \\ -1, & \text{weight} < 0 \end{cases}, \quad \text{abs\_w} = \text{weight.unsigned\_abs}()$$
-Ранг инерции (Branchless O(1)):
-$$\text{rank} = \min(\text{abs\_w} \gg 28, 7), \quad \text{inertia} = \text{inertia\_curve}[\text{rank}]$$
-
-#### 3. Дофаминовая модуляция и импульсы пластичности
-Модуляция рецепторов D1 (усиление LTP) и D2 (подавление LTD при вознаграждении):
-$$\text{pot\_mod} = \frac{\text{dopamine} \times \text{d1\_affinity}}{128}, \quad \text{dep\_mod} = \frac{\text{dopamine} \times \text{d2\_affinity}}{128}$$
-$$\text{final\_pot} = \max(\text{gsop\_potentiation} + \text{pot\_mod}, 0), \quad \text{final\_dep} = \max(\text{gsop\_depression} - \text{dep\_mod}, 0)$$
-Множитель пачки: $\text{burst\_mult} = \max(\text{burst\_count}, 1)$.
-Дельта-импульсы:
-$$\Delta_{\text{pot}} = \frac{\text{final\_pot} \times \text{inertia} \times \text{burst\_mult}}{128}, \quad \Delta_{\text{dep}} = \frac{\text{final\_dep} \times \text{inertia} \times \text{burst\_mult}}{128}$$
-
-#### 4. Расчёт итогового изменения веса и Headroom Guard
-Итоговая дельта массы: $\Delta = \begin{cases} \Delta_{\text{pot}}, & \text{is\_active} \\ -\Delta_{\text{dep}}, & \neg \text{is\_active} \end{cases}$.
+#### 2. Штраф за Усталость (Fatigue Penalty)
+$$\text{fatigue\_penalty} = \frac{\text{fatigue} \times \text{base\_ltd}}{\text{fatigue\_capacity}}$$
+$$\Delta_{\text{net}} = \sum \Delta_{\text{ltp\_k}} - \sum \Delta_{\text{ltd\_k}} - \text{fatigue\_penalty}$$
 Применение дельты и clamping (защита от пробоя нуля и переполнения):
 $$\text{new\_abs} = \text{abs\_w} + \Delta$$
 $$\text{new\_abs} = \min(\max(\text{new\_abs}, \text{MIN\_WEIGHT\_LIMIT}), \text{MAX\_WEIGHT\_LIMIT})$$
@@ -240,7 +233,7 @@ $$\text{weight}_{\text{new}} = \text{sign} \times \text{new\_abs}$$
 - **INV-CROSS-003**: Ограничение `type_id` 4 битами в `types` гарантирует безопасность прямого чтения `VARIANT_LUT[variant_id]` без проверки границ в `physics`.
 - **INV-CROSS-004**: Тип `Weight` в `types` зафиксирован строго как `i32` для сохранения математики знакового сдвига и Headroom Guard в `physics`.
 - **INV-CROSS-005**: Ограничение $v_{\text{seg}} \le 255$ из-за 8-битного поля `segment_offset` в `PackedTarget` из `types`.
-- **INV-CROSS-006**: Вычисление фазы DDS Heartbeat выполняет промежуточное перемножение `current_tick * heartbeat_m` строго в 64-битном беззнаковом типе (`u64`).
+- **INV-CROSS-006**: Вычисление вероятностного порога Stochastic Heartbeat (`compile_stochastic_heartbeat_threshold`) гарантирует точный диапазон `0..=65535` без целочисленного переполнения.
 
 ---
 
@@ -253,11 +246,10 @@ $$\text{weight}_{\text{new}} = \text{sign} \times \text{new\_abs}$$
    - Дробные значения (например, 1.4) $\to$ проверка возврата `Err`.
    - Нулевой размер сегмента $\to$ проверка возврата `Err`.
    - Превышение лимита ($v_{\text{seg}} = 256$) $\to$ проверка возврата `Err`.
-2. **DDS Heartbeat Компиляция и Фаза (`test_dds_heartbeat_matrix`)**:
+2. **Stochastic Heartbeat Компиляция и Порог (`test_stochastic_heartbeat_matrix`)**:
    - `period = 0` $\to$ `heartbeat_m = 0`.
    - `period = 1` $\to$ `heartbeat_m = 65535` (`MAX_HEARTBEAT_M`), генерация спайка на каждом тике (`is_heartbeat == true`).
    - `period = 500` $\to$ точный расчёт `heartbeat_m`.
-   - Проверка переполнения фазы на больших тиках (`current_tick = u32::MAX as u64 + 1000`) в 64-битном типе без паники.
 3. **Spike Birth & Sentinel (`test_spike_birth_and_sentinel`)**:
    - Проверка `0u32.wrapping_sub(v_seg)`: после прибавления $v_{\text{seg}}$ результат равен строго 0.
    - Проверка остановки Magnetic Sentinel при $v_{\text{seg}} = 1$ и $v_{\text{seg}} = 2$ без зацикливания.
@@ -265,10 +257,9 @@ $$\text{weight}_{\text{new}} = \text{sign} \times \text{new\_abs}$$
    - Сегмент точно на голове спайка $\to$ `hit == true`.
    - Сегмент на дальней границе хвоста ($d = L_{\text{prop}} - 1$) $\to$ `hit == true`.
    - Сегмент за пределами хвоста ($d = L_{\text{prop}}$) $\to$ `hit == false`.
-5. **Динамика GLIF и Homeostasis (`test_glif_and_homeostasis_lifecycle`)**:
+5. **Динамика GLIF, Heartbeat и Homeostasis (`test_glif_and_homeostasis_lifecycle`)**:
    - Проверка затухания гомеостаза во время рефрактерного периода.
-   - Heartbeat спайк устанавливает `final_spike`, но НЕ сбрасывает напряжение, НЕ взводит рефрактерный таймер и НЕ изменяет гомеостаз.
-   - GLIF спайк сбрасывает напряжение до $V_{\text{rest}} - A_{\text{ahp}}$ и начисляет пенальти.
+   - Heartbeat спайк сбрасывает напряжение до $V_{\text{rest}} - A_{\text{ahp}}$, взводит рефрактерный таймер и начисляет пенальти гомеостаза.
 6. **Пластичность GSOP и Границы (`test_gsop_math_comprehensive`)**:
    - Проверка сохранения знака положительных и отрицательных весов (Закон Дейла).
    - Проверка работы с `i32::MIN` без паники (благодаря `unsigned_abs()`).
@@ -290,14 +281,14 @@ $$\text{weight}_{\text{new}} = \text{sign} \times \text{new\_abs}$$
 2. **[RESOLVED] Граница Active Tail Hit**:
    - *Решение*: Утверждено строгое неравенство `head.wrapping_sub(seg_idx) < propagation_length` (§5.2.3). Сигнал находится в хвосте ровно `propagation_length` сегментов (от 0 до `propagation_length - 1`).
 
-3. **[RESOLVED] Окончательное удаление GSOP Spatial Cooling**:
-   - *Решение*: Сдвиг охлаждения (Spatial Cooling) официально и окончательно удалён из математики GSOP в `AxiEngine`. Алгоритм пластичности зафиксирован строго по формулам из §5.4 без деления на дистанцию `min_dist`.
+3. **[RESOLVED] All-to-All STDP с пространственным охлаждением и усталостью**:
+   - *Решение*: Пластичность зафиксирована в виде All-to-All STDP по всем 8 головкам с линейным Spatial Cooling, Soft Peak (`head == seg_idx` даёт наложение `+LTP - LTD`) и вычитанием штрафа усталости `fatigue_penalty` (§5.4).
 
 4. **[RESOLVED] Граница Float-аргументов AOT-деривации**:
    - *Решение*: Зафиксирована строгая изоляция: тип `f32` в `compute_v_seg` допускается **исключительно** на границе AOT/config при парсинге файлов конфигурации TOML. Все горячие функции симуляции в `physics` зафиксированы как 100% целочисленные (`Zero-Float`).
 
-5. **[RESOLVED] Поведение `compile_dds_heartbeat` при периодах $> 65536$ и `period == 1`**:
-   - *Решение*: Для `period_ticks > 65536` (как и для `period_ticks == 0`) шаг фазы устанавливается в `heartbeat_m = 0`, что явно отключает спонтанный спайкинг. Для `period_ticks == 1` шаг устанавливается в `MAX_HEARTBEAT_M` (65535) с генерацией спайка на каждом тике.
+5. **[RESOLVED] Поведение `compile_stochastic_heartbeat_threshold` при периодах $> 65536$ и `period == 1`**:
+   - *Решение*: Для `period_ticks > 65536` (как и для `period_ticks == 0`) порог вероятности устанавливается в `heartbeat_m = 0`, что явно отключает спонтанный спайкинг. Для `period_ticks == 1` шаг устанавливается в `MAX_HEARTBEAT_M` (65535) с генерацией спайка на каждом тике.
 
 6. **[RESOLVED] Синхронизация неактивных слотов `PackedTarget`**:
    - *Решение*: Вычислительные ядра и физические функции зафиксированы на использование предиката `PackedTarget::is_inactive()` (`raw == 0 || raw == EMPTY_PIXEL`) из `types v2.2` для Early Exit и проверки неактивных синаптических слотов.

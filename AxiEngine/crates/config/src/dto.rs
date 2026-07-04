@@ -272,8 +272,8 @@ pub struct MembraneParams {
 pub struct TimingParams {
     /// Duration of neuron firing refractory state in ticks.
     pub refractory_period: u8,
-    /// Refractory duration for downstream synapse processing in ticks.
-    pub synapse_refractory_period: u8,
+    /// Maximum fatigue capacity for synaptic gradient fatigue in ticks.
+    pub fatigue_capacity: u8,
 }
 
 /// Signal propagation range constraints.

@@ -51,7 +51,7 @@ leak_shift = 1
 ahp_amplitude = 5
 [neuron_types.timing]
 refractory_period = 2
-synapse_refractory_period = 2
+fatigue_capacity = 255
 [neuron_types.signal]
 signal_propagation_length = 10
 [neuron_types.homeostasis]

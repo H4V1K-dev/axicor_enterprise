@@ -35,9 +35,9 @@ fn main() {
 
     let min_weight_limit = physics::constants::MIN_WEIGHT_LIMIT;
     let max_weight_limit = physics::constants::MAX_WEIGHT_LIMIT;
-    let dds_phase_mod = physics::constants::DDS_PHASE_MOD;
-    let dds_phase_mask = physics::constants::DDS_PHASE_MASK;
-    let dds_scatter_prime = physics::constants::DDS_SCATTER_PRIME;
+    let dds_phase_mod = physics::constants::HEARTBEAT_PHASE_MOD;
+    let dds_phase_mask = physics::constants::HEARTBEAT_PHASE_MASK;
+    let dds_scatter_prime = physics::constants::HEARTBEAT_SCATTER_PRIME;
     let max_heartbeat_m = physics::constants::MAX_HEARTBEAT_M;
     let variant_lut_len = layout::VARIANT_LUT_LEN;
 
@@ -57,7 +57,7 @@ fn main() {
         gsop_depression: 0,
         homeostasis_decay: 0,
         refractory_period: 0,
-        synapse_refractory_period: 0,
+        fatigue_capacity: 255,
         signal_propagation_length: 0,
         is_inhibitory: 0,
         inertia_curve: [0; 8],

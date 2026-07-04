@@ -61,7 +61,7 @@
 | **`config`** (Слой 1) | **Serde/TOML DTO и валидация DSL**: Парсинг `model.toml`, `department.toml`, `shard.toml`, проверка синтаксиса, диапазонов полей, уникальности имен внутри документов, проверка целочисленности `v_seg` (через вызов `physics`) и локальная валидация связей. | Запрещен генератор топологии, сборка бинарников `.state`, mmap, GPU upload, FFI и дублирование C-ABI макетов `layout`. Крейт не занимается файловым резолвингом относительных путей или проверкой существования файлов на диске. |
 | **`types`** (Слой 0) | Базовые типы данных (`Tick`, `MasterSeed`, `Microns`) и фундаментальные доменные лимиты. | Запрещен парсинг TOML-строк и Serde-атрибуты. |
 | **`layout`** (Слой 1) | C-ABI макеты физической памяти (`VariantParameters`), выравнивание плоскостей SoA и заголовки файлов. | Запрещены Serde-структуры и парсинг текстовых конфигураций. |
-| **`physics`** (Слой 0) | Математические формулы GLIF, GSOP, Active Tail, DDS и функцию деривации `compute_v_seg`. | Запрещена деривация параметров из TOML. |
+| **`physics`** (Слой 0) | Математические формулы GLIF, GSOP, Active Tail, Stochastic Heartbeat и функцию деривации `compute_v_seg`. | Запрещена деривация параметров из TOML. |
 | **`vfs`** (Слой 2) | Формат архива `.axic`, таблицы оглавления TOC и низкоуровневая mmap упаковка/распаковка. | Запрещен семантический разбор TOML-схем. |
 | **`baker`** (Слой 4) | Компиляция 3D-пространства, генерация воксельных координат, процедурный рост аксонов, междокументный/межшардовый граф-резолвинг (включая поиск файлов на диске и связывание Shard/Department ссылок), а также сборка `.state` и вызов `vfs::pack_directory`. | Запрещен самостоятельный парсинг TOML без вызова `config`. |
 | **`topology`** (Слой 4) | Алгоритмы и структуры данных 3D размещения нейронов, геометрического роста аксонов, расчета длин путей и начальной синаптической связности. | Запрещен парсинг TOML-схем. |
@@ -149,7 +149,7 @@ pub enum EntryZ {
 #### 4. Профиль Нейрона (`NeuronType` и подструктуры)
 `NeuronType` состоит из следующих вложенных секций:
 - **`MembraneParams`**: `threshold: i32`, `rest_potential: i32`, `leak_shift: u32`, `ahp_amplitude: u16`.
-- **`TimingParams`**: `refractory_period: u8`, `synapse_refractory_period: u8`.
+- **`TimingParams`**: `refractory_period: u8`, `fatigue_capacity: u8` (диапазон `1..=255`).
 - **`SignalParams`**: `signal_propagation_length: u8`.
 - **`HomeostasisParams`**: `homeostasis_penalty: i32`, `homeostasis_decay: u16`.
 - **`AdaptiveLeakParams`**: `adaptive_leak_min_shift: i32`, `adaptive_leak_gain: u16`, `adaptive_mode: u8`.
@@ -248,7 +248,7 @@ let v_seg = physics::compute_v_seg(
 - **Уникальность**: Имена `neuron_types[i].name` уникальны и соответствуют regex.
 - **Тайминги**: `refractory_period > 0`, `signal_propagation_length > 0`.
 - **Инвариант Длины Хвоста (`INV-CONFIG-004`)**: `signal_propagation_length >= refractory_period` и `signal_propagation_length <= 255`.
-- **Разграничение Serde и Validator проверок**: Поля с типами `u8` (`synapse_refractory_period`, `d1_affinity`, `d2_affinity`) аппаратно ограничены типом. Если в TOML передать значение $> 255$ (например, `256`), это вызывает ошибку десериализации на уровне Serde (`Serde Range Rejection`), а не рантайм-ошибку `ValidationError`.
+- **Разграничение Serde и Validator проверок**: Поля с типами `u8` (`fatigue_capacity`, `d1_affinity`, `d2_affinity`) аппаратно ограничены типом. Если в TOML передать значение $> 255$ (например, `256`), это вызывает ошибку десериализации на уровне Serde (`Serde Range Rejection`), а не рантайм-ошибку `ValidationError`.
 - **Кривая Инерции**: Массив `inertia_curve` содержит ровно **8 элементов**.
 - **Адаптивная Утечка**: `adaptive_mode` принимает значения `0`, `1` или `2`. Значение `adaptive_leak_min_shift` может быть отрицательным (рантайм физика выполняет безопасный clamp).
 - **Валидация Вайтлистов (`dendrite_whitelist`)**: Если в `growth.dendrite_whitelist` указаны имена типов нейронов, каждый элемент списка обязан ссылаться на объявленное имя из `neuron_types`.
@@ -337,7 +337,7 @@ pub fn load_shard_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<ShardC
 13. **Лимит Шагов Роста (`test_axon_growth_max_steps_limit`)**: Значение `axon_growth_max_steps > 255` отклоняется.
 14. **Переполнение UV Проекции Пина (`test_pin_uv_overflow_rejected`)**: Условие `local_u + u_width > 1.0` вызывает ошибку.
 15. **Входящий Сокет при Ghost Capacity 0 (`test_input_socket_zero_ghost_capacity_rejected`)**: Отклонение входящего сокета при `ghost_capacity == 0`.
-16. **Serde Range Rejection (`test_serde_u8_range_rejection`)**: Проверка, что значения $> 255$ для полей `synapse_refractory_period`, `d1_affinity`, `d2_affinity` отклоняются на этапе Serde десериализации.
+16. **Serde Range Rejection (`test_serde_u8_range_rejection`)**: Проверка, что значения $> 255$ для полей `fatigue_capacity`, `d1_affinity`, `d2_affinity` отклоняются на этапе Serde десериализации.
 17. **Валидация Веса Синапсов (`test_initial_synapse_weight_validation`)**: Значение `initial_synapse_weight > 32653` в `GsopParams` отклоняется при валидации.
 18. **Предельная Плотность Слая (`test_density_out_of_bounds`)**: Значение `density > 1.0` в `LayerConfig` отклоняется при валидации.
 19. **Валидация Параметров Роста (`test_growth_params_validation`)**: Проверка отклонения NaN/Inf, невалидных углов fov и отрицательных радиусов в параметрах роста `GrowthParams`.
@@ -367,7 +367,7 @@ pub fn load_shard_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<ShardC
 5. **[RESOLVED] Размещение и Тестирование `initial_synapse_weight` в TOML-схеме (REV-CFG-005)**:
    - *Решение*: Поле `initial_synapse_weight` добавлено в секцию `GsopParams` (`initial_synapse_weight: u16`) в `NeuronType`. Валидация контролирует значение по порогу `<= 32653` (Charge-scale), гарантируя непопадание в переполнение при сдвиге в Mass Domain.
 
-6. **[RESOLVED] Крайний Случай DDS Heartbeat (REV-CFG-006)**:
+6. **[RESOLVED] Крайний Случай Stochastic Heartbeat (REV-CFG-006)**:
    - *Решение*: Спонтанный период `spontaneous_firing_period_ticks == 1` запрещен, так как спайкинг на каждом тике ломает синаптический рефрактерный период. Минимально допустимый период — `2` тика. Хотя низкоуровневые физические примитивы `physics` аппаратно поддерживают период 1 для гибкости расчетов, пользовательский DSL config намеренно вводит это ограничение для предотвращения истощения синапсов. Это не является архитектурным конфликтом: физика шире, config строже.
 
 7. **[RESOLVED] Политика Точности Валидации `v_seg` (REV-CFG-007)**:

@@ -455,7 +455,7 @@ fn test_variant_table() -> [VariantParameters; VARIANT_LUT_LEN] {
         gsop_depression: 64,
         homeostasis_decay: 1,
         refractory_period: 2,
-        synapse_refractory_period: 5,
+        fatigue_capacity: 255,
         signal_propagation_length: 5,
         is_inhibitory: 0,
         inertia_curve: [128; 8],

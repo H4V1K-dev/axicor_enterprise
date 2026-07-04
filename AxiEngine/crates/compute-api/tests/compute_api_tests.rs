@@ -12,7 +12,7 @@ const ZERO_VARIANT: layout::VariantParameters = layout::VariantParameters {
     gsop_depression: 0,
     homeostasis_decay: 0,
     refractory_period: 0,
-    synapse_refractory_period: 0,
+    fatigue_capacity: 255,
     signal_propagation_length: 0,
     is_inhibitory: 0,
     inertia_curve: [0; 8],

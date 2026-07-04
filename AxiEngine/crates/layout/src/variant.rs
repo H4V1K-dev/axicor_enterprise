@@ -28,8 +28,8 @@ pub struct VariantParameters {
     pub homeostasis_decay: u16,
     /// Soma refractory period duration in ticks.
     pub refractory_period: u8,
-    /// Synapse refractory period duration in ticks.
-    pub synapse_refractory_period: u8,
+    /// Maximum fatigue capacity for synaptic gradient fatigue in ticks (1..=255).
+    pub fatigue_capacity: u8,
     /// Signal propagation active tail length.
     pub signal_propagation_length: u8,
     /// Inhibitory flag (1 for inhibitory / GABA, 0 for excitatory / Glu).

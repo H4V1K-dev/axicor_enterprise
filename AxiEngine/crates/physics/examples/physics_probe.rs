@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Physical constants and derived AOT parameters
     let v_seg = compute_v_seg(1.0, 1000, 20.0, 5).expect("valid v_seg derivation"); // 10 segments/tick
-    let heartbeat_m = compile_dds_heartbeat(500); // DDS period 500
+    let heartbeat_m = compile_stochastic_heartbeat_threshold(500); // Stochastic heartbeat period 500
     let v_th = -50;
     let rest_potential = -70;
     let v_reset = -75;
@@ -175,10 +175,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for i in 0..num_neurons {
                     let w = weights[j][i];
                     if w != 0 {
-                        let hit = active_tail_hit(&heads[j], 0, prop_len);
                         weights[j][i] = apply_gsop_plasticity(
                             w,
-                            hit,
+                            &heads[j],
+                            0,
+                            prop_len,
+                            0,
+                            255,
                             100_000, // pot
                             50_000,  // dep
                             0,       // dopamine
