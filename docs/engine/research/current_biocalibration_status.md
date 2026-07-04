@@ -79,18 +79,21 @@ Status: active research index, not a final report.
 - **Что подтвердило**: Реалистичные частоты спонтанного спайкирования (VISl4: 1.03 Hz, VISp5: 0.96 Hz, VISp23: 3.98 Hz) с CV/LV ~1.0. Под Poisson-шумом в 50 Hz получен регулярный эмерджентный разряд с CV ~0.15-0.31, синаптической усталостью 76-83% и плавными пост-спайковыми STA-профилями.
 - **Outputs**: Скрипт миграции, интеграционный тест-раннер, отчет в архиве.
 
-### Следующий шаг
-
-```text
-full-neuron-replay-314900022-v1
-```
+### [Active] Full Neuron Replay 314900022 v1 (`archive/_active/full_neuron_replay_314900022/`)
 
 Цель: прогнать 314900022 не через обрезанную мембранную песочницу, а через полный нейронный цикл с AHP, refractory, homeostasis, adaptive leak и будущими экспериментальными режимами DDS / inertia.
 
 Ожидание: если probe-улучшения настоящие, full-neuron replay должен сохранить улучшение SFA/f-I и показать осмысленную форму восстановления после спайка. Если результат развалится, проблема находится не в подборе параметров, а в полном tick-loop.
 
+- **Вопрос**: переносится ли калибровочный выигрыш membrane/adaptive probes на production CPU tick-loop.
+- **Зачем**: это gate перед сетевыми и microcircuit-экспериментами; без понятного одиночного нейрона сеть будет маскировать ошибки физики.
+- **Что подтвердит**: сохранение SFA/f-I, осмысленный post-spike recovery, отсутствие ложной тишины/runaway, детерминированный replay.
+- **Что ослабит**: распад хороших sandbox-параметров в полном цикле, бесплатные heartbeat/DDS-события, неинтерпретируемая AHP/refractory/homeostasis динамика.
+- **Planned outputs**: production CPU replay runner, CSV/JSON метрики, sampled traces, решение по DDS/inertia как отдельным physics hypotheses.
+
 ## 8. Ключевые архивы
 
+- [Full Neuron Replay 314900022 v1](archive/_active/full_neuron_replay_314900022/README.md)
 - [Biological Physics Verification](archive/2026-07-04_biology_metrics_verification/README.md)
 - [GSOP STDP Fatigue v1](archive/gsop_stdp_fatigue_v1/README.md)
 - [Legacy baseline import](archive/2026-07-01_legacy_baseline_import/README.md)

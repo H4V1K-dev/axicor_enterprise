@@ -59,12 +59,11 @@ Recommended structure:
 archive/_active/<experiment_slug>/
   README.md
   scripts/
-  artifacts/
-  reports/
-  notes/
+  images/
 ```
 
-Only create folders that are actually needed.
+This mirrors the existing archived research layout. Only create folders that are actually needed.
+Create extra folders such as `reports/` or `notes/` only when the README becomes too large or the temporary notes are worth preserving.
 
 ## 4. What Goes Where
 
@@ -88,27 +87,35 @@ Put executable research scripts here when they are specific to this experiment.
 
 If a script is intentionally reusable and remains under `tools/research/`, archive a copy or record the exact source path and revision context in the experiment README.
 
-### artifacts/
+### images/
 
-Put final experiment artifacts here:
+Put committed plots and compact visual summaries here.
 
-- CSV summaries;
-- JSON summaries;
-- PNG/SVG plots;
-- sampled traces;
-- compact tables used by the report.
+Images referenced by the main index or the experiment README should live in the experiment archive, not only in a temporary output location.
+
+### Generated artifacts
+
+Generated CSV/JSON/traces should not be loose inside `docs/engine/research/`.
+
+Default location:
+
+```text
+artifacts/<experiment_slug>_*.csv
+artifacts/<experiment_slug>_*.json
+artifacts/<experiment_slug>_*.trace
+```
+
+or another clearly named path under the repository-level `artifacts/` directory.
+
+Commit policy:
+
+- commit Markdown reports;
+- commit research scripts;
+- commit compact images used by reports;
+- do not commit bulky generated CSV/JSON/traces by default;
+- commit compact generated tables only when they are intentionally promoted to durable evidence.
 
 Large raw caches may stay outside the docs tree, but the README must point to them clearly.
-
-### reports/
-
-Use this only when the experiment needs multiple detailed notes.
-For most experiments, the README is enough.
-
-### notes/
-
-Temporary reasoning, manual observations, copied prompts, and external research excerpts can go here.
-Clean it before final archive if it becomes noise.
 
 ## 5. Rust Tests and Production Code
 
@@ -130,6 +137,25 @@ Rust runner:
 - test: test_legacy_representative_traces
 - command: cargo test -p test-harness --features legacy-baseline --test legacy_baseline test_legacy_representative_traces -- --ignored --nocapture
 ```
+
+### Research variants of production functions
+
+Do not patch production physics just to test a research hypothesis.
+
+If an experiment needs a modified production function, create an explicit research variant instead:
+
+- copy the smallest necessary function or wrapper into the research runner/test harness;
+- prefix the name with the experiment slug, for example `full_neuron_replay_314900022_update_glif_voltage`;
+- record the original production path and function name in the experiment README;
+- record the exact semantic difference from production;
+- keep the variant local to the experiment until the result justifies a real production proposal.
+
+Preferred Rust locations:
+
+- one-off runner: `crates/test-harness/tests/<experiment_slug>.rs`;
+- reusable helper for one research track: `crates/test-harness/src/research/<experiment_slug>.rs`, feature-gated if needed.
+
+The research variant must not silently masquerade as production behavior. Every report must say whether a result came from unmodified production CPU or from a named research variant.
 
 ## 6. Completion / Archiving
 
@@ -190,12 +216,6 @@ After moving or archiving folders, verify links to:
 - external raw cache locations if referenced.
 
 Images used in the main status file should be copied into the experiment archive, usually:
-
-```text
-archive/YYYY-MM-DD_<experiment_slug>/artifacts/
-```
-
-or:
 
 ```text
 archive/YYYY-MM-DD_<experiment_slug>/images/

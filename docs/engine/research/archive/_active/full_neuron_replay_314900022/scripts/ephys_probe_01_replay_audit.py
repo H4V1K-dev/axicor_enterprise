@@ -209,14 +209,21 @@ def main():
     plt.tight_layout()
     plot_path = "artifacts/ephys_probe_01_replay.png"
     plt.savefig(plot_path, dpi=150)
+    
+    # Save copy to local images/ for report portability
+    local_img_dir = "docs/engine/research/archive/_active/full_neuron_replay_314900022/images"
+    os.makedirs(local_img_dir, exist_ok=True)
+    local_img_path = os.path.join(local_img_dir, "ephys_probe_01_replay_python.png")
+    plt.savefig(local_img_path, dpi=150)
     plt.close()
-    print(f"Saved PNG Plot to: {plot_path}")
+    print(f"Saved PNG Plot to: {plot_path} and copy to: {local_img_path}")
     
     # 4. Generate Markdown Report
-    generate_markdown_report(summaries, plot_path)
+    generate_markdown_report(summaries, "../images/ephys_probe_01_replay_python.png")
     
 def generate_markdown_report(summaries, plot_path):
-    report_path = "docs/engine/research/ephys_probe_01_replay_audit_v1.md"
+    report_path = "docs/engine/research/archive/_active/full_neuron_replay_314900022/reports/ephys_probe_01_replay_audit_v1.md"
+    os.makedirs(os.path.dirname(report_path), exist_ok=True)
     
     sum_dict = {s["mode"]: s for s in summaries}
     
@@ -243,7 +250,7 @@ def generate_markdown_report(summaries, plot_path):
             
         f.write("\n## 2. Анализ динамики мембраны и порогов\n\n")
         f.write("Сгенерированный график напряжения и порогов для всех четырёх режимов:\n")
-        f.write("![Трассы потенциалов](../../../artifacts/ephys_probe_01_replay.png)\n\n")
+        f.write(f"![Трассы потенциалов]({plot_path})\n\n")
         
         f.write("## 3. Выводы аудита\n\n")
         
