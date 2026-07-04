@@ -36,6 +36,7 @@ Status: active research index, not a final report.
 - **Specimen 314900022 выбран как первый рабочий якорь**: по нему уже есть trace-match, passive-first, balanced, membrane sandbox и adaptive leak probes.
 - **Пассивная утечка `leak_shift = 4` решает гипевозбудимость на 30-40 pA**: снижение `leak_shift` с 8 до 4 при `rest = -70 mV` устраняет нефизичные спайки на 30 и 40 pA (spikes_30=0, spikes_40=0), сохраняя 35 спайков на 190 pA и улучшая Allen f-I RMSE с 12.89 до 1.89.
 - **SFA / Homeostasis калибровка (Phase 5)**: при `leak_shift = 4`, `rest = -70 mV` подбор `homeostasis_penalty = 1940`, `homeostasis_decay = 4` дает устойчивую частотную адаптацию (ISI Growth Ratio = 2.05 на 190 pA) и дальнейшее улучшение f-I RMSE до 1.50.
+- **AHP / Refractory калибровка (Phase 6)**: AHP sweep оказался weakly informative (5000..8000 uV даёт идентичный f-I RMSE 1.50). Базовые параметры `ahp_amplitude = 5000 uV` и `refractory_period = 14 ticks` удержаны (baseline retained; no improvement found) по биологическому априору ~5 mV и принципу минимального отклонения.
 - **RC / membrane_v2 пока не обязательна**: RC улучшала отдельные метрики, но не дала очевидного выигрыша перед штатной адаптацией.
 - **Мембранные probes были слишком узкими**: выводы зафиксированы через full-neuron replay.
 
@@ -45,6 +46,7 @@ Status: active research index, not a final report.
 | :--- | :--- |
 | Корректировка пассивной утечки (`leak_shift = 4`) приводит реобазу нейрона к биологическому порогу (~50 pA) без сложной адаптивной математики. | confirmed |
 | Штатная адаптация AxiEngine (`homeostasis_penalty=1940, decay=4`) способна дать биологически похожую SFA (ISI growth 2.05). | confirmed |
+| Пост-спайковый сброс (`ahp_amplitude=5000 uV`, `refractory_period=14`) обеспечивает правдоподобную форму спайка и AHP глубину (~5.0 mV). | retained / supported by conservative tie-break |
 | Главный конфликт одиночного нейрона связан не только с формулой мембраны, но и с полным tick-loop. | supported |
 | DDS / спонтанное событие должно быть stateful и начислять гомеостатический штраф (`gated_discharge`). | supported (plausible candidate) |
 | Спайковая инерция от накопленного штрафа может улучшить восстановление на низких частотах. | weakened (ineffective at low frequencies) |
@@ -68,12 +70,12 @@ Status: active research index, not a final report.
 
 ## 7. Активные и следующие исследования
 
-### [Active] Phase 5 SFA & Homeostasis Calibration 314900022 (`archive/_active/full_neuron_replay_314900022/`)
+### [Completed] Single-Specimen Biocalibration 314900022 (`archive/2026-07-04_full_neuron_replay_314900022_calibration/`)
 
-- **Вопрос**: Какая пара `homeostasis_penalty` и `homeostasis_decay` обеспечивает биологичную спайковую адаптацию (SFA) поверх зафиксированной пассивной утечки Phase 4 (`leak_shift = 4`, `rest_potential = -70 mV`)?
-- **Зачем**: Сформировать выраженную SFA (ISI growth > 1.15) без разрушения низкотоковой тишины (30–40 pA) и реобазы (50 pA).
-- **Что подтвердило**: `homeostasis_penalty = 1940`, `homeostasis_decay = 4` обеспечили ISI Growth Ratio = 2.05 на 190 pA, сохранили 0 спайков на 30–40 pA, 4 спайка на 50 pA, 35 спайков на 190 pA и улучшили Allen f-I RMSE с 1.89 до 1.50.
-- **Outputs**: Rust runner (`run_full_neuron_replay_phase5_experiments`), Python скрипт `sfa_homeostasis_calibration.py`, отчёт [sfa_homeostasis_calibration_v1.md](archive/_active/full_neuron_replay_314900022/reports/sfa_homeostasis_calibration_v1.md).
+- **Вопрос**: Каков итоговый calibrated GLIF_3+ профиль для specimen 314900022 после подбора пассивной утечки (Phase 4), SFA (Phase 5) и аудита AHP/рефрактерности (Phase 6)?
+- **Итоговый вердикт**: Исследование успешно выполнено. Снижение `leak_shift` с 8 до 4 при `rest = -70 mV` устранило ложную 30–40 pA гипервозбудимость (Phase 4). Подбор `homeostasis_penalty = 1940`, `decay = 4` зафиксировал биологичную SFA (ISI growth 2.05) и снизил Allen f-I RMSE с 12.89 до 1.50 (Phase 5). Phase 6 показала null-result по `ahp_amplitude` (retained `ahp_amplitude=5000 uV`, `refractory_period=14 ticks` по принципу minimal-change).
+- **Следующий шаг**: Перенос методологии на Cross-Profile Validation (популяционный suite из нескольких профилей Allen Cell Types).
+- **Outputs**: Rust runner (`run_full_neuron_replay_phase6_experiments`), Python скрипты анализа и визуализации, отчёты Phase 4–6 и итоговый [final_summary_v1.md](archive/2026-07-04_full_neuron_replay_314900022_calibration/reports/final_summary_v1.md).
 
 ### [Completed] Full Neuron Replay 314900022 v1 (`archive/2026-07-04_full_neuron_replay_314900022/`)
 
@@ -99,7 +101,7 @@ Status: active research index, not a final report.
 
 ## 8. Ключевые архивы
 
-- [Phase 4 Rheobase Calibration 314900022](archive/_active/full_neuron_replay_314900022/README.md)
+- [Single-Specimen Biocalibration 314900022](archive/2026-07-04_full_neuron_replay_314900022_calibration/README.md)
 - [Full Neuron Replay 314900022 v1](archive/2026-07-04_full_neuron_replay_314900022/README.md)
 - [Biological Physics Verification](archive/2026-07-04_biology_metrics_verification/README.md)
 - [GSOP STDP Fatigue v1](archive/gsop_stdp_fatigue_v1/README.md)

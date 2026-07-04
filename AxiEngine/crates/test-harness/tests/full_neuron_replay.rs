@@ -1631,3 +1631,310 @@ fn run_full_neuron_replay_phase5_experiments() {
 
     println!("Phase 5 Rust simulations complete.");
 }
+
+#[allow(clippy::too_many_arguments)]
+fn simulate_phase6_fi_sweep(
+    base_var: &VariantParameters,
+    ahp_amp: u16,
+    refractory: u8,
+    amps: &[i32],
+    current_scale: f64,
+) -> serde_json::Value {
+    let mut var = *base_var;
+    var.leak_shift = 4;
+    var.rest_potential = -70000;
+    var.homeostasis_penalty = 1940;
+    var.homeostasis_decay = 4;
+    var.ahp_amplitude = ahp_amp;
+    var.refractory_period = refractory;
+    var.adaptive_leak_gain = 0;
+    var.adaptive_leak_min_shift = 1;
+    var.adaptive_mode = 0;
+    var.heartbeat_m = 0;
+
+    let mut fi_data = Vec::new();
+
+    for &amp in amps {
+        let step_current = (amp as f64 * current_scale) as i32;
+        let ticks = 3000;
+        let mut i_ext = vec![0; ticks];
+        i_ext[1000..2000].fill(step_current);
+
+        let (ticks_log, spikes, _) = full_neuron_replay_314900022_simulate_experimental(
+            &var,
+            &i_ext,
+            ticks,
+            ExperimentalRecoveryMode::HeartbeatGatedDischarge,
+        );
+
+        let stim_spikes = spikes
+            .iter()
+            .filter(|&&t| (1000..2000).contains(&t))
+            .count();
+        let stim_spike_ticks: Vec<usize> = spikes
+            .iter()
+            .cloned()
+            .filter(|&t| (1000..2000).contains(&t))
+            .collect();
+        let first_spike_latency = stim_spike_ticks.first().map(|&t| t - 1000);
+
+        let isis: Vec<usize> = stim_spike_ticks.windows(2).map(|w| w[1] - w[0]).collect();
+        let first_isi = isis.first().cloned();
+        let last_isi = isis.last().cloned();
+        let isi_growth = if let (Some(f), Some(l)) = (first_isi, last_isi) {
+            l as f64 / f as f64
+        } else {
+            1.0
+        };
+
+        let adaptation_index = if isis.len() >= 2 {
+            let mut sum = 0.0;
+            for window in isis.windows(2) {
+                let diff = window[1] as f64 - window[0] as f64;
+                let add = window[1] as f64 + window[0] as f64;
+                if add > 0.0 {
+                    sum += diff / add;
+                }
+            }
+            sum / (isis.len() - 1) as f64
+        } else {
+            0.0
+        };
+
+        let stim_ticks_log: Vec<&ExperimentalLoggedTick> = ticks_log
+            .iter()
+            .filter(|t| (1000..2000).contains(&t.tick))
+            .collect();
+
+        let voltages: Vec<f64> = stim_ticks_log
+            .iter()
+            .map(|t| t.voltage_pre as f64 / 1000.0)
+            .collect();
+        let min_v = voltages.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+        let max_v = voltages.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let mean_v = if !voltages.is_empty() {
+            voltages.iter().sum::<f64>() / voltages.len() as f64
+        } else {
+            0.0
+        };
+
+        let th_offsets: Vec<f64> = stim_ticks_log
+            .iter()
+            .map(|t| t.threshold_offset as f64 / 1000.0)
+            .collect();
+        let max_th_offset = th_offsets.iter().fold(0.0f64, |a, &b| a.max(b));
+        let mean_th_offset = if !th_offsets.is_empty() {
+            th_offsets.iter().sum::<f64>() / th_offsets.len() as f64
+        } else {
+            0.0
+        };
+
+        let mut post_spike_mins = Vec::new();
+        let mut violations = 0;
+
+        for &st in &stim_spike_ticks {
+            let window_end = (st + 20).min(2000);
+            let post_v: Vec<i32> = ticks_log
+                .iter()
+                .filter(|t| t.tick > st && t.tick <= window_end)
+                .map(|t| t.voltage_pre)
+                .collect();
+            if let Some(&min_uv) = post_v.iter().min() {
+                post_spike_mins.push(min_uv);
+            }
+        }
+
+        let mean_post_spike_min_uv = if !post_spike_mins.is_empty() {
+            post_spike_mins.iter().sum::<i32>() as f64 / post_spike_mins.len() as f64
+        } else {
+            -70000.0
+        };
+        let ahp_depth_observed_mv = (-70000.0 - mean_post_spike_min_uv) / 1000.0;
+
+        let mut recovery_times = Vec::new();
+        for &st in &stim_spike_ticks {
+            let window_end = (st + 50).min(2000);
+            let ticks_to_rest = ticks_log
+                .iter()
+                .filter(|t| t.tick > st && t.tick <= window_end)
+                .position(|t| t.voltage_pre >= -70000);
+            if let Some(pos) = ticks_to_rest {
+                recovery_times.push(pos as f64);
+            }
+        }
+        let mean_recovery_ticks = if !recovery_times.is_empty() {
+            recovery_times.iter().sum::<f64>() / recovery_times.len() as f64
+        } else {
+            0.0
+        };
+        let recovery_slope_mv_per_ms = if mean_recovery_ticks > 0.0 {
+            ahp_depth_observed_mv / mean_recovery_ticks
+        } else {
+            0.0
+        };
+
+        for &isi in &isis {
+            if isi < refractory as usize {
+                violations += 1;
+            }
+        }
+
+        fi_data.push(serde_json::json!({
+            "stimulus_pa": amp,
+            "spike_count": stim_spikes,
+            "first_spike_latency_ticks": first_spike_latency,
+            "first_isi_ticks": first_isi,
+            "last_isi_ticks": last_isi,
+            "isi_growth_ratio": isi_growth,
+            "adaptation_index": adaptation_index,
+            "min_v_mv": min_v,
+            "max_v_mv": max_v,
+            "mean_v_mv": mean_v,
+            "threshold_offset_max_mv": max_th_offset,
+            "threshold_offset_mean_mv": mean_th_offset,
+            "post_spike_min_v_mv": mean_post_spike_min_uv / 1000.0,
+            "ahp_depth_observed_mv": ahp_depth_observed_mv,
+            "recovery_ticks_to_rest": mean_recovery_ticks,
+            "recovery_slope_mv_per_ms": recovery_slope_mv_per_ms,
+            "refractory_flat_ticks": refractory,
+            "violations": violations,
+        }));
+    }
+
+    serde_json::json!({
+        "ahp_amplitude": ahp_amp,
+        "refractory_period": refractory,
+        "leak_shift": 4,
+        "rest_potential_uv": -70000,
+        "homeostasis_penalty": 1940,
+        "homeostasis_decay": 4,
+        "fi_data": fi_data
+    })
+}
+
+#[test]
+fn run_full_neuron_replay_phase6_experiments() {
+    println!("=== Starting Phase 6 AHP & Refractory Calibration ===");
+    let artifacts_dir = get_artifacts_dir();
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    let path_visl4 = find_profile_path("L4_spiny_VISl4_4");
+    let var_visl4 = load_variant(path_visl4);
+
+    let amps = vec![-100, -50, 0, 30, 40, 50, 70, 90, 110, 130, 150, 190, 200];
+    let default_scale = 35.0;
+
+    let ahp_amplitudes: Vec<u16> = vec![3000, 4000, 5000, 6000, 7000, 8000];
+    let refractory_periods: Vec<u8> = vec![8, 10, 12, 14, 16, 20];
+
+    let mut sweep_results = Vec::new();
+
+    for &ahp in &ahp_amplitudes {
+        for &refractory in &refractory_periods {
+            let res = simulate_phase6_fi_sweep(&var_visl4, ahp, refractory, &amps, default_scale);
+            sweep_results.push(res);
+        }
+    }
+
+    let json_path =
+        artifacts_dir.join("full_neuron_replay_314900022_phase6_ahp_refractory_sweep.json");
+    let file = File::create(&json_path).unwrap();
+    serde_json::to_writer_pretty(file, &sweep_results).unwrap();
+    println!("Saved Phase 6 AHP Sweep JSON to: {:?}", json_path);
+
+    // Save trace CSVs for Phase 5 baseline (ahp=5000, refractory=14) and candidate (ahp=6000, refractory=14)
+    let trace_amps = vec![90, 150, 190];
+
+    let mut base_var = var_visl4;
+    base_var.leak_shift = 4;
+    base_var.rest_potential = -70000;
+    base_var.homeostasis_penalty = 1940;
+    base_var.homeostasis_decay = 4;
+    base_var.ahp_amplitude = 5000;
+    base_var.refractory_period = 14;
+    base_var.adaptive_leak_min_shift = 1;
+    base_var.adaptive_leak_gain = 0;
+    base_var.adaptive_mode = 0;
+    base_var.heartbeat_m = 0;
+
+    let mut cand_var = var_visl4;
+    cand_var.leak_shift = 4;
+    cand_var.rest_potential = -70000;
+    cand_var.homeostasis_penalty = 1940;
+    cand_var.homeostasis_decay = 4;
+    cand_var.ahp_amplitude = 6000;
+    cand_var.refractory_period = 14;
+    cand_var.adaptive_leak_min_shift = 1;
+    cand_var.adaptive_leak_gain = 0;
+    cand_var.adaptive_mode = 0;
+    cand_var.heartbeat_m = 0;
+
+    for &amp in &trace_amps {
+        let ticks = 3000;
+        let step_current = (amp as f64 * default_scale) as i32;
+        let mut i_ext = vec![0; ticks];
+        i_ext[1000..2000].fill(step_current);
+
+        // Baseline trace
+        let (ticks_log_base, _, _) = full_neuron_replay_314900022_simulate_experimental(
+            &base_var,
+            &i_ext,
+            ticks,
+            ExperimentalRecoveryMode::HeartbeatGatedDischarge,
+        );
+        let base_trace_path = artifacts_dir.join(format!(
+            "full_neuron_replay_314900022_phase6_trace_baseline_{}.csv",
+            amp
+        ));
+        let file = File::create(&base_trace_path).unwrap();
+        let mut writer = BufWriter::new(file);
+        writeln!(writer, "tick,voltage_pre,voltage_candidate,voltage_post,threshold_offset,effective_threshold,i_ext,final_spike").unwrap();
+        for t in ticks_log_base {
+            writeln!(
+                writer,
+                "{},{},{},{},{},{},{},{}",
+                t.tick,
+                t.voltage_pre,
+                t.voltage_candidate,
+                t.voltage_post,
+                t.threshold_offset,
+                t.effective_threshold,
+                t.i_ext,
+                t.final_spike as u8
+            )
+            .unwrap();
+        }
+
+        // Candidate trace
+        let (ticks_log_cand, _, _) = full_neuron_replay_314900022_simulate_experimental(
+            &cand_var,
+            &i_ext,
+            ticks,
+            ExperimentalRecoveryMode::HeartbeatGatedDischarge,
+        );
+        let cand_trace_path = artifacts_dir.join(format!(
+            "full_neuron_replay_314900022_phase6_trace_candidate_{}.csv",
+            amp
+        ));
+        let file = File::create(&cand_trace_path).unwrap();
+        let mut writer = BufWriter::new(file);
+        writeln!(writer, "tick,voltage_pre,voltage_candidate,voltage_post,threshold_offset,effective_threshold,i_ext,final_spike").unwrap();
+        for t in ticks_log_cand {
+            writeln!(
+                writer,
+                "{},{},{},{},{},{},{},{}",
+                t.tick,
+                t.voltage_pre,
+                t.voltage_candidate,
+                t.voltage_post,
+                t.threshold_offset,
+                t.effective_threshold,
+                t.i_ext,
+                t.final_spike as u8
+            )
+            .unwrap();
+        }
+    }
+
+    println!("Phase 6 Rust simulations complete.");
+}

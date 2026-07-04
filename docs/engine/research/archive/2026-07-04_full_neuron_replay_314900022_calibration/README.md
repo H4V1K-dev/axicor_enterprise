@@ -35,6 +35,7 @@ Slug: `full_neuron_replay_314900022`
    - Conducted adaptive leak subphase grid search across `adaptive_leak_gain`, `adaptive_leak_min_shift`, `adaptive_mode`.
 2. **Python Metrics Audit & Plot Generation**:
    - `docs/engine/research/archive/_active/full_neuron_replay_314900022/scripts/rheobase_leak_rest_calibration.py`.
+   - `docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022_calibration/scripts/rheobase_leak_rest_calibration.py`.
    - Evaluated Acceptance Gate criteria and generated heatmaps, Pareto plot, f-I curves, and trace comparison.
 
 ## Commands
@@ -46,7 +47,7 @@ cargo clippy -p test-harness --features "mvp-cpu-replay,baker-probe" --test full
 cargo fmt --check
 
 # Python analysis & report generation
-.venv/bin/python3 docs/engine/research/archive/_active/full_neuron_replay_314900022/scripts/rheobase_leak_rest_calibration.py
+.venv/bin/python3 docs/engine/research/archive/2026-07-04_full_neuron_replay_314900022_calibration/scripts/rheobase_leak_rest_calibration.py
 ```
 
 ## Outputs
@@ -83,14 +84,34 @@ cargo fmt --check
   - `spikes_190` = 35 (bio target 36)
   - ISI Growth Ratio (190 pA) = **2.05** (strong biological adaptation)
   - Allen f-I RMSE = **1.50** (further improved from 1.89 to 1.50)
-  - Acceptance Gate Status: **PASS** (verified candidate for spike-induced adaptation on top of Phase 4 passive membrane candidate)
+  - Acceptance Gate Status: **PASS**
+- **Phase 6 AHP Candidate (`ahp_amplitude = 5000 uV`, `refractory_period = 14 ticks`)**:
+  - Baseline retained; no improvement found (null-result).
+  - Observed AHP depth = **5.0 mV** below rest.
+  - Composite score = **1.50**.
+  - Acceptance Gate Status: **RETAINED (CONSERVATIVE TIE-BREAK)**
 
-## Interpretation
+## Final Calibrated Candidate (GLIF_3+ Profile for 314900022)
 
-1. Увеличение силы пассивной утечки через параметр `leak_shift = 4` полностью устраняет нефизичную гипервозбудимость на малых токах 30–40 pA.
-2. Изолированный подбор адаптации (`homeostasis_penalty = 1940`, `homeostasis_decay = 4`) обеспечил биологически достоверную частотную адаптацию разряда (ISI Growth = 2.05) без нарушений в пассивном окне или на реобазе, снизив Allen f-I RMSE до **1.50**.
+- `leak_shift = 4`
+- `rest_potential = -70000 uV` (-70.0 mV)
+- `threshold = -45656 uV` (-45.656 mV)
+- `homeostasis_penalty = 1940`
+- `homeostasis_decay = 4`
+- `ahp_amplitude = 5000 uV` (5.0 mV)
+- `refractory_period = 14` (14 ms / 14 ticks)
+- `adaptive_leak_gain = 0`
+- `adaptive_mode = 0`
+- `heartbeat_m = 0` for current-clamp replay
+
+## Interpretation & Research Closure
+
+1. **Phase 4 (Passive Membrane)**: Увеличение силы пассивной утечки через параметр `leak_shift = 4` полностью устраняет нефизичную гипервозбудимость на малых токах 30–40 pA, приводя реобазу к 50 pA (Allen f-I RMSE упал с 12.89 до 1.89).
+2. **Phase 5 (Spike-Induced Adaptation)**: Изолированный подбор адаптации (`homeostasis_penalty = 1940`, `homeostasis_decay = 4`) обеспечил биологически достоверную частотную адаптацию разряда (ISI Growth = 2.05) без нарушений в пассивном окне или на реобазе, дополнительно снизив Allen f-I RMSE до **1.50**.
+3. **Phase 6 (AHP & Refractory Shape)**: Исследование AHP оказалось weakly informative в отношении `ahp_amplitude` (5000..8000 uV дают одинаковый RMSE 1.50). Исходные параметры `ahp_amplitude = 5000 uV` и `refractory_period = 14 ticks` сохранены (baseline retained by conservative tie-break).
+4. **Закрытие исследования**: Исследование `full_neuron_replay_314900022` полностью выполнило свою цель на одиночном нейроне и готово к архивации. Дополнительная тонкая настройка `adaptive_leak` (Phase 7) в рамках одного спесимена не рекомендуется во избежание оверфиттинга.
 
 ## Next Step
 
-Phase 6: AHP & Refractory Shape Calibration (`ahp_amplitude` и `refractory_period`).
+**Cross-Profile Validation**: Проверка полученного GLIF_3+ набора параметров и методологии калибровки на широкой популяции профилей (suite из нескольких типов нейронов Allen Cell Types).
 
