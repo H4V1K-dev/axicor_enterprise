@@ -69,5 +69,6 @@ Bitwise identical state plane outputs between the ported test-only CPU runner an
 ## Outputs
 - README: `docs/engine/research/archive/_active/mvp_cpu_replay_v1/README.md`
 - Research Spec: `docs/engine/research/archive/_active/mvp_cpu_replay_v1/spatial_cooling_research.md`
+- Heatmap Polarization Report: `docs/engine/research/archive/_active/mvp_cpu_replay_v1/bidirectional_all_to_all_stdp_research.md`
 - Test-only harness module: `crates/test-harness/src/mvp_cpu_replay.rs`
 - Integration tests: `crates/test-harness/tests/mvp_cpu_replay.rs`
