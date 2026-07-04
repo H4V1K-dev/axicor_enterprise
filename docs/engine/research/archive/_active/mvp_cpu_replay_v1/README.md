@@ -38,7 +38,7 @@ The full set of MVP CPU functions planned for isolated porting:
 - `cpu_propagate_axons`: Implements exact 1:1 MVP parity using `chunks_exact_mut(2)`. Valid production axon head buffers must have an even length. Any trailing odd element in an odd-length slice is left unprocessed.
 - `cpu_inject_inputs`: Uses a deliberate safety guard (`.get(word_idx)`) to prevent panics when `input_bitmask` is shorter than `(num_virtual_axons + 31) / 32`. Virtual axons without matching bitmask words remain unchanged.
 - `cpu_sort_and_prune`: Implements 1:1 MVP pruning threshold (`threshold_mass = (prune_threshold.unsigned_abs() as u32) << 16`), resets burst count bits (`soma_flags & 0xF1`), and sorts active slots in-place by absolute weight magnitude descending (`abs(weight)`).
-- `cpu_apply_gsop`: Implements 1:1 MVP plastic weight updates for spiking somas with burst count multiplier, D1/D2 dopamine modulation, 8-head active tail detection (`wrapping_sub(seg_idx) <= prop`), and magnitude clamping to `[0, 2140000000]`.
+- `cpu_apply_gsop`: Implements plastic weight updates using local research logic `research_apply_gsop_plasticity` with linear Spatial Cooling (`decay_factor = prop.saturating_sub(min_dist)`), burst count multiplier, D1/D2 dopamine modulation, 8-head active tail detection (`wrapping_sub(seg_idx) <= prop`), and magnitude clamping.
 
 ### Step-by-Step Execution Plan
 1. Organize active research directory and register status in `docs/engine/research/current_biocalibration_status.md`.
@@ -68,5 +68,6 @@ Bitwise identical state plane outputs between the ported test-only CPU runner an
 
 ## Outputs
 - README: `docs/engine/research/archive/_active/mvp_cpu_replay_v1/README.md`
+- Research Spec: `docs/engine/research/archive/_active/mvp_cpu_replay_v1/spatial_cooling_research.md`
 - Test-only harness module: `crates/test-harness/src/mvp_cpu_replay.rs`
 - Integration tests: `crates/test-harness/tests/mvp_cpu_replay.rs`

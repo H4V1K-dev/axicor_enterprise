@@ -8,7 +8,8 @@ use layout::{
 };
 use test_harness::{
     cpu_apply_gsop, cpu_apply_spike_batch, cpu_extract_telemetry, cpu_inject_inputs,
-    cpu_propagate_axons, cpu_record_outputs, cpu_sort_and_prune, MvpAxonBuffer, MvpStateBuffer,
+    cpu_propagate_axons, cpu_record_outputs, cpu_sort_and_prune, research_apply_gsop_plasticity,
+    MvpAxonBuffer, MvpStateBuffer,
 };
 use types::AXON_SENTINEL;
 
@@ -503,16 +504,50 @@ fn test_cpu_apply_gsop_active_ltp_exact() {
     state_buf.write_dendrite_target(0, 0, (2 << 24) | 1);
     state_buf.write_dendrite_weight(0, 0, 100000);
 
-    // Active head: h0=5, seg=2 -> h0 - seg = 3 <= prop(5)
+    // Active head: h0=2, seg=2 -> min_dist = 0 <= prop(5) -> 100% decay factor
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h0 = 5;
+    head.h0 = 2;
     axon_buf.write_head(0, head);
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
 
-    // Exact LTP delta: pot=128, inertia=128, burst=1 -> delta = (128 * 128 * 1) >> 7 = 128
+    // Exact LTP delta: pot=128, inertia=128, burst=1, min_dist=0 -> delta = 128
     // 100000 + 128 = 100128
     assert_eq!(state_buf.read_dendrite_weight(0, 0), 100128);
+}
+
+#[test]
+fn test_cpu_apply_gsop_spatial_cooling_attenuation() {
+    let padded_n = 16;
+    let total_axons = 16;
+    let variants = test_variant_table();
+
+    let mut custom_variants = variants;
+    custom_variants[0].signal_propagation_length = 20; // prop = 20
+
+    // Case 1: min_dist = 0 (head = 2, seg = 2) -> max LTP (decay_factor = 20/20 = 100%) -> delta = 128
+    let mut state_max = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_max = MvpAxonBuffer::new(total_axons);
+    state_max.write_soma_flags(0, 0x01);
+    state_max.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_max.write_dendrite_weight(0, 0, 100000);
+    let mut head_max = BurstHeads8::empty(AXON_SENTINEL);
+    head_max.h0 = 2; // min_dist = 2 - 2 = 0
+    axon_max.write_head(0, head_max);
+    cpu_apply_gsop(&mut state_max, &axon_max, &custom_variants, 0);
+    assert_eq!(state_max.read_dendrite_weight(0, 0), 100128);
+
+    // Case 2: min_dist = prop / 2 = 10 (head = 12, seg = 2) -> 50% LTP (decay_factor = 10/20) -> delta = 64
+    let mut state_half = MvpStateBuffer::new(padded_n, total_axons);
+    let mut axon_half = MvpAxonBuffer::new(total_axons);
+    state_half.write_soma_flags(0, 0x01);
+    state_half.write_dendrite_target(0, 0, (2 << 24) | 1);
+    state_half.write_dendrite_weight(0, 0, 100000);
+    let mut head_half = BurstHeads8::empty(AXON_SENTINEL);
+    head_half.h0 = 12; // min_dist = 12 - 2 = 10
+    axon_half.write_head(0, head_half);
+    cpu_apply_gsop(&mut state_half, &axon_half, &custom_variants, 0);
+    assert_eq!(state_half.read_dendrite_weight(0, 0), 100064);
 }
 
 #[test]
@@ -547,7 +582,7 @@ fn test_cpu_apply_gsop_d1_exact() {
     state_buf.write_dendrite_weight(0, 0, 100000);
 
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h0 = 5;
+    head.h0 = 2; // min_dist = 0
     axon_buf.write_head(0, head);
 
     // Positive dopamine 100 boosts D1 potentiation: pot_mod = (100 * 64) >> 7 = 50
@@ -593,12 +628,12 @@ fn test_cpu_apply_gsop_variant_id_selection() {
     state_buf.write_dendrite_weight(0, 0, 100000);
 
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h0 = 5;
+    head.h0 = 2; // min_dist = 0
     axon_buf.write_head(0, head);
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
 
-    // Variant 1 pot=256 -> delta = (256 * 128) >> 7 = 256 -> 100000 + 256 = 100256
+    // Variant 1 pot=256 -> delta = 256 -> 100000 + 256 = 100256
     assert_eq!(state_buf.read_dendrite_weight(0, 0), 100256);
 }
 
@@ -615,7 +650,7 @@ fn test_cpu_apply_gsop_top_clamp() {
     state_buf.write_dendrite_weight(0, 0, 2_139_999_950);
 
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h0 = 5;
+    head.h0 = 2; // min_dist = 0
     axon_buf.write_head(0, head);
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
@@ -638,8 +673,8 @@ fn test_cpu_apply_gsop_bottom_clamp() {
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
 
-    // 10 - 64 = -54 -> clamped to 0
-    assert_eq!(state_buf.read_dendrite_weight(0, 0), 0);
+    // 10 - 64 = -54 -> clamped to MIN_WEIGHT_LIMIT (1)
+    assert_eq!(state_buf.read_dendrite_weight(0, 0), 1);
 }
 
 #[test]
@@ -705,7 +740,7 @@ fn test_cpu_apply_gsop_active_tail_hit_via_h7() {
 
     // Set active head hit on h7, h0..h6 remain sentinel
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h7 = 5;
+    head.h7 = 2; // min_dist = 0
     axon_buf.write_head(0, head);
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
@@ -813,7 +848,7 @@ fn test_cpu_apply_gsop_negative_weight_keeps_sign() {
     state_buf.write_dendrite_weight(0, 0, -100000);
 
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h0 = 5;
+    head.h0 = 2; // min_dist = 0
     axon_buf.write_head(0, head);
 
     cpu_apply_gsop(&mut state_buf, &axon_buf, &variants, 0);
@@ -834,7 +869,7 @@ fn test_cpu_apply_gsop_dopamine_d1_d2_modulation() {
     state_buf_base.write_dendrite_target(0, 0, (2 << 24) | 1);
     state_buf_base.write_dendrite_weight(0, 0, 100000);
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h0 = 5;
+    head.h0 = 2; // min_dist = 0
     axon_buf_base.write_head(0, head);
     cpu_apply_gsop(&mut state_buf_base, &axon_buf_base, &variants, 0);
 
@@ -861,7 +896,7 @@ fn test_cpu_apply_gsop_burst_multiplier() {
     state_single.write_dendrite_target(0, 0, (2 << 24) | 1);
     state_single.write_dendrite_weight(0, 0, 100000);
     let mut head = BurstHeads8::empty(AXON_SENTINEL);
-    head.h0 = 5;
+    head.h0 = 2; // min_dist = 0
     axon_single.write_head(0, head);
     cpu_apply_gsop(&mut state_single, &axon_single, &variants, 0);
 
@@ -878,4 +913,31 @@ fn test_cpu_apply_gsop_burst_multiplier() {
 
     assert_eq!(delta_single, 128);
     assert_eq!(delta_burst, 384);
+}
+
+#[test]
+fn test_research_apply_gsop_plasticity_linear_stdp_gradient() {
+    let inertia_curve = [128i32; 8];
+    let weight = 100000;
+    let prop = 20;
+
+    // 1. min_dist = 0 (100% max LTP) -> decay_factor = 20 -> delta = (128 * 128 * 1 * 20) / (128 * 20) = 128
+    let w_max =
+        research_apply_gsop_plasticity(weight, 0, prop, 128, 64, 0, 0, 0, 1, &inertia_curve);
+    assert_eq!(w_max - weight, 128);
+
+    // 2. min_dist = prop / 2 = 10 (50% LTP) -> decay_factor = 10 -> delta = (128 * 128 * 1 * 10) / (128 * 20) = 64
+    let w_half =
+        research_apply_gsop_plasticity(weight, 10, prop, 128, 64, 0, 0, 0, 1, &inertia_curve);
+    assert_eq!(w_half - weight, 64);
+
+    // 3. min_dist = prop = 20 (0% LTP) -> decay_factor = 0 -> delta = 0
+    let w_zero =
+        research_apply_gsop_plasticity(weight, 20, prop, 128, 64, 0, 0, 0, 1, &inertia_curve);
+    assert_eq!(w_zero - weight, 0);
+
+    // 4. min_dist > prop (inactive LTD) -> delta = -64
+    let w_inact =
+        research_apply_gsop_plasticity(weight, 21, prop, 128, 64, 0, 0, 0, 1, &inertia_curve);
+    assert_eq!(w_inact - weight, -64);
 }

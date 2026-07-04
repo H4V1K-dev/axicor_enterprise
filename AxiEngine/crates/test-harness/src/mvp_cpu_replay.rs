@@ -8,6 +8,7 @@ use layout::{
     StateFileHeader, StateOffsets, VariantParameters, AXONS_FILE_VERSION, AXONS_MAGIC,
     MAX_DENDRITES, STATE_FILE_VERSION, STATE_MAGIC, VARIANT_LUT_LEN,
 };
+use physics::constants::{MAX_WEIGHT_LIMIT, MIN_WEIGHT_LIMIT};
 use types::AXON_SENTINEL;
 
 /// Safe access wrapper over raw byte buffer representing `.state` SoA planes for MVP CPU replay.
@@ -644,21 +645,60 @@ pub fn cpu_sort_and_prune(state_buf: &mut MvpStateBuffer, prune_threshold: i16) 
     }
 }
 
+///// Local research implementation of GSOP synaptic plasticity with linear Spatial Cooling.
+///
+/// Attenuates LTP linearly based on signal propagation head distance `min_dist` relative to `prop`:
+/// `decay_factor = prop.saturating_sub(min_dist)` (from 100% at `min_dist = 0` down to 0% at `min_dist = prop`).
+#[allow(clippy::too_many_arguments)]
+pub fn research_apply_gsop_plasticity(
+    weight: i32,
+    min_dist: u32,
+    prop: u32,
+    gsop_potentiation: i32,
+    gsop_depression: i32,
+    dopamine: i32,
+    d1_affinity: i32,
+    d2_affinity: i32,
+    burst_count: u32,
+    inertia_curve: &[i32; 8],
+) -> i32 {
+    let sign: i32 = 1 - ((weight >> 31) & 2);
+    let abs_w = weight.unsigned_abs();
+
+    let rank = physics::inertia_rank(abs_w);
+    let inertia = inertia_curve[rank] as i64;
+
+    let pot_mod = (dopamine as i64 * d1_affinity as i64) / 128;
+    let dep_mod = (dopamine as i64 * d2_affinity as i64) / 128;
+
+    let final_pot = (gsop_potentiation as i64 + pot_mod).max(0);
+    let final_dep = (gsop_depression as i64 - dep_mod).max(0);
+
+    let burst_mult = (burst_count as i64).max(1);
+
+    let is_active = min_dist <= prop;
+    let decay_factor = prop.saturating_sub(min_dist) as i64; // From prop (100%) to 0 (0%)
+
+    let delta_pot = if is_active && prop > 0 {
+        (final_pot * inertia * burst_mult * decay_factor) / (128 * prop as i64)
+    } else {
+        0
+    };
+
+    let delta_dep = (final_dep * inertia * burst_mult) / 128;
+
+    let active_mask = 0i64.wrapping_sub(is_active as i64);
+    let delta = (delta_pot & active_mask) | ((-delta_dep) & !active_mask);
+
+    let new_abs_raw = abs_w as i64 + delta;
+    let new_abs = new_abs_raw.clamp(MIN_WEIGHT_LIMIT as i64, MAX_WEIGHT_LIMIT as i64) as u32;
+
+    (new_abs as i32) * sign
+}
+
 /// Applies Global Synaptic Optimization Protocol (GSOP) plastic weight updates to spiking somas.
 ///
-/// For each spiking neuron `tid` (`soma_flags & 0x01 != 0`):
-/// 1. Reads burst count multiplier `(flags >> 1) & 0x07` (minimum 1).
-/// 2. Reads profile `var_id = (flags >> 4) & 0x0F` from `variant_table`.
-/// 3. Iterates over 128 dendrite slots:
-///    - Skips if dendrite timer > 0.
-///    - Breaks if `target_packed == 0` (hardware trap).
-///    - Skips if weight == 0.
-///    - Extracts `seg_idx = target_packed >> 24` and `raw_id = target_packed & 0x00FFFFFF`.
-///    - Breaks if `raw_id == 0` (zero-index trap).
-///    - Computes `axon_id = raw_id - 1`, skipping if `axon_id >= total_axons`.
-///    - Checks active tail hit across all 8 axon heads using `wrapping_sub(seg_idx) <= prop`.
-///    - Calculates inertia rank `(abs_w >> 28).min(7)` and applies dopamine modulation (D1/D2).
-///    - Adjusts weight magnitude, clamping bottom to 0 and top to `2_140_000_000`, preserving weight sign.
+/// Delegates to `research_apply_gsop_plasticity` with linear Spatial Cooling.
 pub fn cpu_apply_gsop(
     state_buf: &mut MvpStateBuffer,
     axon_buf: &MvpAxonBuffer,
@@ -677,14 +717,19 @@ pub fn cpu_apply_gsop(
         }
 
         let burst_count = (flags >> 1) & 0x07;
-        let burst_mult = if burst_count > 0 {
-            burst_count as i32
-        } else {
-            1
-        };
-
         let var_id = ((flags >> 4) & 0x0F) as usize;
         let p = &variant_table[var_id];
+
+        let inertia_curve = [
+            p.inertia_curve[0] as i32,
+            p.inertia_curve[1] as i32,
+            p.inertia_curve[2] as i32,
+            p.inertia_curve[3] as i32,
+            p.inertia_curve[4] as i32,
+            p.inertia_curve[5] as i32,
+            p.inertia_curve[6] as i32,
+            p.inertia_curve[7] as i32,
+        ];
 
         for slot in 0..MAX_DENDRITES {
             let timer = state_buf.read_dendrite_timer(slot, tid);
@@ -716,56 +761,30 @@ pub fn cpu_apply_gsop(
             let h = axon_buf.read_head(axon_id);
             let prop = p.signal_propagation_length as u32;
 
-            // Branchless 8-head Hit Detection
-            let is_active = ((h.h0.wrapping_sub(seg_idx) <= prop) as i32)
-                | ((h.h1.wrapping_sub(seg_idx) <= prop) as i32)
-                | ((h.h2.wrapping_sub(seg_idx) <= prop) as i32)
-                | ((h.h3.wrapping_sub(seg_idx) <= prop) as i32)
-                | ((h.h4.wrapping_sub(seg_idx) <= prop) as i32)
-                | ((h.h5.wrapping_sub(seg_idx) <= prop) as i32)
-                | ((h.h6.wrapping_sub(seg_idx) <= prop) as i32)
-                | ((h.h7.wrapping_sub(seg_idx) <= prop) as i32);
-
-            let sign = if w >= 0 { 1 } else { -1 };
-            let abs_w = w.abs();
-
-            // 1. Inertia Rank (0..7)
-            let mut rank = (abs_w >> 28) as usize;
-            if rank > 7 {
-                rank = 7;
+            // 8-head min_dist calculation for Spatial Cooling
+            let mut min_dist = u32::MAX;
+            let heads = [h.h0, h.h1, h.h2, h.h3, h.h4, h.h5, h.h6, h.h7];
+            for head in heads {
+                let d = head.wrapping_sub(seg_idx);
+                if d <= prop {
+                    min_dist = min_dist.min(d);
+                }
             }
-            let inertia = p.inertia_curve[rank] as i32;
 
-            // 2. Dopamine modulation (D1 boosts LTP, D2 suppresses LTD)
-            let pot_mod = ((dopamine as i32) * (p.d1_affinity as i32)) >> 7;
-            let dep_mod = ((dopamine as i32) * (p.d2_affinity as i32)) >> 7;
+            let new_w = research_apply_gsop_plasticity(
+                w,
+                min_dist,
+                prop,
+                p.gsop_potentiation as i32,
+                p.gsop_depression as i32,
+                dopamine as i32,
+                p.d1_affinity as i32,
+                p.d2_affinity as i32,
+                burst_count as u32,
+                &inertia_curve,
+            );
 
-            let raw_pot = (p.gsop_potentiation as i32) + pot_mod;
-            let raw_dep = (p.gsop_depression as i32) - dep_mod;
-
-            let final_pot = raw_pot & !(raw_pot >> 31); // max(0, val)
-            let final_dep = raw_dep & !(raw_dep >> 31); // max(0, val)
-
-            let delta_pot = (final_pot * inertia * burst_mult) >> 7;
-            let delta_dep = (final_dep * inertia * burst_mult) >> 7;
-
-            let mut delta = if is_active != 0 {
-                delta_pot
-            } else {
-                -delta_dep
-            };
-
-            // Fixed Slot Decay = 1.0x
-            delta = (delta * 128) >> 7;
-
-            // 3. Apply & Clamp to Mass Domain Limits
-            let mut new_abs = abs_w + delta;
-            new_abs &= !(new_abs >> 31); // Clamp bottom to 0
-            if new_abs > 2140000000 {
-                new_abs = 2140000000;
-            } // Headroom guard
-
-            state_buf.write_dendrite_weight(slot, tid, new_abs * sign);
+            state_buf.write_dendrite_weight(slot, tid, new_w);
         }
     }
 }
