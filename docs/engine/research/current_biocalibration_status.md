@@ -75,18 +75,25 @@ Status: active research index, not a final report.
 | Порядок | Исследование | Статус | Gate для перехода дальше |
 | :--- | :--- | :--- | :--- |
 | 1 | **Single-cell calibration anchor** | completed | Есть воспроизводимый GLIF_3/current-clamp якорь: passive membrane, SFA/homeostasis, AHP/refractory sanity и class-specific priors без production migration. |
-| 2 | **Static microcircuit physiology** | next | Маленькая L4/L2-3/L5 сеть без пластичности не уходит в silence/runaway, показывает осмысленные firing rates, E/I balance, fatigue, spatial connectivity и визуализируемую геометрию. |
-| 3 | **Plastic microcircuit** | blocked on step 2 | GSOP/STDP/fatigue включаются только после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться, шумовые не разрушать сеть. |
+| 2 | **Static microcircuit physiology** | completed | Маленькая L4/L2-3/L5 сеть без пластичности не уходит в silence/runaway, показывает осмысленные firing rates, E/I balance, fatigue, spatial connectivity и визуализируемую геометрию. |
+| 3 | **Plastic microcircuit** | next | GSOP/STDP/fatigue включаются только после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться, шумовые не разрушать сеть. |
 | 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity, чтобы не смешивать ошибки topology, кодирования сенсоров, reward и моторного декодера. |
 
-### [Next] Static Microcircuit Physiology v1
+### [Next] Plastic Microcircuit v1
 
-- **Вопрос**: Дают ли откалиброванные одиночные GLIF-профили устойчивую пространственную сеть без обучения и reward?
-- **Зачем**: Получить измерительный стенд сети перед пластичностью и CartPole: spike raster, firing-rate heatmaps, fatigue, E/I balance, spatial render, projection matrices.
-- **Первый scope**: CPU/test-harness only; маленькая сеть L4_spiny/L23_aspiny/L5_spiny; Poisson/structured drive в L4; plasticity off; no production API/profile edits.
-- **Gate**: нет полного silence/runaway; L4 отвечает на вход, L23 модулирует активность, L5 получает delayed/output activity; все метрики и визуализации сохраняются в research archive.
+- **Вопрос**: Стабилизируют ли механизмы GSOP/STDP/fatigue веса синапсов в пространственной сети при длительной Poisson стимуляции?
+- **Зачем**: Убедиться в стабильности синаптической пластичности перед CartPole.
+- **Первый scope**: CPU/test-harness; пластичность включена; веса ограничены; коррелированные пути усиливаются.
+- **Gate**: отсутствие runaway пластичности или деградации сети под постоянным входом.
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Static Microcircuit Physiology v1 (`archive/2026-07-04_static_microcircuit_physiology_v1/`)
+
+- **Вопрос**: Дают ли откалиброванные одиночные GLIF-профили устойчивую пространственную сеть без обучения и reward?
+- **Итоговый вердикт (Static Network Physiology Sanity Passed)**: Откалиброванные параметры leak, rest и homeostasis обеспечивают стабильное функционирование сети (без ухода в silence или runaway excitation), с выраженным E/I балансом и нормальной динамикой синаптического утомления (fatigue). Все приемочные гейты успешно пройдены.
+- **Следующий шаг**: Переход к `GSOP STDP Plasticity` на базе этой структуры.
+- **Outputs**: Rust runner (`run_static_microcircuit_physiology_experiments`), Python скрипты анализа и визуализации, отчёт [static_microcircuit_physiology_v1.md](archive/2026-07-04_static_microcircuit_physiology_v1/reports/static_microcircuit_physiology_v1.md).
 
 ### [Completed] Class-Specific GLIF Calibration v1 (`archive/2026-07-04_class_specific_glif_calibration_v1/`)
 
@@ -133,6 +140,7 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Static Microcircuit Physiology v1](archive/2026-07-04_static_microcircuit_physiology_v1/README.md)
 - [Single-Specimen Biocalibration 314900022](archive/2026-07-04_full_neuron_replay_314900022_calibration/README.md)
 - [Full Neuron Replay 314900022 v1](archive/2026-07-04_full_neuron_replay_314900022/README.md)
 - [Biological Physics Verification](archive/2026-07-04_biology_metrics_verification/README.md)
@@ -147,6 +155,11 @@ Status: active research index, not a final report.
 
 - [biological_calibration_pack_v1.csv](../../../artifacts/biological_calibration_pack_v1.csv)
 - [biological_calibration_pack_v1.json](../../../artifacts/biological_calibration_pack_v1.json)
+
+### Static Microcircuit
+
+- [static_microcircuit_connectivity.json](../../../artifacts/static_microcircuit_connectivity.json)
+- [static_microcircuit_simulation_log.json](../../../artifacts/static_microcircuit_simulation_log.json)
 
 ### Specimen 314900022
 

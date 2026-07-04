@@ -2367,3 +2367,486 @@ fn run_class_specific_glif_calibration_experiments() {
 
     println!("Class-Specific GLIF Calibration v1 Rust simulations complete.");
 }
+
+#[test]
+#[allow(
+    clippy::needless_range_loop,
+    clippy::collapsible_if,
+    clippy::useless_vec
+)]
+fn run_static_microcircuit_physiology_experiments() {
+    println!("=== Starting Static Microcircuit Physiology v1 Experiments ===");
+    use compute_api::{ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload};
+    use compute_cpu::{CpuBackend, CpuBackendConfig};
+    use std::collections::VecDeque;
+    use test_harness::{MvpAxonBuffer, MvpStateBuffer};
+    use types::{PackedTarget, SomaFlags};
+
+    let artifacts_dir = get_artifacts_dir();
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    // 1. Load profiles and setup variants
+    let path_visl4 = find_profile_path("L4_spiny_VISl4_4");
+    let path_visp5 = find_profile_path("L5_spiny_VISp5_7");
+    let path_visp23 = find_profile_path("L23_aspiny_VISp23_218");
+
+    let mut var_visl4 = load_variant(path_visl4);
+    let mut var_visp5 = load_variant(path_visp5);
+    let mut var_visp23 = load_variant(path_visp23);
+
+    // Override with calibrated class-specific parameters
+    // L4
+    var_visl4.leak_shift = 4;
+    var_visl4.rest_potential = -70000;
+    var_visl4.homeostasis_penalty = 1940;
+    var_visl4.homeostasis_decay = 4;
+    var_visl4.ahp_amplitude = 5000;
+    var_visl4.refractory_period = 14;
+    var_visl4.heartbeat_m = 0;
+    var_visl4.gsop_potentiation = 0;
+    var_visl4.gsop_depression = 0;
+
+    // L5
+    var_visp5.leak_shift = 4;
+    var_visp5.rest_potential = -76000;
+    var_visp5.homeostasis_penalty = 1940;
+    var_visp5.homeostasis_decay = 9;
+    var_visp5.ahp_amplitude = 5000;
+    var_visp5.refractory_period = 14;
+    var_visp5.heartbeat_m = 0;
+    var_visp5.gsop_potentiation = 0;
+    var_visp5.gsop_depression = 0;
+
+    // L23
+    var_visp23.leak_shift = 2;
+    var_visp23.rest_potential = -66000;
+    var_visp23.homeostasis_penalty = 500;
+    var_visp23.homeostasis_decay = 4;
+    var_visp23.ahp_amplitude = 5000;
+    var_visp23.refractory_period = 14;
+    var_visp23.heartbeat_m = 0;
+    var_visp23.gsop_potentiation = 0;
+    var_visp23.gsop_depression = 0;
+
+    let mut variant_table = [bytemuck::Zeroable::zeroed(); layout::VARIANT_LUT_LEN];
+    variant_table[0] = var_visl4;
+    variant_table[1] = var_visp5;
+    variant_table[2] = var_visp23;
+
+    // 2. Setup Network layout
+    let padded_n = 64;
+    let total_axons = 96;
+
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axons_buf = MvpAxonBuffer::new(total_axons);
+
+    // Soma flags, rest potentials, and mapping
+    for i in 0..padded_n {
+        let type_id = if i < 32 {
+            0 // L4
+        } else if i < 48 {
+            2 // L23
+        } else {
+            1 // L5
+        };
+        let var = &variant_table[type_id];
+
+        state_buf.write_soma_flags(i, SomaFlags::new(false, 0, type_id as u8).0);
+        state_buf.write_soma_voltage(i, var.rest_potential);
+        state_buf.write_soma_to_axon(i, i as u32);
+    }
+
+    // Assign spatial coordinates
+    let mut coordinates = Vec::new();
+    for i in 0..64 {
+        let (x, y, z) = if i < 32 {
+            ((i % 6) as f32 * 12.0, (i / 6) as f32 * 12.0, 10.0f32)
+        } else if i < 48 {
+            (
+                ((i - 32) % 4) as f32 * 18.0,
+                ((i - 32) / 4) as f32 * 18.0,
+                20.0f32,
+            )
+        } else {
+            (
+                ((i - 48) % 4) as f32 * 18.0,
+                ((i - 48) / 4) as f32 * 18.0,
+                0.0f32,
+            )
+        };
+        coordinates.push((x, y, z));
+    }
+
+    // Determine sparse distance-based connections
+    struct SimpleRng {
+        state: u64,
+    }
+    impl SimpleRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+        fn next_u32(&mut self) -> u32 {
+            self.state = self
+                .state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (self.state >> 32) as u32
+        }
+        fn next_f32(&mut self) -> f32 {
+            (self.next_u32() as f32) / (u32::MAX as f32)
+        }
+    }
+
+    let mut rng = SimpleRng::new(42);
+    let mut edges = Vec::new();
+    let mut next_slot = vec![0usize; 64];
+
+    // L4 (0..32) -> L23 (32..48) [excitatory]
+    for src in 0..32 {
+        for dest in 32..48 {
+            let (x1, y1, z1) = coordinates[src];
+            let (x2, y2, z2) = coordinates[dest];
+            let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+            if d < 28.0 && rng.next_f32() < 0.45 {
+                edges.push((src, dest, 6500i32));
+            }
+        }
+    }
+
+    // L4 (0..32) -> L5 (48..64) [excitatory]
+    for src in 0..32 {
+        for dest in 48..64 {
+            let (x1, y1, z1) = coordinates[src];
+            let (x2, y2, z2) = coordinates[dest];
+            let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+            if d < 28.0 && rng.next_f32() < 0.45 {
+                edges.push((src, dest, 6500i32));
+            }
+        }
+    }
+
+    // L23 (32..48) -> L4 (0..32) [inhibitory]
+    for src in 32..48 {
+        for dest in 0..32 {
+            let (x1, y1, z1) = coordinates[src];
+            let (x2, y2, z2) = coordinates[dest];
+            let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+            if d < 32.0 && rng.next_f32() < 0.55 {
+                edges.push((src, dest, -4000i32));
+            }
+        }
+    }
+
+    // L23 (32..48) -> L5 (48..64) [inhibitory]
+    for src in 32..48 {
+        for dest in 48..64 {
+            let (x1, y1, z1) = coordinates[src];
+            let (x2, y2, z2) = coordinates[dest];
+            let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+            if d < 32.0 && rng.next_f32() < 0.55 {
+                edges.push((src, dest, -4000i32));
+            }
+        }
+    }
+
+    // Virtual inputs: Connect each L4 neuron to 10 virtual axons for dense Poisson bombardment
+    for i in 0..32 {
+        for k in 0..10 {
+            let axon_idx = 64 + (i + k) % 32;
+            edges.push((axon_idx, i, 6000i32));
+        }
+    }
+
+    // Write to dendrite slots
+    for &(src, dest, weight) in &edges {
+        let slot = next_slot[dest];
+        assert!(slot < 128, "Dendrite slots exceeded 128 limit!");
+        let target = PackedTarget::pack(src as u32, 0).0;
+        state_buf.write_dendrite_target(slot, dest, target);
+        state_buf.write_dendrite_weight(slot, dest, weight << 16);
+        next_slot[dest] += 1;
+    }
+
+    // Save topology/connectivity specs
+    let mut neurons_json = Vec::new();
+    for i in 0..64 {
+        let (x, y, z) = coordinates[i];
+        let class = if i < 32 {
+            "L4_spiny"
+        } else if i < 48 {
+            "L23_aspiny"
+        } else {
+            "L5_spiny"
+        };
+        neurons_json.push(serde_json::json!({
+            "id": i,
+            "class": class,
+            "x": x,
+            "y": y,
+            "z": z
+        }));
+    }
+
+    let mut edges_json = Vec::new();
+    for &(src, dest, weight) in &edges {
+        edges_json.push(serde_json::json!({
+            "src": src,
+            "dest": dest,
+            "weight": weight
+        }));
+    }
+
+    let conn_json = serde_json::json!({
+        "neurons": neurons_json,
+        "edges": edges_json
+    });
+    let conn_path = artifacts_dir.join("static_microcircuit_connectivity.json");
+    let file = File::create(&conn_path).unwrap();
+    serde_json::to_writer_pretty(file, &conn_json).unwrap();
+    println!("Saved microcircuit connectivity to {:?}", conn_path);
+
+    // 3. Simulation run using CPU backend
+    let backend_config = CpuBackendConfig {
+        thread_count: Some(1),
+    };
+    let mut backend = CpuBackend::new(backend_config).unwrap();
+    let spec = ShardAllocSpec {
+        padded_n: padded_n as u32,
+        total_axons: total_axons as u32,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: state_buf.as_bytes(),
+                axons_blob: axons_buf.as_bytes(),
+                variant_table: &variant_table,
+            },
+        )
+        .unwrap();
+
+    let mut out_spikes = vec![0u32; padded_n];
+    let mut out_counts = vec![0u32; 1];
+    let mapped_somas: Vec<u32> = (0..64).collect();
+
+    let mut snap_state = vec![0u8; state_buf.as_bytes().len()];
+    let mut snap_axons = vec![0u8; axons_buf.as_bytes().len()];
+
+    let mut incoming_padded = vec![0u32; 64];
+    let mut recent_spikes = VecDeque::new();
+    let mut sim_log = Vec::new();
+
+    for tick in 0..4000 {
+        let mut incoming_count = 0;
+        let p_val = if tick < 1000 {
+            0.0
+        } else if tick < 2000 {
+            0.015 // weak Poisson drive
+        } else if tick < 3000 {
+            0.060 // moderate Poisson drive
+        } else {
+            0.090 // structured drive
+        };
+
+        if tick < 3000 {
+            for axon_idx in 64..96 {
+                if rng.next_f32() < p_val {
+                    incoming_padded[incoming_count] = axon_idx as u32;
+                    incoming_count += 1;
+                }
+            }
+        } else {
+            // Structured alternating: Alternate inputs for Group A (64..80) and Group B (80..96)
+            let group_a = ((tick - 3000) / 250) % 2 == 0;
+            for axon_idx in 64..96 {
+                let is_a = axon_idx < 80;
+                if is_a == group_a {
+                    if rng.next_f32() < p_val {
+                        incoming_padded[incoming_count] = axon_idx as u32;
+                        incoming_count += 1;
+                    }
+                }
+            }
+        }
+
+        out_counts[0] = 0;
+        out_spikes.fill(0);
+
+        let cmd = DayBatchCmd {
+            sync_batch_ticks: 1,
+            tick_base: tick as u64,
+            v_seg: 1,
+            dopamine: 0,
+            input_bitmask: None,
+            num_virtual_axons: 0,
+            virtual_offset: 0,
+            input_words_per_tick: 0,
+            incoming_spikes: if incoming_count > 0 {
+                Some(&incoming_padded)
+            } else {
+                None
+            },
+            incoming_spike_counts: &[incoming_count as u32],
+            max_spikes_per_tick: padded_n as u32,
+            num_outputs: 64,
+            mapped_soma_ids: &mapped_somas,
+            output_spikes: &mut out_spikes,
+            output_spike_counts: &mut out_counts,
+        };
+
+        backend.run_day_batch(handle, cmd).unwrap();
+
+        backend
+            .debug_snapshot(
+                handle,
+                ShardSnapshotMut {
+                    state_blob: &mut snap_state,
+                    axons_blob: &mut snap_axons,
+                },
+            )
+            .unwrap();
+
+        let snap_state_buf = MvpStateBuffer::from_raw(padded_n, total_axons, snap_state.clone());
+
+        // Process spikes for this tick
+        let count = out_counts[0] as usize;
+        let mut tick_spikes = vec![false; 64];
+        let mut l4_spikes = 0;
+        let mut l23_spikes = 0;
+        let mut l5_spikes = 0;
+
+        for s_idx in 0..count {
+            let soma_id = out_spikes[s_idx] as usize;
+            if soma_id < 64 {
+                tick_spikes[soma_id] = true;
+                if soma_id < 32 {
+                    l4_spikes += 1;
+                } else if soma_id < 48 {
+                    l23_spikes += 1;
+                } else {
+                    l5_spikes += 1;
+                }
+            }
+        }
+
+        let mut l4_voltages = Vec::new();
+        let mut l23_voltages = Vec::new();
+        let mut l5_voltages = Vec::new();
+
+        let mut l4_thresh = Vec::new();
+        let mut l23_thresh = Vec::new();
+        let mut l5_thresh = Vec::new();
+
+        let mut l4_fatigues = Vec::new();
+        let mut l23_fatigues = Vec::new();
+        let mut l5_fatigues = Vec::new();
+
+        let mut active_exc_weights = 0i64;
+        let mut active_inh_weights = 0i64;
+
+        for i in 0..64 {
+            let v = snap_state_buf.read_soma_voltage(i);
+            let th = snap_state_buf.read_threshold_offset(i);
+
+            let slots_count = next_slot[i];
+            let mut fatigue_sum = 0.0;
+            let cap = 15.0f64; // fatigue capacity
+
+            for slot in 0..slots_count {
+                let f_timer = snap_state_buf.read_dendrite_timer(slot, i);
+                fatigue_sum += f_timer as f64 / cap;
+
+                // Track active synaptic inputs to compute active weights sum (E/I balance)
+                let target = PackedTarget(snap_state_buf.read_dendrite_target(slot, i));
+                if target.is_active() {
+                    if let Some((raw_axon, _seg)) = target.unpack() {
+                        let is_active = if raw_axon < 64 {
+                            tick_spikes[raw_axon as usize]
+                        } else {
+                            incoming_padded[0..incoming_count].contains(&raw_axon)
+                        };
+
+                        if is_active {
+                            let w = snap_state_buf.read_dendrite_weight(slot, i) >> 16;
+                            if w > 0 {
+                                active_exc_weights += w as i64;
+                            } else {
+                                active_inh_weights += w.abs() as i64;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let avg_fatigue = if slots_count > 0 {
+                fatigue_sum / slots_count as f64
+            } else {
+                0.0
+            };
+
+            if i < 32 {
+                l4_voltages.push(v);
+                l4_thresh.push(th);
+                l4_fatigues.push(avg_fatigue);
+            } else if i < 48 {
+                l23_voltages.push(v);
+                l23_thresh.push(th);
+                l23_fatigues.push(avg_fatigue);
+            } else {
+                l5_voltages.push(v);
+                l5_thresh.push(th);
+                l5_fatigues.push(avg_fatigue);
+            }
+        }
+
+        recent_spikes.push_back((l4_spikes, l23_spikes, l5_spikes));
+        if recent_spikes.len() > 100 {
+            recent_spikes.pop_front();
+        }
+
+        let (total_l4, total_l23, total_l5) = recent_spikes
+            .iter()
+            .fold((0, 0, 0), |acc, x| (acc.0 + x.0, acc.1 + x.1, acc.2 + x.2));
+        let total_all = total_l4 + total_l23 + total_l5;
+
+        let silence_flag = tick >= 1100 && total_all == 0;
+        let l4_runaway = total_l4 as f64 / 32.0 > 25.0;
+        let l23_runaway = total_l23 as f64 / 16.0 > 25.0;
+        let l5_runaway = total_l5 as f64 / 16.0 > 25.0;
+        let runaway_flag = l4_runaway || l23_runaway || l5_runaway;
+
+        sim_log.push(serde_json::json!({
+            "tick": tick,
+            "regime": if tick < 1000 { 1 } else if tick < 2000 { 2 } else if tick < 3000 { 3 } else { 4 },
+            "l4_spikes": l4_spikes,
+            "l23_spikes": l23_spikes,
+            "l5_spikes": l5_spikes,
+            "l4_mean_voltage": l4_voltages.iter().sum::<i32>() as f64 / 32.0,
+            "l23_mean_voltage": l23_voltages.iter().sum::<i32>() as f64 / 16.0,
+            "l5_mean_voltage": l5_voltages.iter().sum::<i32>() as f64 / 16.0,
+            "l4_mean_threshold": l4_thresh.iter().sum::<i32>() as f64 / 32.0,
+            "l23_mean_threshold": l23_thresh.iter().sum::<i32>() as f64 / 16.0,
+            "l5_mean_threshold": l5_thresh.iter().sum::<i32>() as f64 / 16.0,
+            "l4_mean_fatigue": l4_fatigues.iter().sum::<f64>() / 32.0,
+            "l23_mean_fatigue": l23_fatigues.iter().sum::<f64>() / 16.0,
+            "l5_mean_fatigue": l5_fatigues.iter().sum::<f64>() / 16.0,
+            "active_exc_weights": active_exc_weights,
+            "active_inh_weights": active_inh_weights,
+            "silence_flag": silence_flag,
+            "runaway_flag": runaway_flag,
+            "spiked_neuron_ids": out_spikes[0..count].to_vec()
+        }));
+    }
+
+    backend.free_shard(handle).unwrap();
+
+    let log_path = artifacts_dir.join("static_microcircuit_simulation_log.json");
+    let file = File::create(&log_path).unwrap();
+    serde_json::to_writer_pretty(file, &sim_log).unwrap();
+    println!("Saved microcircuit simulation log to {:?}", log_path);
+
+    println!("Static Microcircuit Physiology v1 Rust simulations complete.");
+}
