@@ -38,6 +38,7 @@ Status: active research index, not a final report.
 | [2026-07-05 plastic microcircuit v1.1 structured potentiation](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/README.md) | archived | Спроектирован и протестирован метод сильного спаренного структурированного стимула. Доказана селективная защита matched Virtual->L4 от LTD, но strict gate положительной потенциации не закрыт. |
 | [2026-07-05 plastic microcircuit v1.2 positive potentiation / activity recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md) | archived | Достигнута строгая положительная потенциация сконструированных matched Virtual->L4 в масс-домене (+68834.90) и exact-заряде (+1.0503 uV), но N=256 L4 activity gate не закрыт, а unmatched-control отсутствует. |
 | [2026-07-05 plastic microcircuit v1.3 control-preserving potentiation](archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/README.md) | archived | Сохранена unmatched-control группа и доказан relative matched bias (+2.7180 uV vs +1.4708 uV), но N=256 L4 activity gate не закрыт, а positive-ratio gate дает tie 100%/100%. |
+| [2026-07-05 plastic microcircuit v1.4 controlled + baker shadow](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/README.md) | archived | Manual selectivity gate закрыт (0.4318), baker shadow сохраняет положительный matched-bias trend (0.0648), но финальный 100k-tick manual learning L4=2.31 Hz ниже hard gate 3.0 Hz. |
 
 ## 3. Что сейчас известно
 
@@ -94,10 +95,18 @@ Status: active research index, not a final report.
 | 3.1 | **Plastic microcircuit v1.1 structured potentiation** | completed / partial | Получено сильное селективное удержание matched `Virtual -> L4` от LTD, но strict gate положительной потенциации и L4 activity gate не закрыты. |
 | 3.2 | **Plastic microcircuit v1.2 positive potentiation / activity recovery** | completed / partial | Достигнута строгая положительная потенциация matched Virtual->L4 в масс-домене и exact-заряде. Не закрыты N=256 L4 activity gate и unmatched-control gate. |
 | 3.3 | **Plastic microcircuit v1.3 control-preserving potentiation** | completed / partial | Сохранена unmatched Virtual->L4 control group (8 matched + 4 unmatched), доказан relative matched bias (+2.7180 uV vs +1.4708 uV), Dale/sign invariants соблюдены. Не закрыты N=256 L4 activity gate (2.62 Hz < 3.0 Hz) и positive-ratio gate (matched=100%, unmatched=100%). |
-| 3.4 | **Plastic microcircuit v1.4 activity-gate + control separation** | next | Нужно одновременно вернуть L4 learning activity >= 3.0 Hz и развести matched/unmatched контроль сильнее, либо явно заменить binary positive-ratio gate на более осмысленную метрику pathway selectivity. |
-| 4 | **Sensorimotor toy / CartPole** | blocked | CartPole остается закрыт до прохождения full activity + pathway gates на plastic microcircuit. |
+| 3.4 | **Plastic microcircuit v1.4 controlled + baker shadow** | completed / partial | Manual selectivity gate закрыт (0.4318), baker shadow компилируется и сохраняет положительный matched-bias trend (0.0648). Финальный 100k-tick manual learning L4=2.31 Hz ниже hard gate 3.0 Hz, поэтому pre-CartPole gate не закрыт. |
+| 3.5 | **Plastic microcircuit v1.5 long-run activity recovery** | next | Нужно перенести winner selection на long-run horizon или подобрать компенсацию fatigue/adaptation/input, чтобы финальный N=256 learning L4 >= 3.0 Hz без потери selectivity и baker shadow trend. |
+| 4 | **Sensorimotor toy / CartPole** | blocked | CartPole остается закрыт до прохождения final manual activity gate и сохранения baker shadow trend. |
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Plastic Microcircuit v1.4 Controlled + Baker Shadow (`archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/`)
+
+- **Вопрос**: Можно ли одновременно вернуть L4 learning activity >= 3.0 Hz и перенести matched bias на bakers-compiled spatial connectome, сохранив стабильность и invariants?
+- **Итоговый вердикт (Partial / Activity Gate Failed)**: Phase A (Manual) закрыл selectivity gate (0.4318) и сохранил Dale/sign invariants, но финальный 100k-tick N=256 learning run имеет L4=2.31 Hz, ниже hard gate 3.0 Hz. Короткий sweep имел L4 > 3 Hz, но это нельзя засчитывать вместо final long-run. Phase B (Baker) трехмерный коннектом скомпилирован успешно (384 сомы, 48,786 синапсов), активность не уходит в silence/runaway smoke (L4=7.18 Hz, L23=5.89 Hz, L5=1.00 Hz), и подтвержден положительный matched-bias trend (selectivity = 0.0648). Pre-CartPole gate не закрыт.
+- **Следующий шаг**: `Plastic microcircuit v1.5 long-run activity recovery`; вернуть N=256 learning L4 >= 3.0 Hz на финальном long-run без потери selectivity и baker shadow trend.
+- **Outputs**: Rust runner, скомпилированный Baker шард, 11 аналитических графиков, отчёт [plastic_microcircuit_v1_4_controlled_baker_shadow.md](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/reports/plastic_microcircuit_v1_4_controlled_baker_shadow.md).
 
 ### [Completed] Plastic Microcircuit v1.3 Control-Preserving Potentiation (`archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/`)
 
@@ -214,6 +223,7 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Plastic Microcircuit v1.4 Controlled + Baker Shadow](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/README.md)
 - [Plastic Microcircuit v1.2 Positive Potentiation / Activity Recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md)
 - [Plastic Microcircuit v1.1 Structured Potentiation](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/README.md)
 - [Static Microcircuit v1.4 N=512 Fine-Tuning](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/README.md)
@@ -238,6 +248,9 @@ Status: active research index, not a final report.
 - [biological_calibration_pack_v1.json](../../../artifacts/biological_calibration_pack_v1.json)
 
 ### Plastic Microcircuit
+- [plastic_microcircuit_v1_4_baker_summary.json](../../../artifacts/plastic_microcircuit_v1_4_baker_summary.json)
+- [plastic_microcircuit_v1_4_baker_topology_stats.json](../../../artifacts/plastic_microcircuit_v1_4_baker_topology_stats.json)
+- [plastic_microcircuit_v1_4_manual_summary.json](../../../artifacts/plastic_microcircuit_v1_4_manual_summary.json)
 - [plastic_microcircuit_v1_2_summary.json](../../../artifacts/plastic_microcircuit_v1_2_summary.json)
 - [plastic_microcircuit_v1_2_sweep_summary.json](../../../artifacts/plastic_microcircuit_v1_2_sweep_summary.json)
 - [plastic_microcircuit_v1_2_best_edge_log_256.json](../../../artifacts/plastic_microcircuit_v1_2_best_edge_log_256.json)
