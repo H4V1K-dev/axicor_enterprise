@@ -98,15 +98,34 @@ Status: active research index, not a final report.
 | 3.3 | **Plastic microcircuit v1.3 control-preserving potentiation** | completed / partial | Сохранена unmatched Virtual->L4 control group (8 matched + 4 unmatched), доказан relative matched bias (+2.7180 uV vs +1.4708 uV), Dale/sign invariants соблюдены. Не закрыты N=256 L4 activity gate (2.62 Hz < 3.0 Hz) и positive-ratio gate (matched=100%, unmatched=100%). |
 | 3.4 | **Plastic microcircuit v1.4 controlled + baker shadow** | completed / superseded | Manual selectivity gate закрыт (0.4318), baker shadow компилируется и сохраняет положительный matched-bias trend (0.0648). Старый hard fail по L4<3 Hz снят последующим sparse-activity аудитом v1.5. |
 | 3.5 | **Plastic microcircuit v1.5 biological sparse-activity gate audit** | completed / sparse-functional pass | Заменен жесткий порог L4 >= 3.0 Hz на биологический sparse-activity gate. Manual audit L4=1.91 Hz проходит sparse-functional gate; Baker audit L4=6.44 Hz сохраняет matched-bias trend. |
-| 4 | **Sensorimotor toy / CartPole** | next / unblocked | CartPole разблокирован как следующий toy research run на параметрах v1.4/v1.5; это не production RL validation. |
+| 4 | **Baker spatial growth audit v1** | completed / whitelist fixed, capacity warning | Baker строит реальный 3D-коннектом; whitelist fix убрал все unexpected projections, `VirtualInput` стал input-only, все 7 expected projections присутствуют. Остался capacity warning: L4/L23 насыщены 128/128, dropped candidates=106,010. |
+| 4.1 | **Baker VirtualInput target suppression + capacity retest** | completed / folded into v1 | Входящие синапсы на `VirtualInput` targets подавлены в том же аудите; projection matrix чистая, но saturation small-shard caveat остается. |
+| 4.2 | **Baker functional topology replay** | next | На fixed-whitelist baker-коннектоме прогнать activity/plasticity replay и проверить, что spatial topology дает функциональный выигрыш, а не только красивую геометрию. |
+| 4.3 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
+| 4.4 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
+| 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
+
+### [Next] Baker Functional Topology Replay
+
+- **Вопрос**: Дает ли fixed-whitelist spatial topology функционально осмысленную активность и пластичность, а не только правильную projection matrix?
+- **Почему сейчас**: Baker Spatial Growth Audit v1 подтвердил, что whitelist-ошибка исправлена: все 7 expected projections присутствуют, unexpected projections отсутствуют, `VirtualInput` input-only. Оставшийся риск — saturation small-shard caveat (L4/L23 128/128).
+- **Gate**: activity не уходит в silence/runaway, sparse-functional metrics сохраняются, matched-bias/GSOP trend не ломается, saturation не превращается в патологическое подавление L4/L23/L5.
+- **Следующий шаг после gate**: `Night phase structural maintenance audit`, затем `Structural plasticity / growth loop`, и только после этого CartPole toy.
+
+### [Completed] Baker Spatial Growth Audit v1 (`archive/2026-07-05_baker_spatial_growth_audit_v1/`)
+
+- **Вопрос**: Что baker реально строит в пространстве: projection matrix, fan-in/fan-out, distance/segment distributions, E/I balance и seed variance?
+- **Итоговый вердикт (Partial / Whitelist Fixed / Capacity Warning)**: Все expected V1-like projections присутствуют, unexpected projections отсутствуют, `VirtualInput` теперь input-only (100% zero-input by design). Собрано 32,492 live synapses, dropped candidates=106,010. L4/L23 остаются насыщены 128/128, поэтому functional replay разрешен только с saturation caveat.
+- **Следующий шаг**: `Baker Functional Topology Replay`.
+- **Outputs**: Rust audit runner, Python analysis script, 7 topology plots, отчёт [baker_spatial_growth_audit_v1.md](archive/2026-07-05_baker_spatial_growth_audit_v1/reports/baker_spatial_growth_audit_v1.md).
 
 ### [Completed] Plastic Microcircuit v1.5 Biological Sparse-Activity Gate Audit (`archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/`)
 
 - **Вопрос**: Действительно ли необходим жесткий порог L4 >= 3.0 Hz, и является ли L4 soft-warning band (1.0..3.0 Hz) здоровым sparse-functional режимом?
-- **Итоговый вердикт (Pass / Sparse-Functional Approved)**: Заменен грубый жесткий порог L4 >= 3.0 Hz на биологически обоснованные ворота разреженной активности (sparse-activity gate). Повторный manual audit имеет L4=1.91 Hz, active fraction=100%, longest L4 silence=0.060s, lagged L4->L23 population coupling proxy=89.83%, selectivity=0.4357, Dale/sign violations=0. Baker audit имеет L4=6.44 Hz и сохраняет matched-bias trend (selectivity=0.0648). Transfer metric является first-pass population coupling proxy, а не causal single-synapse probability. CartPole разблокирован как следующий toy research run.
-- **Следующий шаг**: Sensorimotor toy / CartPole research run на параметрах v1.4/v1.5.
+- **Итоговый вердикт (Pass / Sparse-Functional Approved)**: Заменен грубый жесткий порог L4 >= 3.0 Hz на биологически обоснованные ворота разреженной активности (sparse-activity gate). Повторный manual audit имеет L4=1.91 Hz, active fraction=100%, longest L4 silence=0.060s, lagged L4->L23 population coupling proxy=89.83%, selectivity=0.4357, Dale/sign violations=0. Baker audit имеет L4=6.44 Hz и сохраняет matched-bias trend (selectivity=0.0648). Transfer metric является first-pass population coupling proxy, а не causal single-synapse probability. CartPole физиологически разблокирован, но отложен за topology/night-phase блок.
+- **Следующий шаг**: CartPole остается физиологически разблокированным, но roadmap сознательно ставит перед ним topology/night-phase блок: `Baker spatial growth audit`, `Baker functional topology replay`, `Night phase structural maintenance`.
 - **Outputs**: Rust test runner, Python скрипт анализа, 8 физиологических графиков, отчёт [plastic_microcircuit_v1_5_sparse_activity_report.md](archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/reports/plastic_microcircuit_v1_5_sparse_activity_report.md).
 
 ### [Completed] Plastic Microcircuit v1.4 Controlled + Baker Shadow (`archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/`)
@@ -231,6 +250,7 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Baker Spatial Growth Audit v1](archive/2026-07-05_baker_spatial_growth_audit_v1/README.md)
 - [Plastic Microcircuit v1.4 Controlled + Baker Shadow](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/README.md)
 - [Plastic Microcircuit v1.2 Positive Potentiation / Activity Recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md)
 - [Plastic Microcircuit v1.1 Structured Potentiation](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/README.md)

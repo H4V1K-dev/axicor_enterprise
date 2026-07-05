@@ -11683,3 +11683,622 @@ fn run_plastic_microcircuit_v1_5_sparse_activity_audit() {
     println!("Baker Phase B audit logs written successfully.");
     println!("Plastic Microcircuit v1.5 Rust simulations complete.");
 }
+
+#[test]
+fn run_baker_spatial_growth_audit_v1() {
+    println!("=== Starting Baker Spatial Growth Audit v1 ===");
+    use std::fs::File;
+    use types::MasterSeed;
+
+    let load_neuron_type = |name: &str| -> config::NeuronType {
+        let path = find_profile_path(name);
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Could not read {}: {:?}", path.display(), e));
+        toml::from_str(&content)
+            .unwrap_or_else(|e| panic!("Failed to parse TOML from {}: {:?}", path.display(), e))
+    };
+
+    let mut artifacts_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    artifacts_dir.pop(); // to crates
+    artifacts_dir.pop(); // to AxiEngine
+    artifacts_dir.pop(); // to workflow
+    artifacts_dir.push("artifacts");
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    // Load base neuron type profiles
+    let nt_l4_real = load_neuron_type("L4_spiny_VISl4_4");
+    let nt_l23_real = load_neuron_type("L23_aspiny_VISp23_218");
+    let nt_l5_real = load_neuron_type("L5_spiny_VISp5_7");
+
+    // Winner parameters from v1.4/v1.5
+    let inh_l23_weight: i32 = -900;
+
+    // Build neuron types matching v1.4/v1.5 baker shadow config
+    let mut nt_virtual = nt_l4_real.clone();
+    nt_virtual.name = "VirtualInput".to_string();
+    nt_virtual.gsop.is_inhibitory = false;
+    nt_virtual.gsop.initial_synapse_weight = 3500;
+    nt_virtual.growth.dendrite_whitelist = vec!["NoDendriteSource".to_string()];
+    nt_virtual.growth.growth_vertical_bias = 2.0;
+    nt_virtual.growth.dendrite_radius_um = 10.0;
+    nt_virtual.timing.fatigue_capacity = 255;
+
+    let mut nt_no_dendrite_source = nt_l4_real.clone();
+    nt_no_dendrite_source.name = "NoDendriteSource".to_string();
+
+    let mut nt_l4 = nt_l4_real.clone();
+    nt_l4.name = "L4_spiny".to_string();
+    nt_l4.timing.fatigue_capacity = 18;
+    nt_l4.gsop.gsop_potentiation = 240;
+    nt_l4.gsop.gsop_depression = 68;
+    nt_l4.gsop.is_inhibitory = false;
+    nt_l4.growth.dendrite_whitelist = vec!["VirtualInput".to_string(), "L23_aspiny".to_string()];
+    nt_l4.growth.growth_vertical_bias = 1.0;
+    nt_l4.growth.dendrite_radius_um = 12.0;
+
+    let mut nt_l23 = nt_l23_real.clone();
+    nt_l23.name = "L23_aspiny".to_string();
+    nt_l23.gsop.initial_synapse_weight = inh_l23_weight.unsigned_abs() as u16;
+    nt_l23.gsop.is_inhibitory = true;
+    nt_l23.growth.dendrite_whitelist = vec![
+        "L4_spiny".to_string(),
+        "L5_spiny".to_string(),
+        "L23_aspiny".to_string(),
+    ];
+    nt_l23.growth.growth_vertical_bias = 0.0;
+    nt_l23.growth.dendrite_radius_um = 10.0;
+
+    let mut nt_l5 = nt_l5_real.clone();
+    nt_l5.name = "L5_spiny".to_string();
+    nt_l5.gsop.is_inhibitory = false;
+    nt_l5.growth.dendrite_whitelist = vec!["L4_spiny".to_string(), "L23_aspiny".to_string()];
+    nt_l5.growth.growth_vertical_bias = -1.5;
+    nt_l5.growth.dendrite_radius_um = 10.0;
+
+    let layers = vec![
+        config::LayerConfig {
+            name: "Virtual".to_string(),
+            height_pct: 0.25,
+            density: 0.0625,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "VirtualInput".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L4".to_string(),
+            height_pct: 0.25,
+            density: 0.0625,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L4_spiny".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L23".to_string(),
+            height_pct: 0.25,
+            density: 0.03125,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L23_aspiny".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L5".to_string(),
+            height_pct: 0.25,
+            density: 0.03125,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L5_spiny".to_string(),
+                share: 1.0,
+            }],
+        },
+    ];
+
+    let shard_config = config::ShardConfig {
+        meta: None,
+        dimensions: config::ShardDimensions {
+            w: 16,
+            d: 16,
+            h: 32,
+        },
+        settings: config::ShardSettings {
+            ghost_capacity: 1024,
+            prune_threshold: 0,
+            max_sprouts: 8,
+            night_interval_ticks: 100,
+            save_checkpoints_interval_ticks: 1000,
+        },
+        layers,
+        neuron_types: vec![
+            nt_virtual.clone(),
+            nt_l4.clone(),
+            nt_l23.clone(),
+            nt_l5.clone(),
+            nt_no_dendrite_source.clone(),
+        ],
+        sockets: None,
+        ports: None,
+    };
+
+    let type_names = ["VirtualInput", "L4_spiny", "L23_aspiny", "L5_spiny"];
+    let type_layer_names = ["Virtual", "L4", "L23", "L5"];
+
+    let seeds: Vec<u64> = vec![12345, 12346, 12347];
+    let mut all_seed_results = Vec::new();
+
+    for &seed_val in &seeds {
+        println!("--- Processing seed {} ---", seed_val);
+        let master_seed = MasterSeed(seed_val);
+
+        // Stage 1: Topology generation (soma placement)
+        let topo_input = topology::SingleShardTopologyInput {
+            config: &shard_config,
+            seed: master_seed,
+        };
+        let topo = topology::TopologyEngine::generate_single_shard_topology(&topo_input)
+            .expect("Topology generation failed");
+
+        // Stage 2: Axon growth
+        let growth_input = topology::AxonGrowthInput {
+            config: &shard_config,
+            topology: &topo,
+            seed: master_seed,
+        };
+        let growth =
+            topology::TopologyEngine::grow_local_axons(&growth_input).expect("Axon growth failed");
+
+        // Stage 3: Synapse formation
+        let synapse_input = topology::SynapseFormationInput {
+            config: &shard_config,
+            topology: &topo,
+            growth: &growth,
+            voxel_size_um: 1.0,
+            seed: master_seed,
+        };
+        let synapse_plan = topology::TopologyEngine::form_local_synapses(&synapse_input)
+            .expect("Synapse formation failed");
+
+        // Also run full baker to confirm consistency
+        let baker_input = baker::LocalShardBakeInput {
+            shard_config: &shard_config,
+            master_seed,
+            voxel_size_um: 1.0,
+        };
+        let (_artifacts, report) =
+            baker::bake_local_shard(&baker_input).expect("Baker bake failed");
+
+        println!(
+            "  Baked: somas={}, axons={}, synapses={}, dropped={}",
+            report.total_somas,
+            report.total_axons,
+            report.total_synapses,
+            report.dropped_candidates
+        );
+
+        // ---- Metric 1: Soma / Layer Stats ----
+        let total_somas = topo.somas.len();
+        let mut somas_by_type = vec![0usize; 4];
+        let mut soma_positions: Vec<serde_json::Value> = Vec::new();
+        let mut layer_z_ranges: Vec<(f32, f32)> = vec![(f32::MAX, f32::MIN); 4];
+
+        for soma in &topo.somas {
+            let tid = soma.variant_id as usize;
+            somas_by_type[tid] += 1;
+            let x = soma.position.x() as f32;
+            let y = soma.position.y() as f32;
+            let z = soma.position.z() as f32;
+
+            if z < layer_z_ranges[tid].0 {
+                layer_z_ranges[tid].0 = z;
+            }
+            if z > layer_z_ranges[tid].1 {
+                layer_z_ranges[tid].1 = z;
+            }
+
+            soma_positions.push(serde_json::json!({
+                "soma_id": soma.soma_id,
+                "type_id": tid,
+                "type_name": type_names[tid],
+                "x": x,
+                "y": y,
+                "z": z
+            }));
+        }
+
+        println!(
+            "  Somas by type: Virtual={}, L4={}, L23={}, L5={}",
+            somas_by_type[0], somas_by_type[1], somas_by_type[2], somas_by_type[3]
+        );
+
+        // ---- Metric 2: Axon Growth Stats ----
+        let mut axon_lengths: Vec<Vec<usize>> = vec![Vec::new(); 4];
+        let mut stop_reasons: Vec<std::collections::HashMap<String, usize>> =
+            vec![std::collections::HashMap::new(); 4];
+
+        for axon in &growth.axons {
+            let soma = &topo.somas[axon.soma_id as usize];
+            let tid = soma.variant_id as usize;
+            axon_lengths[tid].push(axon.segments.len());
+            let reason_str = format!("{:?}", axon.stop_reason);
+            *stop_reasons[tid].entry(reason_str).or_insert(0) += 1;
+        }
+
+        // ---- Metric 3: Projection Matrix + Per-synapse Data ----
+        // projection_matrix[source_type][target_type] = { count, weight_sum, distances }
+        let mut proj_count = vec![vec![0usize; 4]; 4];
+        let mut proj_weight_sum = vec![vec![0i64; 4]; 4];
+        let mut proj_distances: Vec<Vec<Vec<f32>>> = vec![vec![Vec::new(); 4]; 4];
+        let mut proj_segments: Vec<Vec<Vec<u8>>> = vec![vec![Vec::new(); 4]; 4];
+
+        // Fan-in per target soma, Fan-out per source soma
+        let mut fan_in: Vec<usize> = vec![0; total_somas];
+        let mut fan_out: Vec<usize> = vec![0; total_somas];
+
+        // Dendrite slot usage per target
+        let mut dendrite_slots_used: Vec<usize> = vec![0; total_somas];
+
+        // E/I per target type
+        let mut ei_exc_count: Vec<usize> = vec![0; 4];
+        let mut ei_inh_count: Vec<usize> = vec![0; 4];
+        let mut ei_exc_weight_mass: Vec<i64> = vec![0; 4];
+        let mut ei_inh_weight_mass: Vec<i64> = vec![0; 4];
+
+        // Sampled edges for visualization (first 2000)
+        let mut sampled_edges: Vec<serde_json::Value> = Vec::new();
+        let mut edge_count = 0usize;
+
+        for row in &synapse_plan.rows {
+            let target_id = row.target_soma_id as usize;
+            let target_soma = &topo.somas[target_id];
+            let target_tid = target_soma.variant_id as usize;
+            let tx = target_soma.position.x() as f32;
+            let ty = target_soma.position.y() as f32;
+            let tz = target_soma.position.z() as f32;
+
+            dendrite_slots_used[target_id] = row.slots.len();
+            fan_in[target_id] = row.slots.len();
+
+            for syn in &row.slots {
+                let source_id = syn.source_soma_id as usize;
+                let source_soma = &topo.somas[source_id];
+                let source_tid = source_soma.variant_id as usize;
+                let sx = source_soma.position.x() as f32;
+                let sy = source_soma.position.y() as f32;
+                let sz = source_soma.position.z() as f32;
+
+                // Euclidean soma-to-soma distance
+                let dist = ((sx - tx).powi(2) + (sy - ty).powi(2) + (sz - tz).powi(2)).sqrt();
+
+                proj_count[source_tid][target_tid] += 1;
+                proj_weight_sum[source_tid][target_tid] += syn.weight as i64;
+                proj_distances[source_tid][target_tid].push(dist);
+                proj_segments[source_tid][target_tid].push(syn.segment_offset);
+
+                fan_out[source_id] += 1;
+
+                // E/I
+                if syn.weight >= 0 {
+                    ei_exc_count[target_tid] += 1;
+                    ei_exc_weight_mass[target_tid] += syn.weight as i64;
+                } else {
+                    ei_inh_count[target_tid] += 1;
+                    ei_inh_weight_mass[target_tid] += syn.weight.abs() as i64;
+                }
+
+                // Sample edges
+                if edge_count < 2000 {
+                    sampled_edges.push(serde_json::json!({
+                        "src_id": source_id,
+                        "tgt_id": target_id,
+                        "src_type": source_tid,
+                        "tgt_type": target_tid,
+                        "sx": sx, "sy": sy, "sz": sz,
+                        "tx": tx, "ty": ty, "tz": tz,
+                        "weight": syn.weight,
+                        "segment_offset": syn.segment_offset,
+                        "dendrite_slot": syn.dendrite_slot,
+                        "distance": dist
+                    }));
+                }
+                edge_count += 1;
+            }
+        }
+
+        // ---- Compute Statistics Helpers ----
+        fn compute_stats(vals: &[usize]) -> serde_json::Value {
+            if vals.is_empty() {
+                return serde_json::json!({
+                    "count": 0, "mean": 0.0, "median": 0.0,
+                    "p10": 0.0, "p90": 0.0, "min": 0, "max": 0
+                });
+            }
+            let mut sorted = vals.to_vec();
+            sorted.sort();
+            let n = sorted.len();
+            let sum: usize = sorted.iter().sum();
+            let mean = sum as f64 / n as f64;
+            let median = if n % 2 == 0 {
+                (sorted[n / 2 - 1] + sorted[n / 2]) as f64 / 2.0
+            } else {
+                sorted[n / 2] as f64
+            };
+            let p10 = sorted[(n as f64 * 0.1) as usize] as f64;
+            let p90 = sorted[((n as f64 * 0.9) as usize).min(n - 1)] as f64;
+            serde_json::json!({
+                "count": n,
+                "mean": mean,
+                "median": median,
+                "p10": p10,
+                "p90": p90,
+                "min": sorted[0],
+                "max": sorted[n - 1]
+            })
+        }
+
+        // Fan-in by target type
+        let mut fanin_by_type = Vec::new();
+        let mut fanout_by_type = Vec::new();
+        let mut zero_input_by_type = Vec::new();
+        let mut zero_output_by_type = Vec::new();
+        let mut slot_usage_by_type = Vec::new();
+
+        for tid in 0..4 {
+            let fi: Vec<usize> = topo
+                .somas
+                .iter()
+                .filter(|s| s.variant_id as usize == tid)
+                .map(|s| fan_in[s.soma_id as usize])
+                .collect();
+            let fo: Vec<usize> = topo
+                .somas
+                .iter()
+                .filter(|s| s.variant_id as usize == tid)
+                .map(|s| fan_out[s.soma_id as usize])
+                .collect();
+            let slots: Vec<usize> = topo
+                .somas
+                .iter()
+                .filter(|s| s.variant_id as usize == tid)
+                .map(|s| dendrite_slots_used[s.soma_id as usize])
+                .collect();
+
+            let zi_frac = fi.iter().filter(|&&v| v == 0).count() as f64 / fi.len().max(1) as f64;
+            let zo_frac = fo.iter().filter(|&&v| v == 0).count() as f64 / fo.len().max(1) as f64;
+
+            fanin_by_type.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "layer": type_layer_names[tid],
+                "stats": compute_stats(&fi),
+                "zero_input_fraction": zi_frac
+            }));
+            fanout_by_type.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "layer": type_layer_names[tid],
+                "stats": compute_stats(&fo),
+                "zero_output_fraction": zo_frac
+            }));
+            zero_input_by_type.push(zi_frac);
+            zero_output_by_type.push(zo_frac);
+            slot_usage_by_type.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "layer": type_layer_names[tid],
+                "stats": compute_stats(&slots)
+            }));
+        }
+
+        // Build projection matrix JSON
+        let mut proj_matrix = Vec::new();
+        for src in 0..4 {
+            for tgt in 0..4 {
+                let cnt = proj_count[src][tgt];
+                if cnt == 0 {
+                    continue;
+                }
+                let dists = &proj_distances[src][tgt];
+                let segs = &proj_segments[src][tgt];
+
+                let mean_weight = proj_weight_sum[src][tgt] as f64 / cnt as f64;
+
+                let mut dist_sorted = dists.clone();
+                dist_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let dist_mean: f32 =
+                    dist_sorted.iter().sum::<f32>() / dist_sorted.len().max(1) as f32;
+                let dist_median = if dist_sorted.is_empty() {
+                    0.0
+                } else if dist_sorted.len() % 2 == 0 {
+                    (dist_sorted[dist_sorted.len() / 2 - 1] + dist_sorted[dist_sorted.len() / 2])
+                        / 2.0
+                } else {
+                    dist_sorted[dist_sorted.len() / 2]
+                };
+
+                let seg_vals: Vec<usize> = segs.iter().map(|&s| s as usize).collect();
+                let seg_stats = compute_stats(&seg_vals);
+
+                let is_source_inhibitory = shard_config.neuron_types[src].gsop.is_inhibitory;
+                let sign = if is_source_inhibitory {
+                    "inhibitory"
+                } else {
+                    "excitatory"
+                };
+
+                // Expected projections check
+                let expected = matches!(
+                    (type_names[src], type_names[tgt]),
+                    ("VirtualInput", "L4_spiny")
+                        | ("L4_spiny", "L23_aspiny")
+                        | ("L4_spiny", "L5_spiny")
+                        | ("L23_aspiny", "L4_spiny")
+                        | ("L23_aspiny", "L23_aspiny")
+                        | ("L23_aspiny", "L5_spiny")
+                        | ("L5_spiny", "L23_aspiny")
+                );
+
+                let total_synapses = synapse_plan.total_live_synapses;
+                let pct = cnt as f64 / total_synapses.max(1) as f64 * 100.0;
+
+                proj_matrix.push(serde_json::json!({
+                    "source": type_names[src],
+                    "target": type_names[tgt],
+                    "synapse_count": cnt,
+                    "percent_of_all": format!("{:.2}", pct),
+                    "mean_initial_weight": mean_weight,
+                    "sign": sign,
+                    "expected": expected,
+                    "distance_mean": dist_mean,
+                    "distance_median": dist_median,
+                    "distance_min": dist_sorted.first().copied().unwrap_or(0.0),
+                    "distance_max": dist_sorted.last().copied().unwrap_or(0.0),
+                    "segment_offset_stats": seg_stats,
+                    "distances": dists,
+                    "segment_offsets": segs
+                }));
+            }
+        }
+
+        // Build layer z-range entries
+        let mut z_range_entries = Vec::new();
+        for tid in 0..4 {
+            if somas_by_type[tid] > 0 {
+                z_range_entries.push(serde_json::json!({
+                    "type_name": type_names[tid],
+                    "layer": type_layer_names[tid],
+                    "z_min": layer_z_ranges[tid].0,
+                    "z_max": layer_z_ranges[tid].1,
+                    "soma_count": somas_by_type[tid]
+                }));
+            }
+        }
+
+        // Build E/I balance
+        let mut ei_balance = Vec::new();
+        for tid in 0..4 {
+            let total = ei_exc_count[tid] + ei_inh_count[tid];
+            let ratio = if ei_inh_count[tid] > 0 {
+                ei_exc_count[tid] as f64 / ei_inh_count[tid] as f64
+            } else if ei_exc_count[tid] > 0 {
+                f64::INFINITY
+            } else {
+                0.0
+            };
+            let weight_ratio = if ei_inh_weight_mass[tid] > 0 {
+                ei_exc_weight_mass[tid] as f64 / ei_inh_weight_mass[tid] as f64
+            } else if ei_exc_weight_mass[tid] > 0 {
+                f64::INFINITY
+            } else {
+                0.0
+            };
+            ei_balance.push(serde_json::json!({
+                "target_layer": type_layer_names[tid],
+                "target_type": type_names[tid],
+                "excitatory_count": ei_exc_count[tid],
+                "inhibitory_count": ei_inh_count[tid],
+                "total_synapses": total,
+                "ei_count_ratio": ratio,
+                "excitatory_weight_mass": ei_exc_weight_mass[tid],
+                "inhibitory_weight_mass": ei_inh_weight_mass[tid],
+                "ei_weight_mass_ratio": weight_ratio
+            }));
+        }
+
+        // Build axon growth summary
+        let mut axon_growth_summary = Vec::new();
+        for tid in 0..4 {
+            axon_growth_summary.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "layer": type_layer_names[tid],
+                "length_stats": compute_stats(&axon_lengths[tid]),
+                "stop_reasons": stop_reasons[tid]
+            }));
+        }
+
+        let seed_result = serde_json::json!({
+            "seed": seed_val,
+            "total_somas": total_somas,
+            "somas_by_type": {
+                "VirtualInput": somas_by_type[0],
+                "L4_spiny": somas_by_type[1],
+                "L23_aspiny": somas_by_type[2],
+                "L5_spiny": somas_by_type[3]
+            },
+            "layer_z_ranges": z_range_entries,
+            "axon_growth": axon_growth_summary,
+            "total_synapses": synapse_plan.total_live_synapses,
+            "dropped_candidates": synapse_plan.dropped_candidates,
+            "projection_matrix": proj_matrix,
+            "fan_in_by_type": fanin_by_type,
+            "fan_out_by_type": fanout_by_type,
+            "dendrite_slot_usage_by_type": slot_usage_by_type,
+            "ei_balance": ei_balance,
+            "soma_positions": soma_positions,
+            "sampled_edges": sampled_edges
+        });
+
+        all_seed_results.push(seed_result);
+    }
+
+    // ---- Write topology stats (seed 12345 primary) ----
+    let topo_stats_path = artifacts_dir.join("baker_spatial_growth_topology_stats.json");
+    let file = File::create(&topo_stats_path).unwrap();
+    serde_json::to_writer_pretty(file, &all_seed_results[0]).unwrap();
+    println!("Wrote {}", topo_stats_path.display());
+
+    // ---- Write projection matrix (seed 12345 primary) ----
+    let proj_path = artifacts_dir.join("baker_spatial_growth_projection_matrix.json");
+    let file = File::create(&proj_path).unwrap();
+    serde_json::to_writer_pretty(file, &all_seed_results[0]["projection_matrix"]).unwrap();
+    println!("Wrote {}", proj_path.display());
+
+    // ---- Write seed variance ----
+    let mut variance_entries = Vec::new();
+    for result in &all_seed_results {
+        let proj = result["projection_matrix"].as_array().unwrap();
+        let mut proj_summary = Vec::new();
+        for p in proj {
+            proj_summary.push(serde_json::json!({
+                "source": p["source"],
+                "target": p["target"],
+                "synapse_count": p["synapse_count"],
+                "distance_mean": p["distance_mean"]
+            }));
+        }
+
+        let fi_means: Vec<f64> = result["fan_in_by_type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["stats"]["mean"].as_f64().unwrap_or(0.0))
+            .collect();
+
+        let ei_ratios: Vec<f64> = result["ei_balance"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| {
+                let r = v["ei_count_ratio"].as_f64().unwrap_or(0.0);
+                if r.is_infinite() {
+                    -1.0
+                } else {
+                    r
+                }
+            })
+            .collect();
+
+        variance_entries.push(serde_json::json!({
+            "seed": result["seed"],
+            "total_somas": result["total_somas"],
+            "total_synapses": result["total_synapses"],
+            "dropped_candidates": result["dropped_candidates"],
+            "projection_summary": proj_summary,
+            "fan_in_means": fi_means,
+            "ei_ratios": ei_ratios
+        }));
+    }
+
+    let variance_path = artifacts_dir.join("baker_spatial_growth_seed_variance.json");
+    let file = File::create(&variance_path).unwrap();
+    serde_json::to_writer_pretty(file, &variance_entries).unwrap();
+    println!("Wrote {}", variance_path.display());
+
+    println!("=== Baker Spatial Growth Audit v1 Complete ===");
+}
