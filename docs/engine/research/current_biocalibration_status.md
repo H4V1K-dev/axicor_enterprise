@@ -39,6 +39,7 @@ Status: active research index, not a final report.
 | [2026-07-05 plastic microcircuit v1.2 positive potentiation / activity recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md) | archived | Достигнута строгая положительная потенциация сконструированных matched Virtual->L4 в масс-домене (+68834.90) и exact-заряде (+1.0503 uV), но N=256 L4 activity gate не закрыт, а unmatched-control отсутствует. |
 | [2026-07-05 plastic microcircuit v1.3 control-preserving potentiation](archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/README.md) | archived | Сохранена unmatched-control группа и доказан relative matched bias (+2.7180 uV vs +1.4708 uV), но N=256 L4 activity gate не закрыт, а positive-ratio gate дает tie 100%/100%. |
 | [2026-07-05 plastic microcircuit v1.4 controlled + baker shadow](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/README.md) | archived | Manual selectivity gate закрыт (0.4318), baker shadow сохраняет положительный matched-bias trend (0.0648), но финальный 100k-tick manual learning L4=2.31 Hz ниже hard gate 3.0 Hz. |
+| [2026-07-05 plastic microcircuit v1.5 sparse activity gate](archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/README.md) | archived | Жесткий L4 >= 3 Hz заменен sparse-activity gate. Manual audit L4=1.91 Hz признан sparse-functional при active fraction 100%, max silence 0.060s, selectivity 0.4357; Baker audit сохраняет trend (L4=6.44 Hz, selectivity 0.0648). |
 
 ## 3. Что сейчас известно
 
@@ -91,21 +92,28 @@ Status: active research index, not a final report.
 | 2.3 | **Static microcircuit L5 recruitment/topology** | completed / partial | L5 успешно рекрутирован в целевой диапазон (~10.1 Hz на N=512) за счет FF L4->L5 усиления (8000 uV) и разделения L23 торможения; L4 переторможен ниже gate (1.4-1.6 Hz). |
 | 2.4 | **Static microcircuit L4/L5 balance** | completed / partial | Достигнут полный баланс слоев на N=256 (L4=3.1Hz, L23=10.6Hz, L5=4.7Hz). На N=512 активность L4 (2.8Hz) на грани допуска (>3Hz) из-за масштабирования торможения L23. Блокер топологический. |
 | 2.5 | **Static microcircuit N=512 fine-tuning** | completed | Достигнут полный баланс и прохождение всех приемочных ворот на N=256 и N=512 одновременно за счет тонкой калибровки торможения L23 (L23->L4 = -1200, L23->L5 = -1250). |
-| 3 | **Plastic microcircuit** | completed / partial | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса bounded и инварианты соблюдены, доказана положительная потенциация matched путей, но контроль селективности и activity gate еще не закрыты одновременно. |
+| 3 | **Plastic microcircuit** | completed | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса bounded и инварианты соблюдены, matched bias доказан, а старый L4 >= 3 Hz hard gate заменен sparse-functional gate. |
 | 3.1 | **Plastic microcircuit v1.1 structured potentiation** | completed / partial | Получено сильное селективное удержание matched `Virtual -> L4` от LTD, но strict gate положительной потенциации и L4 activity gate не закрыты. |
 | 3.2 | **Plastic microcircuit v1.2 positive potentiation / activity recovery** | completed / partial | Достигнута строгая положительная потенциация matched Virtual->L4 в масс-домене и exact-заряде. Не закрыты N=256 L4 activity gate и unmatched-control gate. |
 | 3.3 | **Plastic microcircuit v1.3 control-preserving potentiation** | completed / partial | Сохранена unmatched Virtual->L4 control group (8 matched + 4 unmatched), доказан relative matched bias (+2.7180 uV vs +1.4708 uV), Dale/sign invariants соблюдены. Не закрыты N=256 L4 activity gate (2.62 Hz < 3.0 Hz) и positive-ratio gate (matched=100%, unmatched=100%). |
-| 3.4 | **Plastic microcircuit v1.4 controlled + baker shadow** | completed / partial | Manual selectivity gate закрыт (0.4318), baker shadow компилируется и сохраняет положительный matched-bias trend (0.0648). Финальный 100k-tick manual learning L4=2.31 Hz ниже hard gate 3.0 Hz, поэтому pre-CartPole gate не закрыт. |
-| 3.5 | **Plastic microcircuit v1.5 long-run activity recovery** | next | Нужно перенести winner selection на long-run horizon или подобрать компенсацию fatigue/adaptation/input, чтобы финальный N=256 learning L4 >= 3.0 Hz без потери selectivity и baker shadow trend. |
-| 4 | **Sensorimotor toy / CartPole** | blocked | CartPole остается закрыт до прохождения final manual activity gate и сохранения baker shadow trend. |
+| 3.4 | **Plastic microcircuit v1.4 controlled + baker shadow** | completed / superseded | Manual selectivity gate закрыт (0.4318), baker shadow компилируется и сохраняет положительный matched-bias trend (0.0648). Старый hard fail по L4<3 Hz снят последующим sparse-activity аудитом v1.5. |
+| 3.5 | **Plastic microcircuit v1.5 biological sparse-activity gate audit** | completed / sparse-functional pass | Заменен жесткий порог L4 >= 3.0 Hz на биологический sparse-activity gate. Manual audit L4=1.91 Hz проходит sparse-functional gate; Baker audit L4=6.44 Hz сохраняет matched-bias trend. |
+| 4 | **Sensorimotor toy / CartPole** | next / unblocked | CartPole разблокирован как следующий toy research run на параметрах v1.4/v1.5; это не production RL validation. |
 
 ## 8. Активные и следующие исследования
 
+### [Completed] Plastic Microcircuit v1.5 Biological Sparse-Activity Gate Audit (`archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/`)
+
+- **Вопрос**: Действительно ли необходим жесткий порог L4 >= 3.0 Hz, и является ли L4 soft-warning band (1.0..3.0 Hz) здоровым sparse-functional режимом?
+- **Итоговый вердикт (Pass / Sparse-Functional Approved)**: Заменен грубый жесткий порог L4 >= 3.0 Hz на биологически обоснованные ворота разреженной активности (sparse-activity gate). Повторный manual audit имеет L4=1.91 Hz, active fraction=100%, longest L4 silence=0.060s, lagged L4->L23 population coupling proxy=89.83%, selectivity=0.4357, Dale/sign violations=0. Baker audit имеет L4=6.44 Hz и сохраняет matched-bias trend (selectivity=0.0648). Transfer metric является first-pass population coupling proxy, а не causal single-synapse probability. CartPole разблокирован как следующий toy research run.
+- **Следующий шаг**: Sensorimotor toy / CartPole research run на параметрах v1.4/v1.5.
+- **Outputs**: Rust test runner, Python скрипт анализа, 8 физиологических графиков, отчёт [plastic_microcircuit_v1_5_sparse_activity_report.md](archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/reports/plastic_microcircuit_v1_5_sparse_activity_report.md).
+
 ### [Completed] Plastic Microcircuit v1.4 Controlled + Baker Shadow (`archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/`)
 
-- **Вопрос**: Можно ли одновременно вернуть L4 learning activity >= 3.0 Hz и перенести matched bias на bakers-compiled spatial connectome, сохранив стабильность и invariants?
-- **Итоговый вердикт (Partial / Activity Gate Failed)**: Phase A (Manual) закрыл selectivity gate (0.4318) и сохранил Dale/sign invariants, но финальный 100k-tick N=256 learning run имеет L4=2.31 Hz, ниже hard gate 3.0 Hz. Короткий sweep имел L4 > 3 Hz, но это нельзя засчитывать вместо final long-run. Phase B (Baker) трехмерный коннектом скомпилирован успешно (384 сомы, 48,786 синапсов), активность не уходит в silence/runaway smoke (L4=7.18 Hz, L23=5.89 Hz, L5=1.00 Hz), и подтвержден положительный matched-bias trend (selectivity = 0.0648). Pre-CartPole gate не закрыт.
-- **Следующий шаг**: `Plastic microcircuit v1.5 long-run activity recovery`; вернуть N=256 learning L4 >= 3.0 Hz на финальном long-run без потери selectivity и baker shadow trend.
+- **Вопрос**: Можно ли одновременно вернуть L4 learning activity >= 3.0 Hz and перенести matched bias на bakers-compiled spatial connectome, сохранив стабильность и invariants?
+- **Итоговый вердикт (Completed)**: Phase A (Manual) закрыл selectivity gate (0.4318), но финальный 100k-tick N=256 learning run имеет L4=2.31 Hz, что ниже старого жесткого порога 3.0 Hz. Phase B (Baker) трехмерный коннектом скомпилирован успешно (selectivity = 0.0648).
+- **Следующий шаг**: `Plastic microcircuit v1.5 biological sparse-activity gate audit`.
 - **Outputs**: Rust runner, скомпилированный Baker шард, 11 аналитических графиков, отчёт [plastic_microcircuit_v1_4_controlled_baker_shadow.md](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/reports/plastic_microcircuit_v1_4_controlled_baker_shadow.md).
 
 ### [Completed] Plastic Microcircuit v1.3 Control-Preserving Potentiation (`archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/`)

@@ -10478,3 +10478,1208 @@ fn run_plastic_microcircuit_v1_4_experiments() {
 
     println!("Plastic Microcircuit v1.4 Rust simulations complete.");
 }
+
+#[test]
+#[allow(clippy::all)]
+#[allow(unused_variables)]
+#[allow(unused_assignments)]
+#[allow(unused_mut)]
+#[allow(dead_code)]
+fn run_plastic_microcircuit_v1_5_sparse_activity_audit() {
+    println!("=== Starting Plastic Microcircuit v1.5 Biological Sparse-Activity Gate Audit ===");
+    use compute_api::{ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload};
+    use compute_cpu::{CpuBackend, CpuBackendConfig};
+    use std::collections::VecDeque;
+    use std::fs::File;
+    use test_harness::{MvpAxonBuffer, MvpStateBuffer};
+    use types::{MasterSeed, SomaFlags};
+
+    let load_neuron_type = |name: &str| -> config::NeuronType {
+        let path = find_profile_path(name);
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Could not read {}: {:?}", path.display(), e));
+        toml::from_str(&content)
+            .unwrap_or_else(|e| panic!("Failed to parse TOML from {}: {:?}", path.display(), e))
+    };
+
+    struct SimpleRng {
+        state: u64,
+    }
+    impl SimpleRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+        fn next_u32(&mut self) -> u32 {
+            self.state = self
+                .state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (self.state >> 32) as u32
+        }
+        fn next_f32(&mut self) -> f32 {
+            (self.next_u32() & 0xffffff) as f32 / 16777216.0
+        }
+        fn range(&mut self, min: usize, max: usize) -> usize {
+            assert!(max >= min);
+            let diff = max - min + 1;
+            min + (self.next_u32() as usize % diff)
+        }
+    }
+
+    let mut artifacts_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    artifacts_dir.pop(); // to crates
+    artifacts_dir.pop(); // to AxiEngine
+    artifacts_dir.pop(); // to workflow
+    artifacts_dir.push("artifacts");
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    let path_visl4 = find_profile_path("L4_spiny_VISl4_4");
+    let path_visp5 = find_profile_path("L5_spiny_VISp5_7");
+    let path_visp23 = find_profile_path("L23_aspiny_VISp23_218");
+
+    let var_visl4_base = load_variant(path_visl4);
+    let var_visp5 = load_variant(path_visp5);
+    let var_visp23 = load_variant(path_visp23);
+
+    let mut variant_table = [bytemuck::Zeroable::zeroed(); layout::VARIANT_LUT_LEN];
+    variant_table[0] = var_visl4_base;
+    variant_table[1] = var_visp5;
+    variant_table[2] = var_visp23;
+
+    // Winner parameters from v1.4
+    let fatigue_cap = 18u8;
+    let gsop_pot = 240u16;
+    let gsop_dep = 68u16;
+    let virt_w = 3500i32;
+    let inh_l23_l4 = -900i32;
+    let structured_p = 0.11f32;
+    let background_p = 0.0f32;
+    let block_size = 250usize;
+
+    // Phase A: Manual N=256 Learning Run (100,000 ticks)
+    println!("--- Phase A: Running N=256 Manual Audit Run (100,000 ticks) ---");
+
+    let exc_w_l4_l23 = 3000;
+    let exc_w_l4_l5 = 5000;
+    let fan_in_l4_l5_range_idx = 1;
+    let inh_w_l23_l5 = -1250;
+
+    let n = 256usize;
+    let learning_ticks = 100000;
+    let padded_n = n.div_ceil(64) * 64;
+    let total_axons = padded_n + padded_n / 2;
+    let virt_count = total_axons - n;
+
+    let mut rng = SimpleRng::new(9999);
+
+    let mut variant_table_local = variant_table;
+    variant_table_local[0].fatigue_capacity = fatigue_cap;
+    variant_table_local[0].gsop_potentiation = gsop_pot;
+    variant_table_local[0].gsop_depression = gsop_dep;
+
+    let mut state_buf = MvpStateBuffer::new(padded_n, total_axons);
+    let axons_buf = MvpAxonBuffer::new(total_axons);
+
+    // Soma layout
+    for i in 0..padded_n {
+        let type_id = if i < n / 2 {
+            0 // L4
+        } else if i < 3 * n / 4 {
+            2 // L23 (inhibitory)
+        } else if i < n {
+            1 // L5
+        } else {
+            0
+        };
+        let var = &variant_table_local[type_id];
+        state_buf.write_soma_flags(i, SomaFlags::new(false, 0, type_id as u8).0);
+        state_buf.write_soma_voltage(i, var.rest_potential);
+        state_buf.write_soma_to_axon(i, i as u32);
+    }
+
+    // Connectome construction
+    let mut matched_count = 0;
+    let mut unmatched_count = 0;
+    let mut coordinates = Vec::new();
+    for i in 0..padded_n {
+        let (x, y, z) = if i < n / 2 {
+            ((i % 16) as f32 * 12.0, (i / 16) as f32 * 12.0, 10.0f32)
+        } else if i < 3 * n / 4 {
+            (
+                ((i - n / 2) % 8) as f32 * 18.0,
+                ((i - n / 2) / 8) as f32 * 18.0,
+                20.0f32,
+            )
+        } else if i < n {
+            (
+                ((i - 3 * n / 4) % 8) as f32 * 18.0,
+                ((i - 3 * n / 4) / 8) as f32 * 18.0,
+                30.0f32,
+            )
+        } else {
+            (0.0f32, 0.0f32, 0.0f32)
+        };
+        coordinates.push((x, y, z));
+    }
+
+    let mut l4_group_a_pref = vec![false; n / 2];
+    for i in 0..(n / 2) {
+        let mut rng_local = SimpleRng::new(500 + i as u64);
+        l4_group_a_pref[i] = rng_local.next_u32() % 2 == 0;
+    }
+
+    let mut rng = SimpleRng::new(708136);
+    let mut edges = Vec::new();
+
+    // 1. Virtual -> L4
+    for dest in 0..(n / 2) {
+        let pref_a = l4_group_a_pref[dest];
+        let mut matched_candidates = Vec::new();
+        let mut unmatched_candidates = Vec::new();
+
+        for src in n..total_axons {
+            let virt_idx = src - n;
+            let is_virt_a = virt_idx < virt_count / 2;
+            let d = if pref_a == is_virt_a {
+                rng.range(50, 150) as f32
+            } else {
+                rng.range(200, 400) as f32
+            };
+
+            if pref_a == is_virt_a {
+                matched_candidates.push((src, d));
+            } else {
+                unmatched_candidates.push((src, d));
+            }
+        }
+
+        matched_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        unmatched_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        for k in 0..8 {
+            edges.push((matched_candidates[k].0, dest, virt_w));
+            matched_count += 1;
+        }
+
+        for k in 0..4 {
+            edges.push((unmatched_candidates[k].0, dest, virt_w));
+            unmatched_count += 1;
+        }
+    }
+
+    // 2. L4 -> L23
+    for dest in (n / 2)..(3 * n / 4) {
+        let fan_in_target = rng.range(8, 24);
+        let mut candidates = Vec::new();
+        for src in 0..(n / 2) {
+            let (x1, y1, z1) = coordinates[src];
+            let (x2, y2, z2) = coordinates[dest];
+            let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+            candidates.push((src, d));
+        }
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        for k in 0..fan_in_target {
+            edges.push((candidates[k].0, dest, exc_w_l4_l23));
+        }
+    }
+
+    // 3. L4 -> L5
+    let fan_in_l4_l5 = 16;
+    for dest in (3 * n / 4)..n {
+        let mut candidates = Vec::new();
+        for src in 0..(n / 2) {
+            let (x1, y1, z1) = coordinates[src];
+            let (x2, y2, z2) = coordinates[dest];
+            let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+            candidates.push((src, d));
+        }
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let actual_fan_in = fan_in_l4_l5.min(candidates.len());
+        for k in 0..actual_fan_in {
+            edges.push((candidates[k].0, dest, exc_w_l4_l5));
+        }
+    }
+
+    // 4. L23 -> L4
+    for dest in 0..(n / 2) {
+        let fan_in_target = rng.range(8, 24);
+        let mut candidates = Vec::new();
+        for src in (n / 2)..(3 * n / 4) {
+            let (x1, y1, z1) = coordinates[src];
+            let (x2, y2, z2) = coordinates[dest];
+            let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+            candidates.push((src, d));
+        }
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        for k in 0..fan_in_target {
+            edges.push((candidates[k].0, dest, inh_l23_l4));
+        }
+    }
+
+    // 5. L23 -> L5
+    for dest in (3 * n / 4)..n {
+        let fan_in_target = rng.range(6, 18);
+        let mut candidates = Vec::new();
+        for src in (n / 2)..(3 * n / 4) {
+            let (x1, y1, z1) = coordinates[src];
+            let (x2, y2, z2) = coordinates[dest];
+            let d = ((x1 - x2).powi(2) + (y1 - y2).powi(2) + (z1 - z2).powi(2)).sqrt();
+            candidates.push((src, d));
+        }
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        for k in 0..fan_in_target {
+            edges.push((candidates[k].0, dest, inh_w_l23_l5));
+        }
+    }
+
+    // Write edges to state_buf
+    let mut dest_fan_in = vec![0; padded_n];
+    for &(src, dest, w) in &edges {
+        let slot = dest_fan_in[dest];
+        assert!(slot < 128, "Soma {} exceeded 128 synapses", dest);
+        state_buf.write_dendrite_target(slot, dest, types::PackedTarget::pack(src as u32, 0).0);
+        state_buf.write_dendrite_weight(slot, dest, w << 16);
+        dest_fan_in[dest] += 1;
+    }
+
+    let mut backend_config = CpuBackendConfig {
+        thread_count: Some(1),
+    };
+    let mut backend = CpuBackend::new(backend_config).unwrap();
+    let spec = ShardAllocSpec {
+        padded_n: padded_n as u32,
+        total_axons: total_axons as u32,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: state_buf.as_bytes(),
+                axons_blob: axons_buf.as_bytes(),
+                variant_table: &variant_table_local,
+            },
+        )
+        .unwrap();
+
+    let mut out_spikes = vec![0u32; total_axons];
+    let mut out_counts = vec![0u32; 1];
+    let mapped_somas: Vec<u32> = (0..padded_n as u32).collect();
+
+    let mut snap_state = vec![0u8; state_buf.as_bytes().len()];
+    let mut snap_axons = vec![0u8; axons_buf.as_bytes().len()];
+
+    let mut incoming_padded = vec![0u32; total_axons];
+    let mut sim_log: Vec<serde_json::Value> = Vec::new();
+
+    let mut neuron_spikes = vec![Vec::new(); n];
+    let mut subthreshold_log = Vec::new();
+
+    let block_start = 25000;
+    let total_ticks = learning_ticks + 25000 + 10000;
+
+    let p_weak = 0.006;
+    let p_mod = 0.020;
+    let p_val = structured_p;
+
+    for tick in 0..total_ticks {
+        let mut incoming_count = 0;
+        let p_val_tick = if tick < 5000 {
+            0.0
+        } else if tick < 15000 {
+            p_weak
+        } else if tick < 25000 {
+            p_mod
+        } else if tick < block_start + learning_ticks {
+            p_val
+        } else {
+            0.0
+        };
+
+        let is_structured = tick >= block_start && tick < block_start + learning_ticks;
+        if is_structured {
+            let group_a = ((tick - block_start) / block_size) % 2 == 0;
+            for axon_idx in n..total_axons {
+                let is_a = axon_idx < n + virt_count / 2;
+                let prob = if is_a == group_a {
+                    p_val_tick
+                } else {
+                    background_p
+                };
+                if rng.next_f32() < prob {
+                    incoming_padded[incoming_count] = axon_idx as u32;
+                    incoming_count += 1;
+                }
+            }
+        } else {
+            for axon_idx in n..total_axons {
+                if rng.next_f32() < p_val_tick {
+                    incoming_padded[incoming_count] = axon_idx as u32;
+                    incoming_count += 1;
+                }
+            }
+        }
+
+        out_counts[0] = 0;
+        out_spikes.fill(0);
+
+        let cmd = DayBatchCmd {
+            sync_batch_ticks: 1,
+            tick_base: tick as u64,
+            v_seg: 1,
+            dopamine: 0,
+            input_bitmask: None,
+            num_virtual_axons: 0,
+            virtual_offset: 0,
+            input_words_per_tick: 0,
+            incoming_spikes: if incoming_count > 0 {
+                Some(&incoming_padded)
+            } else {
+                None
+            },
+            incoming_spike_counts: &[incoming_count as u32],
+            max_spikes_per_tick: total_axons as u32,
+            num_outputs: padded_n as u32,
+            mapped_soma_ids: &mapped_somas,
+            output_spikes: &mut out_spikes,
+            output_spike_counts: &mut out_counts,
+        };
+
+        backend.run_day_batch(handle, cmd).unwrap();
+
+        // Retrieve subthreshold state every 10 ticks for logs
+        if tick % 10 == 0 {
+            backend
+                .debug_snapshot(
+                    handle,
+                    ShardSnapshotMut {
+                        state_blob: &mut snap_state,
+                        axons_blob: &mut snap_axons,
+                    },
+                )
+                .unwrap();
+            let snap_state_buf_tick =
+                MvpStateBuffer::from_raw(padded_n, total_axons, snap_state.clone());
+
+            let mut l4_v_sum = 0.0;
+            let mut l4_th_sum = 0.0;
+            let mut l4_fatigue_sum = 0.0;
+            for i in 0..n / 2 {
+                l4_v_sum += snap_state_buf_tick.read_soma_voltage(i) as f64;
+                l4_th_sum += snap_state_buf_tick.read_threshold_offset(i) as f64;
+                let mut fatigue_timer_sum = 0;
+                for slot in 0..128 {
+                    fatigue_timer_sum += snap_state_buf_tick.read_dendrite_timer(slot, i) as usize;
+                }
+                l4_fatigue_sum += fatigue_timer_sum as f64 / (128.0 * 255.0);
+            }
+            let l4_count = (n / 2) as f64;
+
+            let mut l23_v_sum = 0.0;
+            let mut l23_th_sum = 0.0;
+            let mut l23_fatigue_sum = 0.0;
+            for i in n / 2..3 * n / 4 {
+                l23_v_sum += snap_state_buf_tick.read_soma_voltage(i) as f64;
+                l23_th_sum += snap_state_buf_tick.read_threshold_offset(i) as f64;
+                let mut fatigue_timer_sum = 0;
+                for slot in 0..128 {
+                    fatigue_timer_sum += snap_state_buf_tick.read_dendrite_timer(slot, i) as usize;
+                }
+                l23_fatigue_sum += fatigue_timer_sum as f64 / (128.0 * 255.0);
+            }
+            let l23_count = (n / 4) as f64;
+
+            let mut l5_v_sum = 0.0;
+            let mut l5_th_sum = 0.0;
+            let mut l5_fatigue_sum = 0.0;
+            for i in 3 * n / 4..n {
+                l5_v_sum += snap_state_buf_tick.read_soma_voltage(i) as f64;
+                l5_th_sum += snap_state_buf_tick.read_threshold_offset(i) as f64;
+                let mut fatigue_timer_sum = 0;
+                for slot in 0..128 {
+                    fatigue_timer_sum += snap_state_buf_tick.read_dendrite_timer(slot, i) as usize;
+                }
+                l5_fatigue_sum += fatigue_timer_sum as f64 / (128.0 * 255.0);
+            }
+            let l5_count = (n / 4) as f64;
+
+            subthreshold_log.push(serde_json::json!({
+                "tick": tick,
+                "l4_vm": l4_v_sum / l4_count,
+                "l4_th": l4_th_sum / l4_count,
+                "l4_fatigue": l4_fatigue_sum / l4_count,
+                "l23_vm": l23_v_sum / l23_count,
+                "l23_th": l23_th_sum / l23_count,
+                "l23_fatigue": l23_fatigue_sum / l23_count,
+                "l5_vm": l5_v_sum / l5_count,
+                "l5_th": l5_th_sum / l5_count,
+                "l5_fatigue": l5_fatigue_sum / l5_count,
+            }));
+        }
+
+        // Record spikes
+        let count = out_counts[0] as usize;
+        for &id in &out_spikes[0..count] {
+            if id < n as u32 {
+                neuron_spikes[id as usize].push(tick as u32);
+            }
+        }
+    }
+
+    // Read final snapshot to get final weights
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+    let final_state_buf = MvpStateBuffer::from_raw(padded_n, total_axons, snap_state.clone());
+
+    let mut edge_log_winner = Vec::new();
+    for dest in 0..128 {
+        let pref_a = l4_group_a_pref[dest];
+        for slot in 0..128 {
+            let target = final_state_buf.read_dendrite_target(slot, dest);
+            if let Some((src, _)) = types::PackedTarget(target).unpack() {
+                let initial_charge = if src < n as u32 {
+                    if src >= 128 && src < 192 {
+                        inh_l23_l4 as i64
+                    } else {
+                        3000i64
+                    }
+                } else {
+                    virt_w as i64
+                };
+                let initial_mass = initial_charge << 16;
+                let final_mass = final_state_buf.read_dendrite_weight(slot, dest) as i64;
+                let delta_mass = final_mass - initial_mass;
+                let final_charge = final_mass >> 16;
+                let delta_charge_exact = delta_mass as f64 / 65536.0;
+                let delta_charge_visible = final_charge - initial_charge;
+
+                let is_inh = src < n as u32 && src >= 128 && src < 192;
+                let projection = if src >= n as u32 {
+                    "Virtual -> L4"
+                } else {
+                    "L23 -> L4"
+                };
+
+                let is_matched = if src >= n as u32 {
+                    let relative_src = src - n as u32;
+                    pref_a == (relative_src < 64)
+                } else {
+                    false
+                };
+
+                let virtual_group = if src >= n as u32 {
+                    let relative_src = src - n as u32;
+                    if relative_src < 64 {
+                        "A"
+                    } else {
+                        "B"
+                    }
+                } else {
+                    "None"
+                };
+
+                edge_log_winner.push(serde_json::json!({
+                    "src": src,
+                    "dest": dest,
+                    "projection": projection,
+                    "src_group": virtual_group,
+                    "is_matched": is_matched,
+                    "initial_weight": initial_charge,
+                    "final_weight": final_charge,
+                    "delta_signed": delta_charge_visible,
+                    "initial_mass": initial_mass,
+                    "final_mass": final_mass,
+                    "delta_mass": delta_mass,
+                    "delta_charge_exact": delta_charge_exact,
+                    "delta_charge_visible": delta_charge_visible,
+                    "is_inhibitory": is_inh,
+                }));
+            }
+        }
+    }
+
+    // Save Phase A artifacts
+    let manual_spikes_path = artifacts_dir.join("plastic_microcircuit_v1_5_manual_spikes.json");
+    let file = File::create(&manual_spikes_path).unwrap();
+    serde_json::to_writer_pretty(
+        file,
+        &serde_json::json!({
+            "total_somas": n,
+            "neuron_spikes": neuron_spikes,
+        }),
+    )
+    .unwrap();
+
+    let manual_subthreshold_path =
+        artifacts_dir.join("plastic_microcircuit_v1_5_manual_subthreshold.json");
+    let file = File::create(&manual_subthreshold_path).unwrap();
+    serde_json::to_writer_pretty(file, &subthreshold_log).unwrap();
+
+    let manual_edges_path = artifacts_dir.join("plastic_microcircuit_v1_5_manual_edges.json");
+    let file = File::create(&manual_edges_path).unwrap();
+    serde_json::to_writer_pretty(file, &edge_log_winner).unwrap();
+
+    println!("Manual Phase A audit logs written successfully.");
+
+    // Phase B: Baker-Compiled Shadow Shard
+    println!("--- Phase B: Building Baker-Compiled Shadow Shard ---");
+
+    let nt_l4_real = load_neuron_type("L4_spiny_VISl4_4");
+    let nt_l5_real = load_neuron_type("L5_spiny_VISp5_7");
+    let nt_l23_real = load_neuron_type("L23_aspiny_VISp23_218");
+
+    // Construct ShardConfig programmatically using real biology values
+    let mut nt_virtual = nt_l4_real.clone();
+    nt_virtual.name = "VirtualInput".to_string();
+    nt_virtual.gsop.initial_synapse_weight = virt_w as u16;
+    nt_virtual.gsop.is_inhibitory = false;
+    nt_virtual.growth.dendrite_whitelist = vec![];
+    nt_virtual.growth.growth_vertical_bias = 2.0;
+    nt_virtual.growth.dendrite_radius_um = 10.0;
+    nt_virtual.timing.fatigue_capacity = 255;
+
+    let mut nt_l4 = nt_l4_real.clone();
+    nt_l4.name = "L4_spiny".to_string();
+    nt_l4.timing.fatigue_capacity = fatigue_cap;
+    nt_l4.gsop.gsop_potentiation = gsop_pot;
+    nt_l4.gsop.gsop_depression = gsop_dep;
+    nt_l4.gsop.is_inhibitory = false;
+    nt_l4.growth.dendrite_whitelist = vec!["VirtualInput".to_string(), "L23_aspiny".to_string()];
+    nt_l4.growth.growth_vertical_bias = 1.0;
+    nt_l4.growth.dendrite_radius_um = 12.0;
+
+    let mut nt_l23 = nt_l23_real.clone();
+    nt_l23.name = "L23_aspiny".to_string();
+    nt_l23.gsop.initial_synapse_weight = inh_l23_l4.abs() as u16;
+    nt_l23.gsop.is_inhibitory = true;
+    nt_l23.growth.dendrite_whitelist = vec![
+        "L4_spiny".to_string(),
+        "L5_spiny".to_string(),
+        "L23_aspiny".to_string(),
+    ];
+    nt_l23.growth.growth_vertical_bias = 0.0;
+    nt_l23.growth.dendrite_radius_um = 10.0;
+
+    let mut nt_l5 = nt_l5_real.clone();
+    nt_l5.name = "L5_spiny".to_string();
+    nt_l5.gsop.is_inhibitory = false;
+    nt_l5.growth.dendrite_whitelist = vec!["L4_spiny".to_string(), "L23_aspiny".to_string()];
+    nt_l5.growth.growth_vertical_bias = -1.5;
+    nt_l5.growth.dendrite_radius_um = 10.0;
+
+    let layers = vec![
+        config::LayerConfig {
+            name: "Virtual".to_string(),
+            height_pct: 0.25,
+            density: 0.0625,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "VirtualInput".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L4".to_string(),
+            height_pct: 0.25,
+            density: 0.0625,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L4_spiny".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L23".to_string(),
+            height_pct: 0.25,
+            density: 0.03125,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L23_aspiny".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L5".to_string(),
+            height_pct: 0.25,
+            density: 0.03125,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L5_spiny".to_string(),
+                share: 1.0,
+            }],
+        },
+    ];
+
+    let shard_config = config::ShardConfig {
+        meta: None,
+        dimensions: config::ShardDimensions {
+            w: 16,
+            d: 16,
+            h: 32,
+        },
+        settings: config::ShardSettings {
+            ghost_capacity: 1024,
+            prune_threshold: 0,
+            max_sprouts: 8,
+            night_interval_ticks: 100,
+            save_checkpoints_interval_ticks: 1000,
+        },
+        layers,
+        neuron_types: vec![nt_virtual, nt_l4, nt_l23, nt_l5],
+        sockets: None,
+        ports: None,
+    };
+
+    let baker_input = baker::LocalShardBakeInput {
+        shard_config: &shard_config,
+        master_seed: MasterSeed(12345),
+        voxel_size_um: 1.0,
+    };
+    let (artifacts, report) =
+        baker::bake_local_shard(&baker_input).expect("Phase B: Shard baking failed!");
+    println!(
+        "Baked Spatial Connectome: placed somas = {}, grown axons = {}, formed synapses = {}",
+        report.total_somas, report.total_axons, report.total_synapses
+    );
+
+    let single_shard_input = topology::SingleShardTopologyInput {
+        config: &shard_config,
+        seed: MasterSeed(12345),
+    };
+    let single_shard_topology =
+        topology::TopologyEngine::generate_single_shard_topology(&single_shard_input).unwrap();
+
+    let mut total_somas_by_type = vec![0u32; 4];
+    let mut coordinates = Vec::new();
+    let mut soma_types = Vec::new();
+    for soma in &single_shard_topology.somas {
+        let x = soma.position.x() as f32;
+        let y = soma.position.y() as f32;
+        let z = soma.position.z() as f32;
+        coordinates.push((x, y, z));
+        soma_types.push(soma.variant_id);
+        total_somas_by_type[soma.variant_id as usize] += 1;
+    }
+
+    let mut virtual_somas = Vec::new();
+    let mut l4_somas = Vec::new();
+    let mut l23_somas = Vec::new();
+    let mut l5_somas = Vec::new();
+    for (i, &t) in soma_types.iter().enumerate() {
+        if t == 0 {
+            virtual_somas.push(i);
+        } else if t == 1 {
+            l4_somas.push(i);
+        } else if t == 2 {
+            l23_somas.push(i);
+        } else if t == 3 {
+            l5_somas.push(i);
+        }
+    }
+
+    let padded_n = report.total_somas as usize;
+    let total_axons = report.total_axons as usize;
+
+    let backend_config = CpuBackendConfig {
+        thread_count: Some(1),
+    };
+    let mut backend = CpuBackend::new(backend_config).unwrap();
+    let spec = ShardAllocSpec {
+        padded_n: padded_n as u32,
+        total_axons: total_axons as u32,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: &artifacts.state_blob,
+                axons_blob: &artifacts.axons_blob,
+                variant_table: &artifacts.variant_table,
+            },
+        )
+        .unwrap();
+
+    let max_spikes = total_axons as u32;
+    let mut out_spikes = vec![0u32; max_spikes as usize];
+    let mut out_counts = vec![0u32; 1];
+    let mapped_somas: Vec<u32> = (0..padded_n as u32).collect();
+
+    let mut snap_state = vec![0u8; artifacts.state_blob.len()];
+    let mut snap_axons = vec![0u8; artifacts.axons_blob.len()];
+
+    let mut incoming_padded = vec![0u32; max_spikes as usize];
+    let mut recent_spikes: VecDeque<u32> = VecDeque::new();
+    let mut sim_log: Vec<serde_json::Value> = Vec::new();
+
+    // v1.5 extended logging variables for Baker
+    let mut baker_spikes = vec![Vec::new(); padded_n];
+    let mut baker_subthreshold_log = Vec::new();
+
+    let mut active_l4_spikes = 0;
+    let mut active_l23_spikes = 0;
+    let mut active_l5_spikes = 0;
+
+    let mut rng_b = SimpleRng::new(9999);
+
+    println!("--- Phase B.1: Running Baker Column Audit (135,000 ticks total) ---");
+    for tick in 0..total_ticks {
+        let mut incoming_count = 0;
+        let p_val_tick = if tick < 5000 {
+            0.0
+        } else if tick < 15000 {
+            p_weak
+        } else if tick < 25000 {
+            p_mod
+        } else if tick < block_start + learning_ticks {
+            p_val
+        } else {
+            0.0
+        };
+
+        let is_structured = tick >= block_start && tick < block_start + learning_ticks;
+        if is_structured {
+            let group_a = ((tick - block_start) / block_size) % 2 == 0;
+            for axon_idx in 0..128 {
+                let is_active_tick = if axon_idx < 32 {
+                    group_a
+                } else if axon_idx < 64 {
+                    !group_a
+                } else if axon_idx < 96 {
+                    group_a
+                } else {
+                    !group_a
+                };
+                let prob = if is_active_tick {
+                    p_val_tick
+                } else {
+                    background_p
+                };
+                if rng_b.next_f32() < prob {
+                    incoming_padded[incoming_count] = virtual_somas[axon_idx] as u32;
+                    incoming_count += 1;
+                }
+            }
+        } else {
+            for axon_idx in 0..128 {
+                if rng_b.next_f32() < p_val_tick {
+                    incoming_padded[incoming_count] = virtual_somas[axon_idx] as u32;
+                    incoming_count += 1;
+                }
+            }
+        }
+
+        out_counts[0] = 0;
+        out_spikes.fill(0);
+
+        let cmd = DayBatchCmd {
+            sync_batch_ticks: 1,
+            tick_base: tick as u64,
+            v_seg: 1,
+            dopamine: 0,
+            input_bitmask: None,
+            num_virtual_axons: 0,
+            virtual_offset: 0,
+            input_words_per_tick: 0,
+            incoming_spikes: if incoming_count > 0 {
+                Some(&incoming_padded)
+            } else {
+                None
+            },
+            incoming_spike_counts: &[incoming_count as u32],
+            max_spikes_per_tick: max_spikes,
+            num_outputs: padded_n as u32,
+            mapped_soma_ids: &mapped_somas,
+            output_spikes: &mut out_spikes,
+            output_spike_counts: &mut out_counts,
+        };
+
+        backend.run_day_batch(handle, cmd).unwrap();
+
+        // Retrieve subthreshold and spikes
+        if tick % 10 == 0 {
+            backend
+                .debug_snapshot(
+                    handle,
+                    ShardSnapshotMut {
+                        state_blob: &mut snap_state,
+                        axons_blob: &mut snap_axons,
+                    },
+                )
+                .unwrap();
+            let snap_state_buf_tick =
+                MvpStateBuffer::from_raw(padded_n, total_axons, snap_state.clone());
+
+            let mut l4_v_sum = 0.0;
+            let mut l4_th_sum = 0.0;
+            let mut l4_fatigue_sum = 0.0;
+            let mut l4_count = 0;
+
+            let mut l23_v_sum = 0.0;
+            let mut l23_th_sum = 0.0;
+            let mut l23_fatigue_sum = 0.0;
+            let mut l23_count = 0;
+
+            let mut l5_v_sum = 0.0;
+            let mut l5_th_sum = 0.0;
+            let mut l5_fatigue_sum = 0.0;
+            let mut l5_count = 0;
+
+            for i in 0..padded_n {
+                let v = snap_state_buf_tick.read_soma_voltage(i) as f64;
+                let th = snap_state_buf_tick.read_threshold_offset(i) as f64;
+                let mut fatigue_timer_sum = 0;
+                for slot in 0..128 {
+                    fatigue_timer_sum += snap_state_buf_tick.read_dendrite_timer(slot, i) as usize;
+                }
+                let fatigue = fatigue_timer_sum as f64 / (128.0 * 255.0);
+
+                let t = soma_types[i];
+                if t == 1 {
+                    l4_v_sum += v;
+                    l4_th_sum += th;
+                    l4_fatigue_sum += fatigue;
+                    l4_count += 1;
+                } else if t == 2 {
+                    l23_v_sum += v;
+                    l23_th_sum += th;
+                    l23_fatigue_sum += fatigue;
+                    l23_count += 1;
+                } else if t == 3 {
+                    l5_v_sum += v;
+                    l5_th_sum += th;
+                    l5_fatigue_sum += fatigue;
+                    l5_count += 1;
+                }
+            }
+
+            baker_subthreshold_log.push(serde_json::json!({
+                "tick": tick,
+                "l4_vm": if l4_count == 0 { 0.0 } else { l4_v_sum / l4_count as f64 },
+                "l4_th": if l4_count == 0 { 0.0 } else { l4_th_sum / l4_count as f64 },
+                "l4_fatigue": if l4_count == 0 { 0.0 } else { l4_fatigue_sum / l4_count as f64 },
+                "l23_vm": if l23_count == 0 { 0.0 } else { l23_v_sum / l23_count as f64 },
+                "l23_th": if l23_count == 0 { 0.0 } else { l23_th_sum / l23_count as f64 },
+                "l23_fatigue": if l23_count == 0 { 0.0 } else { l23_fatigue_sum / l23_count as f64 },
+                "l5_vm": if l5_count == 0 { 0.0 } else { l5_v_sum / l5_count as f64 },
+                "l5_th": if l5_count == 0 { 0.0 } else { l5_th_sum / l5_count as f64 },
+                "l5_fatigue": if l5_count == 0 { 0.0 } else { l5_fatigue_sum / l5_count as f64 },
+            }));
+        }
+
+        // Record spikes
+        let count = out_counts[0] as usize;
+        let mut tick_spikes = vec![false; padded_n];
+        for &id in &out_spikes[0..count] {
+            if id < padded_n as u32 {
+                tick_spikes[id as usize] = true;
+                baker_spikes[id as usize].push(tick as u32);
+            }
+        }
+
+        let mut l4_sp = 0;
+        let mut l23_sp = 0;
+        let mut l5_sp = 0;
+        for i in 0..padded_n {
+            if tick_spikes[i] {
+                let t = soma_types[i];
+                if t == 1 {
+                    l4_sp += 1;
+                } else if t == 2 {
+                    l23_sp += 1;
+                } else if t == 3 {
+                    l5_sp += 1;
+                }
+            }
+        }
+
+        let is_active = tick >= 15000 && tick <= 125000;
+        if is_active {
+            active_l4_spikes += l4_sp;
+            active_l23_spikes += l23_sp;
+            active_l5_spikes += l5_sp;
+        }
+    }
+
+    let divisor = 110000.0;
+    let r4_b = active_l4_spikes as f64 / (128.0 * divisor / 1000.0);
+    let r23_b = active_l23_spikes as f64 / (64.0 * divisor / 1000.0);
+    let r5_b = active_l5_spikes as f64 / (64.0 * divisor / 1000.0);
+
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+    let snap_state_buf = MvpStateBuffer::from_raw(padded_n, total_axons, snap_state.clone());
+
+    let mut dale_violations_b = 0;
+    let mut sign_flips_b = 0;
+    let mut corr_deltas_exact_b = Vec::new();
+    let mut uncorr_deltas_exact_b = Vec::new();
+    let mut corr_deltas_mass_b = Vec::new();
+    let mut uncorr_deltas_mass_b = Vec::new();
+    let mut corr_deltas_visible_b = Vec::new();
+    let mut uncorr_deltas_visible_b = Vec::new();
+    let mut corr_pos_count_b = 0;
+    let mut corr_total_b = 0;
+    let mut uncorr_pos_count_b = 0;
+    let mut uncorr_total_b = 0;
+
+    let mut l4_l23_deltas = Vec::new();
+    let mut l4_l5_deltas = Vec::new();
+    let mut l23_l4_deltas = Vec::new();
+    let mut l23_l5_deltas = Vec::new();
+    let mut l23_l23_deltas = Vec::new();
+    let mut l5_l23_deltas = Vec::new();
+
+    let mut l4_group0_syn_count = vec![0; l4_somas.len()];
+    let mut l4_group1_syn_count = vec![0; l4_somas.len()];
+    for dest_idx in 0..l4_somas.len() {
+        let dest = l4_somas[dest_idx];
+        for slot in 0..128 {
+            let target = snap_state_buf.read_dendrite_target(slot, dest);
+            if let Some((src, _)) = types::PackedTarget(target).unpack() {
+                if let Some(pos) = virtual_somas.iter().position(|&x| x == src as usize) {
+                    if pos < 32 {
+                        l4_group0_syn_count[dest_idx] += 1;
+                    } else if pos >= 32 && pos < 64 {
+                        l4_group1_syn_count[dest_idx] += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut edge_log_b = Vec::new();
+    for dest in 0..padded_n {
+        let is_l4 = soma_types[dest] == 1;
+        let is_l23 = soma_types[dest] == 2;
+        let is_l5 = soma_types[dest] == 3;
+
+        let dest_pref_a = if is_l4 {
+            if let Some(dest_idx) = l4_somas.iter().position(|&x| x == dest) {
+                l4_group0_syn_count[dest_idx] >= l4_group1_syn_count[dest_idx]
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        for slot in 0..128 {
+            let target = snap_state_buf.read_dendrite_target(slot, dest);
+            if let Some((src, _)) = types::PackedTarget(target).unpack() {
+                let src_type = soma_types[src as usize];
+                let initial_charge = if src_type == 0 {
+                    virt_w as i64
+                } else if src_type == 1 {
+                    3000i64
+                } else if src_type == 2 {
+                    inh_l23_l4 as i64
+                } else {
+                    3000i64
+                };
+                let initial_mass = initial_charge << 16;
+                let final_mass = snap_state_buf.read_dendrite_weight(slot, dest) as i64;
+                let delta_mass = final_mass - initial_mass;
+                let final_charge = final_mass >> 16;
+                let delta_charge_exact = delta_mass as f64 / 65536.0;
+                let delta_charge_visible = final_charge - initial_charge;
+
+                let is_inh = src_type == 2;
+                if is_inh {
+                    if final_mass > 0 {
+                        dale_violations_b += 1;
+                    }
+                    if initial_mass < 0 && final_mass > 0 {
+                        sign_flips_b += 1;
+                    }
+                } else {
+                    if final_mass < 0 {
+                        dale_violations_b += 1;
+                    }
+                    if initial_mass > 0 && final_mass < 0 {
+                        sign_flips_b += 1;
+                    }
+                }
+
+                let projection = if src_type == 0 && is_l4 {
+                    "Virtual -> L4"
+                } else if src_type == 1 && is_l23 {
+                    l4_l23_deltas.push(delta_mass);
+                    "L4 -> L23"
+                } else if src_type == 1 && is_l5 {
+                    l4_l5_deltas.push(delta_mass);
+                    "L4 -> L5"
+                } else if src_type == 2 && is_l4 {
+                    l23_l4_deltas.push(delta_mass);
+                    "L23 -> L4"
+                } else if src_type == 2 && is_l5 {
+                    l23_l5_deltas.push(delta_mass);
+                    "L23 -> L5"
+                } else if src_type == 2 && is_l23 {
+                    l23_l23_deltas.push(delta_mass);
+                    "L23 -> L23"
+                } else if src_type == 3 && is_l23 {
+                    l5_l23_deltas.push(delta_mass);
+                    "L5 -> L23"
+                } else {
+                    "Unknown"
+                };
+
+                let mut is_matched_b = false;
+                let mut virtual_group = "None";
+
+                if src_type == 0 && is_l4 {
+                    if let Some(pos) = virtual_somas.iter().position(|&x| x == src as usize) {
+                        let is_virt_a = pos < 32 || (pos >= 64 && pos < 96);
+                        let is_corr = pos < 64;
+                        virtual_group = if pos < 32 {
+                            "A"
+                        } else if pos < 64 {
+                            "B"
+                        } else if pos < 96 {
+                            "C"
+                        } else {
+                            "D"
+                        };
+
+                        if is_corr {
+                            is_matched_b = dest_pref_a == (pos < 32);
+                            if is_matched_b {
+                                corr_deltas_mass_b.push(delta_mass);
+                                corr_deltas_exact_b.push(delta_charge_exact);
+                                corr_deltas_visible_b.push(delta_charge_visible);
+                                corr_total_b += 1;
+                                if delta_mass > 0 {
+                                    corr_pos_count_b += 1;
+                                }
+                            } else {
+                                uncorr_deltas_mass_b.push(delta_mass);
+                                uncorr_deltas_exact_b.push(delta_charge_exact);
+                                uncorr_deltas_visible_b.push(delta_charge_visible);
+                                uncorr_total_b += 1;
+                                if delta_mass > 0 {
+                                    uncorr_pos_count_b += 1;
+                                }
+                            }
+                        } else {
+                            uncorr_deltas_mass_b.push(delta_mass);
+                            uncorr_deltas_exact_b.push(delta_charge_exact);
+                            uncorr_deltas_visible_b.push(delta_charge_visible);
+                            uncorr_total_b += 1;
+                            if delta_mass > 0 {
+                                uncorr_pos_count_b += 1;
+                            }
+                        }
+                    }
+                }
+
+                edge_log_b.push(serde_json::json!({
+                    "src": src,
+                    "dest": dest,
+                    "projection": projection,
+                    "src_group": virtual_group,
+                    "is_matched": is_matched_b,
+                    "initial_weight": initial_charge,
+                    "final_weight": final_charge,
+                    "delta_signed": delta_charge_visible,
+                    "initial_mass": initial_mass,
+                    "final_mass": final_mass,
+                    "delta_mass": delta_mass,
+                    "delta_charge_exact": delta_charge_exact,
+                    "delta_charge_visible": delta_charge_visible,
+                    "is_inhibitory": is_inh,
+                }));
+            }
+        }
+    }
+
+    let mean_corr_exact_b = if corr_deltas_exact_b.is_empty() {
+        0.0
+    } else {
+        corr_deltas_exact_b.iter().sum::<f64>() / corr_deltas_exact_b.len() as f64
+    };
+    let mean_uncorr_exact_b = if uncorr_deltas_exact_b.is_empty() {
+        0.0
+    } else {
+        uncorr_deltas_exact_b.iter().sum::<f64>() / uncorr_deltas_exact_b.len() as f64
+    };
+
+    let baker_selectivity_idx = if mean_corr_exact_b.abs() > 0.0 || mean_uncorr_exact_b.abs() > 0.0
+    {
+        let max_val = mean_corr_exact_b
+            .abs()
+            .max(mean_uncorr_exact_b.abs())
+            .max(1e-9);
+        (mean_corr_exact_b - mean_uncorr_exact_b) / max_val
+    } else {
+        0.0
+    };
+
+    // Save Phase B artifacts
+    let baker_spikes_path = artifacts_dir.join("plastic_microcircuit_v1_5_baker_spikes.json");
+    let file = File::create(&baker_spikes_path).unwrap();
+    serde_json::to_writer_pretty(
+        file,
+        &serde_json::json!({
+            "total_somas": padded_n,
+            "neuron_spikes": baker_spikes,
+        }),
+    )
+    .unwrap();
+
+    let baker_subthreshold_path =
+        artifacts_dir.join("plastic_microcircuit_v1_5_baker_subthreshold.json");
+    let file = File::create(&baker_subthreshold_path).unwrap();
+    serde_json::to_writer_pretty(file, &baker_subthreshold_log).unwrap();
+
+    let baker_edges_path = artifacts_dir.join("plastic_microcircuit_v1_5_baker_edges.json");
+    let file = File::create(&baker_edges_path).unwrap();
+    serde_json::to_writer_pretty(file, &edge_log_b).unwrap();
+
+    let baker_topo_path = artifacts_dir.join("plastic_microcircuit_v1_5_baker_topology_stats.json");
+    let baker_topology_stats = serde_json::json!({
+        "total_somas": report.total_somas,
+        "total_synapses": report.total_synapses,
+        "projection_deltas": {
+            "l4_l23_mean_mass": if l4_l23_deltas.is_empty() { 0.0 } else { l4_l23_deltas.iter().sum::<i64>() as f64 / l4_l23_deltas.len() as f64 },
+            "l4_l5_mean_mass": if l4_l5_deltas.is_empty() { 0.0 } else { l4_l5_deltas.iter().sum::<i64>() as f64 / l4_l5_deltas.len() as f64 },
+            "l23_l4_mean_mass": if l23_l4_deltas.is_empty() { 0.0 } else { l23_l4_deltas.iter().sum::<i64>() as f64 / l23_l4_deltas.len() as f64 },
+            "l23_l5_mean_mass": if l23_l5_deltas.is_empty() { 0.0 } else { l23_l5_deltas.iter().sum::<i64>() as f64 / l23_l5_deltas.len() as f64 },
+            "l23_l23_mean_mass": if l23_l23_deltas.is_empty() { 0.0 } else { l23_l23_deltas.iter().sum::<i64>() as f64 / l23_l23_deltas.len() as f64 },
+            "l5_l23_mean_mass": if l5_l23_deltas.is_empty() { 0.0 } else { l5_l23_deltas.iter().sum::<i64>() as f64 / l5_l23_deltas.len() as f64 },
+        }
+    });
+    let file = File::create(&baker_topo_path).unwrap();
+    serde_json::to_writer_pretty(file, &baker_topology_stats).unwrap();
+
+    let baker_summary_path = artifacts_dir.join("plastic_microcircuit_v1_5_baker_summary.json");
+    let baker_summary = serde_json::json!({
+        "r4": r4_b,
+        "r23": r23_b,
+        "r5": r5_b,
+        "dale_violations": dale_violations_b,
+        "sign_flips": sign_flips_b,
+        "mean_corr_delta_exact": mean_corr_exact_b,
+        "mean_uncorr_delta_exact": mean_uncorr_exact_b,
+        "selectivity_index": baker_selectivity_idx,
+    });
+    let file = File::create(&baker_summary_path).unwrap();
+    serde_json::to_writer_pretty(file, &baker_summary).unwrap();
+
+    println!("Baker Phase B audit logs written successfully.");
+    println!("Plastic Microcircuit v1.5 Rust simulations complete.");
+}
