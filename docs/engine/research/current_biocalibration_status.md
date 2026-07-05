@@ -37,6 +37,7 @@ Status: active research index, not a final report.
 | [2026-07-05 plastic microcircuit v1.0 gsop spatial weight formation](archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/README.md) | archived | Включение пластичности GSOP/STDP/fatigue на сбалансированной сети v1.4. Проверены физиологическая стабильность и активность weight updates; найден слабый correlation bias (+0.07 uV), но положительная потенциация коррелированных дорожек пока не доказана. |
 | [2026-07-05 plastic microcircuit v1.1 structured potentiation](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/README.md) | archived | Спроектирован и протестирован метод сильного спаренного структурированного стимула. Доказана селективная защита matched Virtual->L4 от LTD, но strict gate положительной потенциации не закрыт. |
 | [2026-07-05 plastic microcircuit v1.2 positive potentiation / activity recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md) | archived | Достигнута строгая положительная потенциация сконструированных matched Virtual->L4 в масс-домене (+68834.90) и exact-заряде (+1.0503 uV), но N=256 L4 activity gate не закрыт, а unmatched-control отсутствует. |
+| [2026-07-05 plastic microcircuit v1.3 control-preserving potentiation](archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/README.md) | archived | Сохранена unmatched-control группа и доказан relative matched bias (+2.7180 uV vs +1.4708 uV), но N=256 L4 activity gate не закрыт, а positive-ratio gate дает tie 100%/100%. |
 
 ## 3. Что сейчас известно
 
@@ -92,10 +93,18 @@ Status: active research index, not a final report.
 | 3 | **Plastic microcircuit** | completed / partial | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса bounded и инварианты соблюдены, доказана положительная потенциация matched путей, но контроль селективности и activity gate еще не закрыты одновременно. |
 | 3.1 | **Plastic microcircuit v1.1 structured potentiation** | completed / partial | Получено сильное селективное удержание matched `Virtual -> L4` от LTD, но strict gate положительной потенциации и L4 activity gate не закрыты. |
 | 3.2 | **Plastic microcircuit v1.2 positive potentiation / activity recovery** | completed / partial | Достигнута строгая положительная потенциация matched Virtual->L4 в масс-домене и exact-заряде. Не закрыты N=256 L4 activity gate и unmatched-control gate. |
-| 3.3 | **Plastic microcircuit v1.3 control-preserving potentiation** | next | Сохранить unmatched Virtual->L4 control group, добиться `mean matched > mean unmatched`, `mean matched > 0`, L4 rate >= 3 Hz на N=256/N=512 и Dale/sign invariants. |
-| 4 | **Sensorimotor toy / CartPole** | blocked (needs step 3.3 pass) | CartPole запускается только после полного microcircuit physiology + plasticity sanity. |
+| 3.3 | **Plastic microcircuit v1.3 control-preserving potentiation** | completed / partial | Сохранена unmatched Virtual->L4 control group (8 matched + 4 unmatched), доказан relative matched bias (+2.7180 uV vs +1.4708 uV), Dale/sign invariants соблюдены. Не закрыты N=256 L4 activity gate (2.62 Hz < 3.0 Hz) и positive-ratio gate (matched=100%, unmatched=100%). |
+| 3.4 | **Plastic microcircuit v1.4 activity-gate + control separation** | next | Нужно одновременно вернуть L4 learning activity >= 3.0 Hz и развести matched/unmatched контроль сильнее, либо явно заменить binary positive-ratio gate на более осмысленную метрику pathway selectivity. |
+| 4 | **Sensorimotor toy / CartPole** | blocked | CartPole остается закрыт до прохождения full activity + pathway gates на plastic microcircuit. |
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Plastic Microcircuit v1.3 Control-Preserving Potentiation (`archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/`)
+
+- **Вопрос**: Является ли положительная потенциация v1.2 результатом селективного пластического обучения или артефактом отбора топологии? Можно ли сохранить непустую unmatched-control группу и добиться селективного роста matched Virtual->L4 по сравнению с unmatched, сохраняя физиологическую стабильность и invariants?
+- **Итоговый вердикт (Partial Pass / Activity Gate Failed / Positive-Ratio Tie)**: Доказан relative matched bias при сохранении unmatched control группы (8 matched + 4 unmatched): mean matched delta exact = +2.7180 uV vs unmatched = +1.4708 uV (relative matched bias +84.8%). Dale/sign invariants полностью соблюдены (0 нарушений). Ворота активности на N=512 sanity пройдены успешно (L4=8.92 Hz, L23=18.35 Hz, L5=10.66 Hz). Однако L4 rate на N=256 learning (2.62 Hz) остается ниже hard gate (>= 3.0 Hz), а binary positive-ratio gate не разделяет группы (matched=100%, unmatched=100%). CartPole RL-стадия остается заблокирована.
+- **Следующий шаг**: `Plastic microcircuit v1.4 activity-gate + control separation`; вернуть L4 learning activity и добить/пересмотреть pathway selectivity gate перед Phase 4.
+- **Outputs**: Rust runner (`run_plastic_microcircuit_v1_3_experiments`), Python скрипт анализа, отчёт [plastic_microcircuit_v1_3_control_preserving_potentiation.md](archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/reports/plastic_microcircuit_v1_3_control_preserving_potentiation.md).
 
 ### [Completed] Plastic Microcircuit v1.2 Positive Potentiation / Activity Recovery (`archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/`)
 
