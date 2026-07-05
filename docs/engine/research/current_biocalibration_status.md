@@ -88,10 +88,18 @@ Status: active research index, not a final report.
 | 2.4 | **Static microcircuit L4/L5 balance** | completed / partial | Достигнут полный баланс слоев на N=256 (L4=3.1Hz, L23=10.6Hz, L5=4.7Hz). На N=512 активность L4 (2.8Hz) на грани допуска (>3Hz) из-за масштабирования торможения L23. Блокер топологический. |
 | 2.5 | **Static microcircuit N=512 fine-tuning** | completed | Достигнут полный баланс и прохождение всех приемочных ворот на N=256 и N=512 одновременно за счет тонкой калибровки торможения L23 (L23->L4 = -1200, L23->L5 = -1250). |
 | 3 | **Plastic microcircuit** | completed / partial | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса bounded и инварианты соблюдены, но положительное усиление коррелированных downstream-путей еще не закрыто. |
-| 3.1 | **Plastic microcircuit v1.1 structured potentiation** | next | Усилить/уточнить structured stimulus и метрики, чтобы получить положительную потенциацию коррелированных `Virtual -> L4` и downstream `L4 -> L23/L5` путей. |
-| 4 | **Sensorimotor toy / CartPole** | blocked on step 3.1 | CartPole запускается только после microcircuit physiology + plasticity sanity. |
+| 3.1 | **Plastic microcircuit v1.1 structured potentiation** | completed / partial | Получено сильное селективное удержание matched `Virtual -> L4` от LTD, но strict gate положительной потенциации и L4 activity gate не закрыты. |
+| 3.2 | **Plastic microcircuit v1.2 positive potentiation / activity recovery** | next | Добиться `mean matched Virtual -> L4 delta > 0`, восстановить L4 rate >= 3 Hz на N=256/N=512 и сохранить Dale/sign invariants. |
+| 4 | **Sensorimotor toy / CartPole** | blocked (needs step 3.2 pass) | CartPole запускается только после microcircuit physiology + plasticity sanity. |
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Plastic Microcircuit v1.1 Structured Potentiation (`archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/`)
+
+- **Вопрос**: Можно ли при сильном спаренном структурированном стимуле и сниженном фоне получить положительную потенциацию коррелированных Virtual->L4 путей и нисходящий перенос на L4->L23/L5, сохраняя физиологическую стабильность?
+- **Итоговый вердикт (Partial Pass)**: runaway/silence и нарушения знаков отсутствуют, но L4 активность ниже hard gate (N=256 learning: L4=1.6Hz, L23=5.6Hz, L5=2.7Hz; N=512 sanity: L4=1.1Hz, L23=3.6Hz, L5=2.1Hz). Выявлено сильное селективное удержание от депрессии (corr delta = -0.0167 uV vs uncorr delta = -0.6111 uV). L4->L23 показывает положительный matched bias (+0.114 uV), L4->L5 показывает только уменьшение депрессии (+0.027 uV bias при отрицательной средней дельте). Strict gate положительной `Virtual -> L4` потенциации не закрыт, CartPole остается заблокирован.
+- **Следующий шаг**: `Plastic microcircuit v1.2 positive potentiation / activity recovery`; выровнять синаптическое утомление или LTP/LTD баланс так, чтобы получить строго положительную matched дельту и вернуть L4 rate >= 3 Hz.
+- **Outputs**: Rust test runner (`run_plastic_microcircuit_v1_1_experiments`), Python скрипт, отчёт [plastic_microcircuit_v1_1_structured_potentiation.md](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/reports/plastic_microcircuit_v1_1_structured_potentiation.md).
 
 ### [Completed] Plastic Microcircuit v1.0 GSOP/STDP Spatial Weight Formation (`archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/`)
 
