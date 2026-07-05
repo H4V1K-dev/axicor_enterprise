@@ -81,11 +81,26 @@ Status: active research index, not a final report.
 | 2.1 | **Static microcircuit scale-up** | completed | Оценена стабильность и CPU производительность при масштабировании до 1,000,000 нейронов. Выявлена Vm saturation (> -25mV) из-за избыточного homeostasis offset под Poisson-шумом. Физиология inconclusive. |
 | 2.2 | **Static microcircuit v1.1 Input Scale & E/I Ablation** | completed / partial | Мембранный потенциал стабилизирован, но L5 recruitment gate не закрыт; ablation показывает модулирующую роль L23 inhibition без формального runaway. |
 | 2.3 | **Static microcircuit L5 recruitment/topology** | completed / partial | L5 успешно рекрутирован в целевой диапазон (~10.1 Hz на N=512) за счет FF L4->L5 усиления (8000 uV) и разделения L23 торможения; L4 переторможен ниже gate (1.4-1.6 Hz). |
-| 2.4 | **Static microcircuit L4/L5 balance** | next | Нужно одновременно удержать L4 в 3..25 Hz и L5 в 1..15 Hz на N=256/N=512 без возврата Vm saturation. |
-| 3 | **Plastic microcircuit** | blocked on step 2.4 | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться. |
+| 2.4 | **Static microcircuit L4/L5 balance** | completed / partial | Достигнут полный баланс слоев на N=256 (L4=3.1Hz, L23=10.6Hz, L5=4.7Hz). На N=512 активность L4 (2.8Hz) на грани допуска (>3Hz) из-за масштабирования торможения L23. Блокер топологический. |
+| 2.5 | **Static microcircuit N=512 fine-tuning** | completed | Достигнут полный баланс и прохождение всех приемочных ворот на N=256 и N=512 одновременно за счет тонкой калибровки торможения L23 (L23->L4 = -1200, L23->L5 = -1250). |
+| 3 | **Plastic microcircuit** | next | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться. |
 | 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity. |
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Static Microcircuit v1.4 N=512 Fine-Tuning (`archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/`)
+
+- **Вопрос**: Можно ли тонко настроить торможение L23, чтобы поднять активность L4 на N=512 выше 3.0 Hz, не нарушая Vm/threshold/selectivity ворота на обоих масштабах (N=256 и N=512)?
+- **Итоговый вердикт (Physiology Passed)**: Все 10 приемочных критериев успешно пройдены на обоих размерах сети. Выбрана конфигурация `L23->L4 = -1200`, `L23->L5 = -1250` (N=256: L4=4.1Hz, L23=11.0Hz, L5=4.3Hz; N=512: L4=3.6Hz, L23=12.3Hz, L5=5.7Hz). Мембранный потенциал стабилен, runaway/silence отсутствуют.
+- **Следующий шаг**: `Plastic microcircuit` для интеграции GSOP/STDP/fatigue пластичности.
+- **Outputs**: Rust runner (`run_static_microcircuit_v1_4_experiments`), Python скрипты, отчёт [static_microcircuit_v1_4_n512_fine_tuning.md](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/reports/static_microcircuit_v1_4_n512_fine_tuning.md).
+
+### [Completed] Static Microcircuit v1.3 L4/L5 Balance & Winner Selection (`archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/`)
+
+- **Вопрос**: Можно ли одновременно сбалансировать слои L4, L23 и L5 в целевых физиологических диапазонах, используя скорректированную winner-политику и расширенный feedback inhibition split?
+- **Итоговый вердикт (Partial Pass / N=256 Passed / N=512 Borderline)**: На N=256 все слои полностью сбалансированы: L4 = 3.13 Hz, L23 = 10.65 Hz, L5 = 4.73 Hz. На N=512 активность L4 (2.76 Hz) остается чуть ниже hard gate 3.0 Hz. Все ворота Vm health и threshold полностью пройдены.
+- **Следующий шаг**: `Static microcircuit N=512 fine-tuning` для полной калибровки при масштабировании.
+- **Outputs**: Rust runner (`run_static_microcircuit_v1_3_experiments`), Python скрипты, отчёт [static_microcircuit_v1_3_l4_l5_balance_winner_selection.md](archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/reports/static_microcircuit_v1_3_l4_l5_balance_winner_selection.md).
 
 ### [Completed] Static Microcircuit v1.2 L5 Recruitment & Topology (`archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/`)
 
@@ -160,6 +175,8 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Static Microcircuit v1.4 N=512 Fine-Tuning](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/README.md)
+- [Static Microcircuit v1.3 L4/L5 Balance & Winner Selection](archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/README.md)
 - [Static Microcircuit v1.2 L5 Recruitment & Topology](archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/README.md)
 - [Static Microcircuit v1.1 Input Scale & E/I Ablation](archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/README.md)
 - [Static Microcircuit Scale-Up v1](archive/2026-07-04_static_microcircuit_scale_up_v1/README.md)
@@ -181,6 +198,12 @@ Status: active research index, not a final report.
 
 ### Static Microcircuit
 
+- [static_microcircuit_v1_4_sweep_summary.json](../../../artifacts/static_microcircuit_v1_4_sweep_summary.json)
+- [static_microcircuit_v1_4_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_4_best_candidate_log_512.json)
+- [static_microcircuit_v1_4_ablation_summary.json](../../../artifacts/static_microcircuit_v1_4_ablation_summary.json)
+- [static_microcircuit_v1_3_sweep_summary.json](../../../artifacts/static_microcircuit_v1_3_sweep_summary.json)
+- [static_microcircuit_v1_3_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_3_best_candidate_log_512.json)
+- [static_microcircuit_v1_3_ablation_summary.json](../../../artifacts/static_microcircuit_v1_3_ablation_summary.json)
 - [static_microcircuit_v1_2_sweep_summary.json](../../../artifacts/static_microcircuit_v1_2_sweep_summary.json)
 - [static_microcircuit_v1_2_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_2_best_candidate_log_512.json)
 - [static_microcircuit_v1_2_ablation_summary.json](../../../artifacts/static_microcircuit_v1_2_ablation_summary.json)

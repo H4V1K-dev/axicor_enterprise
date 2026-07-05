@@ -3466,8 +3466,8 @@ fn run_static_microcircuit_scale_up_experiments() {
     clippy::manual_range_contains,
     clippy::type_complexity
 )]
-fn run_static_microcircuit_v1_2_experiments() {
-    println!("=== Starting Static Microcircuit v1.2 Experiments ===");
+fn run_static_microcircuit_v1_4_experiments() {
+    println!("=== Starting Static Microcircuit v1.4 Experiments ===");
     use compute_api::{ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload};
     use compute_cpu::{CpuBackend, CpuBackendConfig};
     use std::collections::VecDeque;
@@ -4235,143 +4235,157 @@ fn run_static_microcircuit_v1_2_experiments() {
     sweep_results.push(res_baseline_256);
     sweep_results.push(res_baseline_512);
 
-    // Stage 1: L5 Feedforward Sweep (N=256)
-    println!("--- STAGE 1: Sweeping L4->L5 excitation weight & L4->L5 fan-in (N=256) ---");
-    let exc_w_l4_l5_options = vec![3000, 4000, 5000, 6500, 8000];
-    let fan_in_options = vec![0, 1, 2]; // 0: 6..18, 1: 12..28, 2: 20..40
-    let mut stage1_results = Vec::new();
-    for &exc_l4_l5 in &exc_w_l4_l5_options {
-        for &fan_in_idx in &fan_in_options {
-            let (res, _) = run_config(
-                256,
-                1500,
-                0,
-                3000,
-                exc_l4_l5,
-                fan_in_idx,
-                -2750,
-                -2750,
-                1,
-                &variant_table,
-            );
-            println!(
-                "  Exc L4->L5 = {}, Fan-in Index = {}: L5 rate = {:.2} Hz, L4 rate = {:.1} Hz, consec_above = {}, passed = {}",
-                exc_l4_l5, fan_in_idx, res.l5_rate, res.l4_rate, res.max_consec_vm_above, res.passed_all_gates
-            );
-            stage1_results.push(res.clone());
-            sweep_results.push(res);
-        }
-    }
+    // Primary Sweep Configuration
+    let inh_w_l23_l4_options = vec![-1500, -1400, -1300, -1200, -1100, -1000];
+    let inh_w_l23_l5_options = vec![-1250, -1000, -750];
 
-    let mut best_stage1_idx = 0;
-    let mut best_l5_dist = f64::MAX;
-    let mut best_l5_rate_fallback = 0.0;
-    let mut best_fallback_idx = 0;
-    for (idx, res) in stage1_results.iter().enumerate() {
-        let is_healthy = res.max_consec_vm_above <= 50 && !res.has_runaway;
-        if is_healthy {
-            if res.l5_rate >= 1.0 && res.l5_rate <= 15.0 {
-                let dist = (res.l5_rate - 8.0).abs();
-                if dist < best_l5_dist {
-                    best_l5_dist = dist;
-                    best_stage1_idx = idx;
+    // Sweep executor helper
+    let run_sweep = |virt_w: i32,
+                     sweep_results: &mut Vec<SweepResult>,
+                     stage: usize|
+     -> Option<SweepResult> {
+        println!(
+            "--- RUNNING SWEEP STAGE {} with virt_w = {} ---",
+            stage, virt_w
+        );
+        let mut stage_results = Vec::new();
+        for &inh_l23_l4 in &inh_w_l23_l4_options {
+            for &inh_l23_l5 in &inh_w_l23_l5_options {
+                // Run on N=256
+                let (res_256, _) = run_config(
+                    256,
+                    virt_w,
+                    0,
+                    3000,
+                    5000,
+                    1,
+                    inh_l23_l4,
+                    inh_l23_l5,
+                    stage,
+                    &variant_table,
+                );
+                // Run on N=512
+                let (res_512, _) = run_config(
+                    512,
+                    virt_w,
+                    0,
+                    3000,
+                    5000,
+                    1,
+                    inh_l23_l4,
+                    inh_l23_l5,
+                    stage,
+                    &variant_table,
+                );
+                println!(
+                    "  Inh L23->L4 = {}, Inh L23->L5 = {}: N=256 passed = {}, L4 = {:.2} Hz, L5 = {:.2} Hz | N=512 passed = {}, L4 = {:.2} Hz, L5 = {:.2} Hz",
+                    inh_l23_l4, inh_l23_l5, res_256.passed_all_gates, res_256.l4_rate, res_256.l5_rate, res_512.passed_all_gates, res_512.l4_rate, res_512.l5_rate
+                );
+                stage_results.push((res_256.clone(), res_512.clone()));
+                sweep_results.push(res_256);
+                sweep_results.push(res_512);
+            }
+        }
+
+        // Winner Selection Policy:
+        // 1. Prefer candidates with passed_all_gates == true on BOTH N=256 and N=512.
+        // 2. Among passing candidates, prefer L4 not barely at threshold: target L4 >= 3.5 Hz on N=512.
+        // 3. Minimize deviation from L5 target center around 8 Hz on N=512.
+        let mut passing_indices = Vec::new();
+        for (idx, (r256, r512)) in stage_results.iter().enumerate() {
+            if r256.passed_all_gates && r512.passed_all_gates {
+                passing_indices.push(idx);
+            }
+        }
+
+        if !passing_indices.is_empty() {
+            let pref_l4_indices: Vec<usize> = passing_indices
+                .iter()
+                .cloned()
+                .filter(|&idx| stage_results[idx].1.l4_rate >= 3.5)
+                .collect();
+            let subset = if !pref_l4_indices.is_empty() {
+                &pref_l4_indices
+            } else {
+                &passing_indices
+            };
+
+            let mut best_idx = subset[0];
+            let mut best_dist = f64::MAX;
+            for &idx in subset {
+                let r512 = &stage_results[idx].1;
+                let dist = (r512.l5_rate - 8.0).abs();
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_idx = idx;
                 }
             }
-            if res.l5_rate > best_l5_rate_fallback {
-                best_l5_rate_fallback = res.l5_rate;
-                best_fallback_idx = idx;
-            }
+            Some(stage_results[best_idx].0.clone())
+        } else {
+            None
         }
-    }
-    let stage1_winner_idx = if best_l5_dist < f64::MAX {
-        best_stage1_idx
-    } else {
-        best_fallback_idx
     };
-    let best_exc_w_l4_l5 = stage1_results[stage1_winner_idx].exc_weight_l4_l5;
-    let best_fan_in_idx = stage1_results[stage1_winner_idx].fan_in_l4_l5_idx;
-    println!(
-        "Selected Stage 1 Best: Exc L4->L5 = {}, Fan-in Index = {}",
-        best_exc_w_l4_l5, best_fan_in_idx
-    );
 
-    // Stage 2: Layer-Specific Inhibition Split (N=256)
-    println!("--- STAGE 2: Sweeping L23->L4 and L23->L5 inhibition split (N=256) ---");
-    let inh_w_l23_l4_options = vec![-2000, -2750, -3500];
-    let inh_w_l23_l5_options = vec![0, -500, -1000, -1500, -2000, -2750];
-    let mut stage2_results = Vec::new();
-    for &inh_l23_l4 in &inh_w_l23_l4_options {
-        for &inh_l23_l5 in &inh_w_l23_l5_options {
-            let (res, _) = run_config(
-                256,
-                1500,
-                0,
-                3000,
-                best_exc_w_l4_l5,
-                best_fan_in_idx,
-                inh_l23_l4,
-                inh_l23_l5,
-                2,
-                &variant_table,
-            );
+    let primary_winner = run_sweep(1500, &mut sweep_results, 2);
+    let (winner, final_virt_w) = if let Some(winner_primary) = primary_winner {
+        println!(
+            "Primary sweep succeeded! Selected winner: Inh L23->L4 = {}, Inh L23->L5 = {}",
+            winner_primary.inh_weight_l23_l4, winner_primary.inh_weight_l23_l5
+        );
+        (winner_primary, 1500)
+    } else {
+        println!("Primary sweep failed to find a full-pass candidate on both N sizes. Running Fallback Stage 3 (+5% input, virt_w = 1575)...");
+        let fallback_5_winner = run_sweep(1575, &mut sweep_results, 3);
+        if let Some(winner_fb5) = fallback_5_winner {
             println!(
-                "  Inh L23->L4 = {}, Inh L23->L5 = {}: L4 rate = {:.1} Hz, L5 rate = {:.2} Hz, L23 rate = {:.1} Hz, runaway = {}, passed = {}",
-                inh_l23_l4, inh_l23_l5, res.l4_rate, res.l5_rate, res.l23_rate, res.has_runaway, res.passed_all_gates
+                "Fallback +5% sweep succeeded! Selected winner: Inh L23->L4 = {}, Inh L23->L5 = {}",
+                winner_fb5.inh_weight_l23_l4, winner_fb5.inh_weight_l23_l5
             );
-            stage2_results.push(res.clone());
-            sweep_results.push(res);
-        }
-    }
+            (winner_fb5, 1575)
+        } else {
+            println!("Fallback +5% sweep failed. Running Fallback Stage 3 (+10% input, virt_w = 1650)...");
+            let fallback_10_winner = run_sweep(1650, &mut sweep_results, 3);
+            if let Some(winner_fb10) = fallback_10_winner {
+                println!("Fallback +10% sweep succeeded! Selected winner: Inh L23->L4 = {}, Inh L23->L5 = {}", winner_fb10.inh_weight_l23_l4, winner_fb10.inh_weight_l23_l5);
+                (winner_fb10, 1650)
+            } else {
+                println!("All sweeps failed to find a candidate passing all gates on both N sizes. Selecting best partial candidate...");
+                let stage2_results: Vec<SweepResult> = sweep_results
+                    .iter()
+                    .filter(|r| r.stage == 2)
+                    .cloned()
+                    .collect();
 
-    let mut best_stage2_idx = 0;
-    let mut best_l5_dist_s2 = f64::MAX;
-    let mut best_stage2_fallback_idx = 0;
-    let mut best_fallback_dist_s2 = f64::MAX;
-
-    for (idx, res) in stage2_results.iter().enumerate() {
-        let is_healthy = res.max_consec_vm_above <= 50 && !res.has_runaway;
-        if is_healthy {
-            let l4_ok = res.l4_rate >= 3.0 && res.l4_rate <= 25.0;
-            let l23_ok = res.l23_rate >= 3.0 && res.l23_rate <= 35.0;
-            let l5_ok = res.l5_rate >= 1.0 && res.l5_rate <= 15.0;
-
-            if l4_ok && l23_ok && l5_ok {
-                let dist = (res.l5_rate - 8.0).abs();
-                if dist < best_l5_dist_s2 {
-                    best_l5_dist_s2 = dist;
-                    best_stage2_idx = idx;
+                let mut best_pair_idx = 0;
+                let mut best_pair_dist = f64::MAX;
+                for i in 0..18 {
+                    let r256 = &stage2_results[2 * i];
+                    let r512 = &stage2_results[2 * i + 1];
+                    let dist = (r512.l4_rate - 3.5).abs()
+                        + (r512.l5_rate - 8.0).abs()
+                        + (r256.l4_rate - 3.5).abs();
+                    if dist < best_pair_dist {
+                        best_pair_dist = dist;
+                        best_pair_idx = i;
+                    }
                 }
-            }
-
-            let dist_fb = (res.l5_rate - 8.0).abs();
-            if dist_fb < best_fallback_dist_s2 {
-                best_fallback_dist_s2 = dist_fb;
-                best_stage2_fallback_idx = idx;
+                (stage2_results[2 * best_pair_idx].clone(), 1500)
             }
         }
-    }
-
-    let stage2_winner_idx = if best_l5_dist_s2 < f64::MAX {
-        best_stage2_idx
-    } else {
-        best_stage2_fallback_idx
     };
-    let best_inh_w_l23_l4 = stage2_results[stage2_winner_idx].inh_weight_l23_l4;
-    let best_inh_w_l23_l5 = stage2_results[stage2_winner_idx].inh_weight_l23_l5;
-    println!(
-        "Selected Stage 2 Best: Inh L23->L4 = {}, Inh L23->L5 = {}",
-        best_inh_w_l23_l4, best_inh_w_l23_l5
-    );
+
+    let best_inh_w_l23_l4 = winner.inh_weight_l23_l4;
+    let best_inh_w_l23_l5 = winner.inh_weight_l23_l5;
 
     // Stage 4: Confirmation detailed best candidate runs
     println!("=== Sweeps complete. Running detailed best candidate runs ===");
     let (_best_res_256, best_log_256) = run_config(
         256,
-        1500,
+        final_virt_w,
         0,
         3000,
-        best_exc_w_l4_l5,
-        best_fan_in_idx,
+        5000,
+        1,
         best_inh_w_l23_l4,
         best_inh_w_l23_l5,
         4,
@@ -4379,45 +4393,35 @@ fn run_static_microcircuit_v1_2_experiments() {
     );
     let (best_res_512, best_log_512) = run_config(
         512,
-        1500,
+        final_virt_w,
         0,
         3000,
-        best_exc_w_l4_l5,
-        best_fan_in_idx,
+        5000,
+        1,
         best_inh_w_l23_l4,
         best_inh_w_l23_l5,
         4,
         &variant_table,
     );
 
-    let log_path_256 = artifacts_dir.join("static_microcircuit_v1_2_best_candidate_log_256.json");
+    let log_path_256 = artifacts_dir.join("static_microcircuit_v1_4_best_candidate_log_256.json");
     let file = File::create(&log_path_256).unwrap();
     serde_json::to_writer_pretty(file, &best_log_256).unwrap();
 
-    let log_path_512 = artifacts_dir.join("static_microcircuit_v1_2_best_candidate_log_512.json");
+    let log_path_512 = artifacts_dir.join("static_microcircuit_v1_4_best_candidate_log_512.json");
     let file = File::create(&log_path_512).unwrap();
     serde_json::to_writer_pretty(file, &best_log_512).unwrap();
 
     println!("--- Running Ablation cases on N=512 ---");
-    let (res_no_inh, log_no_inh) = run_config(
-        512,
-        1500,
-        0,
-        3000,
-        best_exc_w_l4_l5,
-        best_fan_in_idx,
-        0,
-        0,
-        5,
-        &variant_table,
-    );
+    let (res_no_inh, log_no_inh) =
+        run_config(512, final_virt_w, 0, 3000, 5000, 1, 0, 0, 5, &variant_table);
     let (res_red_inh, log_red_inh) = run_config(
         512,
-        1500,
+        final_virt_w,
         0,
         3000,
-        best_exc_w_l4_l5,
-        best_fan_in_idx,
+        5000,
+        1,
         best_inh_w_l23_l4 / 2,
         best_inh_w_l23_l5 / 2,
         5,
@@ -4448,7 +4452,7 @@ fn run_static_microcircuit_v1_2_experiments() {
         }
     });
 
-    let ablation_path = artifacts_dir.join("static_microcircuit_v1_2_ablation_summary.json");
+    let ablation_path = artifacts_dir.join("static_microcircuit_v1_4_ablation_summary.json");
     let file = File::create(&ablation_path).unwrap();
     serde_json::to_writer_pretty(file, &ablation_summary).unwrap();
 
@@ -4456,13 +4460,13 @@ fn run_static_microcircuit_v1_2_experiments() {
         "no_inhibition_log": log_no_inh,
         "reduced_inhibition_log": log_red_inh
     });
-    let ablation_logs_path = artifacts_dir.join("static_microcircuit_v1_2_ablation_logs.json");
+    let ablation_logs_path = artifacts_dir.join("static_microcircuit_v1_4_ablation_logs.json");
     let file = File::create(&ablation_logs_path).unwrap();
     serde_json::to_writer_pretty(file, &ablation_logs).unwrap();
 
-    let sweep_summary_path = artifacts_dir.join("static_microcircuit_v1_2_sweep_summary.json");
+    let sweep_summary_path = artifacts_dir.join("static_microcircuit_v1_4_sweep_summary.json");
     let file = File::create(&sweep_summary_path).unwrap();
     serde_json::to_writer_pretty(file, &sweep_results).unwrap();
 
-    println!("Static Microcircuit v1.2 Rust simulations complete.");
+    println!("Static Microcircuit v1.4 Rust simulations complete.");
 }
