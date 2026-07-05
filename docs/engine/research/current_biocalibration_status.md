@@ -35,6 +35,8 @@ Status: active research index, not a final report.
 | [2026-07-05 static microcircuit v1.3 balance & winner selection](archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/README.md) | archived | Совместный баланс L4/L23/L5 слоев на N=256 и N=512. Баланс на N=256 достигнут, на N=512 активность L4 осталась чуть ниже 3.0 Hz. |
 | [2026-07-05 static microcircuit v1.4 N=512 fine-tuning](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/README.md) | archived | Тонкая калибровка торможения L23 для прохождения всех физиологических ворот на обоих масштабах одновременно. |
 | [2026-07-05 plastic microcircuit v1.0 gsop spatial weight formation](archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/README.md) | archived | Включение пластичности GSOP/STDP/fatigue на сбалансированной сети v1.4. Проверены физиологическая стабильность и активность weight updates; найден слабый correlation bias (+0.07 uV), но положительная потенциация коррелированных дорожек пока не доказана. |
+| [2026-07-05 plastic microcircuit v1.1 structured potentiation](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/README.md) | archived | Спроектирован и протестирован метод сильного спаренного структурированного стимула. Доказана селективная защита matched Virtual->L4 от LTD, но strict gate положительной потенциации не закрыт. |
+| [2026-07-05 plastic microcircuit v1.2 positive potentiation / activity recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md) | archived | Достигнута строгая положительная потенциация сконструированных matched Virtual->L4 в масс-домене (+68834.90) и exact-заряде (+1.0503 uV), но N=256 L4 activity gate не закрыт, а unmatched-control отсутствует. |
 
 ## 3. Что сейчас известно
 
@@ -87,12 +89,20 @@ Status: active research index, not a final report.
 | 2.3 | **Static microcircuit L5 recruitment/topology** | completed / partial | L5 успешно рекрутирован в целевой диапазон (~10.1 Hz на N=512) за счет FF L4->L5 усиления (8000 uV) и разделения L23 торможения; L4 переторможен ниже gate (1.4-1.6 Hz). |
 | 2.4 | **Static microcircuit L4/L5 balance** | completed / partial | Достигнут полный баланс слоев на N=256 (L4=3.1Hz, L23=10.6Hz, L5=4.7Hz). На N=512 активность L4 (2.8Hz) на грани допуска (>3Hz) из-за масштабирования торможения L23. Блокер топологический. |
 | 2.5 | **Static microcircuit N=512 fine-tuning** | completed | Достигнут полный баланс и прохождение всех приемочных ворот на N=256 и N=512 одновременно за счет тонкой калибровки торможения L23 (L23->L4 = -1200, L23->L5 = -1250). |
-| 3 | **Plastic microcircuit** | completed / partial | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса bounded и инварианты соблюдены, но положительное усиление коррелированных downstream-путей еще не закрыто. |
+| 3 | **Plastic microcircuit** | completed / partial | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса bounded и инварианты соблюдены, доказана положительная потенциация matched путей, но контроль селективности и activity gate еще не закрыты одновременно. |
 | 3.1 | **Plastic microcircuit v1.1 structured potentiation** | completed / partial | Получено сильное селективное удержание matched `Virtual -> L4` от LTD, но strict gate положительной потенциации и L4 activity gate не закрыты. |
-| 3.2 | **Plastic microcircuit v1.2 positive potentiation / activity recovery** | next | Добиться `mean matched Virtual -> L4 delta > 0`, восстановить L4 rate >= 3 Hz на N=256/N=512 и сохранить Dale/sign invariants. |
-| 4 | **Sensorimotor toy / CartPole** | blocked (needs step 3.2 pass) | CartPole запускается только после microcircuit physiology + plasticity sanity. |
+| 3.2 | **Plastic microcircuit v1.2 positive potentiation / activity recovery** | completed / partial | Достигнута строгая положительная потенциация matched Virtual->L4 в масс-домене и exact-заряде. Не закрыты N=256 L4 activity gate и unmatched-control gate. |
+| 3.3 | **Plastic microcircuit v1.3 control-preserving potentiation** | next | Сохранить unmatched Virtual->L4 control group, добиться `mean matched > mean unmatched`, `mean matched > 0`, L4 rate >= 3 Hz на N=256/N=512 и Dale/sign invariants. |
+| 4 | **Sensorimotor toy / CartPole** | blocked (needs step 3.3 pass) | CartPole запускается только после полного microcircuit physiology + plasticity sanity. |
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Plastic Microcircuit v1.2 Positive Potentiation / Activity Recovery (`archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/`)
+
+- **Вопрос**: Можно ли превратить селективную защиту matched Virtual->L4 от LTD в строгую положительную потенциацию, не ломая физиологию сети и сохраняя invariants?
+- **Итоговый вердикт (Partial Pass)**: Достигнута строгая положительная потенциация сконструированных matched связей (mean delta mass: +68834.90, exact charge: +1.0503 uV). Однако все hard gates не пройдены: N=256 learning имеет L4=1.54Hz (<3.0Hz), а `Virtual -> L4` unmatched-control отсутствует (matched n=1024, unmatched n=0), поэтому pathway selection не валидирован. L4->L23 имеет положительный matched bias, L4->L5 остается отрицательным по среднему знаку.
+- **Следующий шаг**: `Plastic microcircuit v1.3 control-preserving potentiation`; сохранить unmatched-control и восстановить L4 activity gate перед CartPole.
+- **Outputs**: Rust runner (`run_plastic_microcircuit_v1_2_experiments`), Python скрипт анализа, отчёт [plastic_microcircuit_v1_2_positive_potentiation_activity_recovery.md](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/reports/plastic_microcircuit_v1_2_positive_potentiation_activity_recovery.md).
 
 ### [Completed] Plastic Microcircuit v1.1 Structured Potentiation (`archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/`)
 
@@ -195,6 +205,8 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Plastic Microcircuit v1.2 Positive Potentiation / Activity Recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md)
+- [Plastic Microcircuit v1.1 Structured Potentiation](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/README.md)
 - [Static Microcircuit v1.4 N=512 Fine-Tuning](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/README.md)
 - [Static Microcircuit v1.3 L4/L5 Balance & Winner Selection](archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/README.md)
 - [Static Microcircuit v1.2 L5 Recruitment & Topology](archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/README.md)
@@ -215,6 +227,18 @@ Status: active research index, not a final report.
 
 - [biological_calibration_pack_v1.csv](../../../artifacts/biological_calibration_pack_v1.csv)
 - [biological_calibration_pack_v1.json](../../../artifacts/biological_calibration_pack_v1.json)
+
+### Plastic Microcircuit
+- [plastic_microcircuit_v1_2_summary.json](../../../artifacts/plastic_microcircuit_v1_2_summary.json)
+- [plastic_microcircuit_v1_2_sweep_summary.json](../../../artifacts/plastic_microcircuit_v1_2_sweep_summary.json)
+- [plastic_microcircuit_v1_2_best_edge_log_256.json](../../../artifacts/plastic_microcircuit_v1_2_best_edge_log_256.json)
+- [plastic_microcircuit_v1_2_best_log_256_learning.json](../../../artifacts/plastic_microcircuit_v1_2_best_log_256_learning.json)
+- [plastic_microcircuit_v1_2_best_log_256_sanity.json](../../../artifacts/plastic_microcircuit_v1_2_best_log_256_sanity.json)
+- [plastic_microcircuit_v1_2_best_log_512_sanity.json](../../../artifacts/plastic_microcircuit_v1_2_best_log_512_sanity.json)
+- [plastic_microcircuit_v1_1_summary.json](../../../artifacts/plastic_microcircuit_v1_1_summary.json)
+- [plastic_microcircuit_v1_1_sweep_summary.json](../../../artifacts/plastic_microcircuit_v1_1_sweep_summary.json)
+- [plastic_microcircuit_v1_1_best_edge_log_256.json](../../../artifacts/plastic_microcircuit_v1_1_best_edge_log_256.json)
+- [plastic_microcircuit_v1_1_best_log_256_learning.json](../../../artifacts/plastic_microcircuit_v1_1_best_log_256_learning.json)
 
 ### Static Microcircuit
 
