@@ -31,6 +31,10 @@ Status: active research index, not a final report.
 | [2026-07-04 full neuron replay 314900022](archive/2026-07-04_full_neuron_replay_314900022/README.md) | archived | Выполнен полный нейронный replay с потиковым паритетом Python/Rust. Изучены AHP, рефрактерность, homeostasis, Bounded Inertia и Heartbeat Gating. Выявлено: Bounded Inertia не решает гипервозбудимость на малых токах; Heartbeat Gating устраняет рефрактерные коллизии; gated_discharge — единственный biophysical кандидат для продакшна. |
 | [2026-07-04 static microcircuit scale-up v1](archive/2026-07-04_static_microcircuit_scale_up_v1/README.md) | archived | Масштабирование статической микросети до N=1M на CPU. Выявлены Vm saturation и перегрев порогов. |
 | [2026-07-04 static microcircuit v1.1 input scale & E/I ablation](archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/README.md) | archived | Стабилизация L4 мембранного потенциала, рекрутирование L5 и оценка E/I баланса через ablation аудит торможения L23. |
+| [2026-07-04 static microcircuit v1.2 L5 recruitment / topology](archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/README.md) | archived | Вывод L5 активности в целевой диапазон 1-15 Hz. Рекрутирование прошло успешно, но L4 оказался переторможен торможением L23. |
+| [2026-07-05 static microcircuit v1.3 balance & winner selection](archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/README.md) | archived | Совместный баланс L4/L23/L5 слоев на N=256 и N=512. Баланс на N=256 достигнут, на N=512 активность L4 осталась чуть ниже 3.0 Hz. |
+| [2026-07-05 static microcircuit v1.4 N=512 fine-tuning](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/README.md) | archived | Тонкая калибровка торможения L23 для прохождения всех физиологических ворот на обоих масштабах одновременно. |
+| [2026-07-05 plastic microcircuit v1.0 gsop spatial weight formation](archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/README.md) | archived | Включение пластичности GSOP/STDP/fatigue на сбалансированной сети v1.4. Проверены физиологическая стабильность и активность weight updates; найден слабый correlation bias (+0.07 uV), но положительная потенциация коррелированных дорожек пока не доказана. |
 
 ## 3. Что сейчас известно
 
@@ -83,10 +87,18 @@ Status: active research index, not a final report.
 | 2.3 | **Static microcircuit L5 recruitment/topology** | completed / partial | L5 успешно рекрутирован в целевой диапазон (~10.1 Hz на N=512) за счет FF L4->L5 усиления (8000 uV) и разделения L23 торможения; L4 переторможен ниже gate (1.4-1.6 Hz). |
 | 2.4 | **Static microcircuit L4/L5 balance** | completed / partial | Достигнут полный баланс слоев на N=256 (L4=3.1Hz, L23=10.6Hz, L5=4.7Hz). На N=512 активность L4 (2.8Hz) на грани допуска (>3Hz) из-за масштабирования торможения L23. Блокер топологический. |
 | 2.5 | **Static microcircuit N=512 fine-tuning** | completed | Достигнут полный баланс и прохождение всех приемочных ворот на N=256 и N=512 одновременно за счет тонкой калибровки торможения L23 (L23->L4 = -1200, L23->L5 = -1250). |
-| 3 | **Plastic microcircuit** | next | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться. |
-| 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity. |
+| 3 | **Plastic microcircuit** | completed / partial | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса bounded и инварианты соблюдены, но положительное усиление коррелированных downstream-путей еще не закрыто. |
+| 3.1 | **Plastic microcircuit v1.1 structured potentiation** | next | Усилить/уточнить structured stimulus и метрики, чтобы получить положительную потенциацию коррелированных `Virtual -> L4` и downstream `L4 -> L23/L5` путей. |
+| 4 | **Sensorimotor toy / CartPole** | blocked on step 3.1 | CartPole запускается только после microcircuit physiology + plasticity sanity. |
 
 ## 8. Активные и следующие исследования
+
+### [Completed] Plastic Microcircuit v1.0 GSOP/STDP Spatial Weight Formation (`archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/`)
+
+- **Вопрос**: Формирует ли сеть пространственно-структурированные синаптические пути вокруг коррелированных входных групп при включении GSOP/STDP/fatigue на сбалансированной статической микросети v1.4, сохраняя при этом физиологическую стабильность?
+- **Итоговый вердикт (Partial Pass / Plasticity Active / Positive Potentiation Not Proven)**: Правила пластичности успешно активированы. Физиологические ворота пройдены (N=256: L4=3.6Hz, L23=10.6Hz, L5=3.6Hz; N=512: L4=3.0Hz, L23=12.9Hz, L5=6.9Hz). Весовые инварианты соблюдены, mean abs delta = 0.4995 uV. Найден слабый correlation bias: коррелированные `Virtual -> L4` входы депрессируются меньше фоновых (+0.0686 uV), но средняя дельта остается отрицательной (-0.7683 uV), поэтому положительное усиление коррелированных дорожек не доказано.
+- **Следующий шаг**: `Plastic microcircuit v1.1 structured potentiation`; CartPole остается заблокирован до подтверждения положительной/структурной потенциации.
+- **Outputs**: Rust test runner (`run_plastic_microcircuit_v1_0_experiments`), Python скрипт, отчёт [plastic_microcircuit_v1_0_gsop_spatial_weight_formation.md](archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/reports/plastic_microcircuit_v1_0_gsop_spatial_weight_formation.md).
 
 ### [Completed] Static Microcircuit v1.4 N=512 Fine-Tuning (`archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/`)
 
