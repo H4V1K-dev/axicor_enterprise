@@ -108,17 +108,24 @@ Status: active research index, not a final report.
 | 4.8 | **Growth v2 fan-in pressure reduction** | completed / research winner selected | Снижена нагрузка на посты (p90 = 96, saturated = 0) за счет projection-aware cap = 96, сохранены все ожидаемые связи (L4->L5 = 606), подтвержден стабильный matched replay. Separate-stream compile пока является audit blueprint, не production runtime parity. |
 | 4.9 | **Night phase contract & MVP extraction** | completed / contract v0.1 pass | Зафиксирован архитектурный контракт ночной фазы: роли плоскостей данных, жесткие инварианты, независимость от исследовательских меток и приоритет AOT/Baker геометрии. |
 | 4.9.1 | **Night phase passive recovery** | completed / pass | Проверен day/night цикл на C17 топологии: пассивная релаксация снижает Day 2 тики тишины (с 2623 до 2036), matched bias сохраняется (retention = 1.0000), 0.1% weight decay безопасен (retention = 0.9990). |
-| 4.9.2 | **Night phase weight maintenance / prune-compact** | next | Проверить мягкий синаптический decay, прунинг слабых связей ниже порога и компрессию целевого массива (dendrite target compaction) для поддержания плотности синапсов. |
+| 4.9.2 | **Night phase weight maintenance / prune-compact** | completed / mechanical pass, threshold caveat | Проверен прунинг и уплотнение дендритных слотов: compaction сохраняет dense/Dale/duplicate invariants. Stress floor `1498 << 16` удаляет 1,750 синапсов и повышает survivor-set matched bias, но это диагностический порог, не финальная биологическая политика. |
+| 4.9.3 | **Night phase activity counters review package** | next | Подготовить пакет вопросов и контракт day counters / cold structural bank для внешнего биологического аудита перед реализацией activity-aware pruning/sprouting. |
 | 4.10 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
 
-### [Next Gate] Night phase weight maintenance / prune-compact v0.3
+### [Next Gate] Night phase activity counters review package v0.4
 
-- **Вопрос**: Стабилен ли обученный коннектом под действием ночного прунинга слабых связей и компрессии целевого массива dendrite targets?
-- **Почему нужен**: Мы доказали безопасность пассивного восстановления и мягкого затухания. Теперь необходимо реализовать прунинг (удаление синапсов, чей вес упал ниже порога) и компрессию (сдвиг активных связей к началу массива для исключения пустых дыр). Мы должны убедиться, что удаление и уплотнение не разрушают селективность matched-bias и не приводят к silence/runaway.
-- **Gate**: сохранение matched-bias тренда после прунинга и компрессии, сохранение плотности целевого массива (dense targets), отсутствие Dale/sign violations.
+- **Вопрос**: Какие дневные счетчики активности и какая cold-bank семантика биологически оправданы для ночного pruning/sprouting, чтобы не делать алгоритм ради алгоритма?
+- **Почему нужен**: v0.3 подтвердил механику prune/compact, но выбор порога по одному абсолютному весу остается слишком грубым. Перед реализацией activity-aware pruning/sprouting нужно подготовить короткий review package для нейробиолога: какие счетчики допустимы, как их старить, как отличать временно тихую важную связь от мусорной.
+- **Gate**: готовый текстовый пакет вопросов/гипотез для внешнего аудита и список допустимых research-only counters без production changes.
+
+### [Completed] Night phase prune & compact v0.3 (`archive/2026-07-06_night_phase_prune_compact_v0_3/`)
+
+- **Вопрос**: Можно ли ночью удалять слабые связи и уплотнять дендритные слоты, не нарушая invariants (Dale's Law, dense targets, duplicate limits) и селективность на C17 топологии?
+- **Итоговый вердикт (Completed / Mechanical Pass / Threshold Caveat)**: Да, механика безопасна. Уплотнение дендритных слотов с перенумерацией `dendrite_idx = 0..k-1` гарантирует 0 dense target violations и 0 дубликатов. Moderate stress floor (`1498 << 16`) удалил 1,750 синапсов и повысил survivor-set matched-bias с 273,784.71 до 918,322.92, но это диагностический результат, а не финальная биологически обоснованная политика прунинга.
+- **Outputs**: Rust тест `night_phase_prune_compact_v0_3.rs`, отчёт [night_phase_prune_compact_v0_3.md](archive/2026-07-06_night_phase_prune_compact_v0_3/reports/night_phase_prune_compact_v0_3.md).
 
 ### [Completed] Night phase passive recovery v0.2 (`archive/2026-07-06_night_phase_passive_recovery_v0_2/`)
 

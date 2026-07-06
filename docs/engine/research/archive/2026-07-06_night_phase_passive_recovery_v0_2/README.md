@@ -1,15 +1,45 @@
-# Night Phase Passive Recovery (v0.2) Research Archive
+# Night Phase Passive Recovery (v0.2)
 
-This archive contains the documentation and design details for the Night Phase Passive Recovery (v0.2) research audit.
+Status: finished
+Started: 2026-07-06
+Completed: 2026-07-06
 
-## Purpose
-The purpose of this audit was to verify a minimal day/night cycle on the Growth v2 C17 topology winner (`Radius_9_Cap_96_Pair_2_ProjAware`), testing whether passive recovery (membrane, threshold, and fatigue relaxation) and synaptic weight decay preserve functional learning matched-bias without causing silence or runaway collapses.
+## Question
+Does passive homeostatic recovery (relaxing voltages, resetting refractory timers, clearing dendritic fatigue, and decaying threshold offsets back to rest) preserve the co-activation-induced matched-bias without upping silence or runaway rates under a day/night cycle on the Growth v2 C17 topology winner (`Radius_9_Cap_96_Pair_2_ProjAware`), and is a sign-preserving light weight decay (0.1%) dynamically stable?
 
-## Contents
-- `night_phase_passive_recovery_v0_2.md` — The detailed research report answering the core questions and presenting the results of the 3 tested policies.
+## Expectation
+- **Selectivity**: Passive recovery preserves matched-bias (retention ratio = 1.0000).
+- **Stability**: Light weight decay (0.1%) doesn't cause Dale or sign violations, and keeps matched-bias retention high.
+- **Excitability**: Resetting fatigue and threshold offsets recovers layer excitability, reducing Day 2 silence ticks compared to the no-night baseline.
 
-## Key Outcomes
-- **Physiological Excitability Restored**: Resetting threshold offsets and voltages homeostatically during the night restored network excitability, reducing Day 2 silence ticks from **2,623 to 2,036** ticks.
-- **Matched-Bias Retained**: Passive recovery preserves learning matched-bias perfectly (retention ratio = **1.0000**).
-- **Safe Weight Decay**: A 0.1% sign-preserving synaptic weight decay is dynamically stable, preserves Dale's Law (0 violations), and maintains high matched-bias retention (ratio = **0.9990**).
-- **Next Step**: The next research phase is `Night Phase Weight Maintenance / Prune-Compact v0.3`.
+## Inputs
+- Growth v2 C17 winner configuration: `Radius_9_Cap_96_Pair_2_ProjAware`.
+- Layer profiles: VISl4, VISp5, VISp23 from `Axicor_Neuron-Lib/modernized/`.
+
+## Method
+1. Construct the Growth v2 C17 winner topology.
+2. Run Day 1 Learning (10,000 ticks) with learning active.
+3. Apply 3 night policies:
+   - `no_night_control` (no reset, no decay).
+   - `passive_recovery_only` (reset membrane, threshold, fatigue; no decay).
+   - `passive_recovery_plus_light_weight_decay` (reset membrane, threshold, fatigue; 0.1% decay).
+4. Run Day 2 Replay (10,000 ticks) without learning and record CV, LV, firing rates, silence/runaway ticks, and matched-bias.
+
+## Commands
+```bash
+cargo test -p test-harness --features "cpu mvp-cpu-replay baker-probe" --test night_phase_passive_recovery_v0_2 -- --nocapture
+```
+
+## Outputs
+- Scientific report: `night_phase_passive_recovery_v0_2.md`
+
+## Result
+- **Excitability**: Skipping night (`no_night_control`) results in **2,623 silence ticks** on Day 2 due to carried-over threshold offsets. Passive recovery recovers excitability, dropping silence ticks to **2,036** (22.4% recovery).
+- **Retention**: Passive recovery preserves matched-bias perfectly (retention ratio = **1.0000**).
+- **Weight Decay**: 0.1% sign-preserving decay is stable, produces **0 Dale/sign violations**, and maintains matched-bias retention at **0.9990** (exactly matching the scale reduction).
+
+## Interpretation
+Passive recovery is completely safe, does not erode learned matched-bias, and is highly beneficial for network health. By relaxing homeostatic thresholds, it restores next-day excitability and prevents high layer silence. A light 0.1% sign-preserving decay is dynamically stable and does not cause sign flips.
+
+## Next Step
+Implement and test `Night Phase Weight Maintenance / Prune-Compact v0.3` to verify weak synapse pruning and dendritic target compaction.
