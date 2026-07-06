@@ -101,18 +101,25 @@ Status: active research index, not a final report.
 | 4 | **Baker spatial growth audit v1** | completed / whitelist fixed, capacity warning | Baker строит реальный 3D-коннектом; whitelist fix убрал все unexpected projections, `VirtualInput` стал input-only, все 7 expected projections присутствуют. Остался capacity warning: L4/L23 насыщены 128/128, dropped candidates=106,010. |
 | 4.1 | **Baker Axon Growth & Synapse Geometry Audit v1** | completed / pass | Проверена 3D геометрия роста аксонов, стоп-факторы, формирование кандидатов и соблюдение всех жестких геометрических инвариантов. Все invariants (out-of-bounds, self-intersection, soma collision, whitelist, radius) пройдены (0 нарушений). |
 | 4.2 | **Growth v2 MVP Extraction** | completed / source audit | Проведен аудит непрерывного векторного роста MVP Baker. Предложены метрики для выявления terminal knots и методы борьбы с ними. Создан изолированный тестовый таргет `baker_growth_v2.rs`. |
-| 4.3 | **Baker functional topology replay** | next / postponed | На fixed-whitelist baker-коннектоме прогнать activity/plasticity replay. Отложено до принятия дизайн-решения по Growth v2 (так как v1-рост признан слишком упрощенным). |
-| 4.4 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
-| 4.5 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
+| 4.3 | **Growth v2 Hybrid Prototype** | completed / pass | Построен гибридный прототип роста аксонов. Достигнуто 0 out-of-bounds/self-intersection/collision нарушений, успешность Virtual->L4 выросла с 60.9% до 83.6%, концевая плотность снижена на 38%. |
+| 4.4 | **Baker functional topology replay** | next / postponed | На fixed-whitelist baker-коннектоме прогнать activity/plasticity replay. Отложено до принятия дизайн-решения по Growth v2 (так как v1-рост признан слишком упрощенным). |
+| 4.5 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
+| 4.6 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
 
-### [Next] Growth v2 Design Decision
+### [Next] Growth v2 Biological Review & Fan-In Control
 
-- **Вопрос**: Переходить ли на непрерывный векторный рост с FOV-конусами и градиентами (как в MVP) или дорабатывать дискретный Baker v1?
-- **Почему сейчас**: Результаты аудита Baker Axon Growth & Synapse Geometry Audit v1 и Growth v2 MVP Extraction показали, что текущий алгоритм роста v1 слишком прост и не реализует биологические градиенты, в то время как MVP-алгоритм подвержен проблеме terminal knot.
-- **Следующий шаг**: Выбрать архитектуру Growth v2 и реализовать её MVP в `baker_growth_v2.rs` с использованием предложенных метрик гашения/останова.
+- **Вопрос**: Какие элементы continuous/FOV/affinity growth биологически оправданы, и как снизить fan-in pressure без потери tract-like формы?
+- **Почему сейчас**: Hybrid Growth v2 прошел геометрические invariants и улучшил target-layer success, но породил 112,261 raw contacts, из которых 83,240 отбрасываются после `MAX_DENDRITES=128` cap. Production-порт преждевременен до биологического аудита траекторий и sweep по плотности.
+- **Следующий шаг**: Дождаться биологического аудита, затем провести sweep по `w_global/w_attract/w_noise`, `R_capture`, `R_damping`, source-target uniqueness и fan-in cap pressure.
+
+### [Completed] Growth v2 Hybrid Prototype (`archive/2026-07-06_growth_v2_hybrid_prototype/`)
+
+- **Вопрос**: Позволяет ли гибридная схема совместить направленный векторный рост (cone/affinity/steering) с жесткими гарантиями решетки (0 collisions/bounds/intersections) и гашением концевых tangles?
+- **Итоговый вердикт (Completed / Geometry Pass / Density Caveat)**: Да, гибридный прототип прошел все геометрические invariants со 100% успехом. Успешность проецирования в целевой слой увеличилась на 37% по сравнению с baseline v1, а плотность окончаний снизилась на 38% за счет capture stop и attraction damping. 90.6% аксонов завершились по `TargetReached`. Caveat: Hybrid породил 112,261 raw contacts, после production-style cap осталось 29,021 accepted synapses и 83,240 dropped candidates; нужен отдельный fan-in/uniqueness sweep перед production migration.
+- **Outputs**: Rust тест `run_growth_v2_hybrid_prototype`, Python-скрипт построения 3D атласа, 6 панелей графиков, отчёт [growth_v2_hybrid_prototype.md](archive/2026-07-06_growth_v2_hybrid_prototype/reports/growth_v2_hybrid_prototype.md).
 
 ### [Postponed] Baker Functional Topology Replay
 
