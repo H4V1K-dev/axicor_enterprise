@@ -12302,3 +12302,787 @@ fn run_baker_spatial_growth_audit_v1() {
 
     println!("=== Baker Spatial Growth Audit v1 Complete ===");
 }
+
+#[test]
+#[allow(clippy::needless_range_loop)]
+fn run_baker_axon_growth_synapse_geometry_v1() {
+    println!("=== Starting Baker Axon Growth & Synapse Geometry Audit v1 ===");
+    use std::collections::HashSet;
+    use std::fs::File;
+    use types::MasterSeed;
+
+    let load_neuron_type = |name: &str| -> config::NeuronType {
+        let path = find_profile_path(name);
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Could not read {}: {:?}", path.display(), e));
+        toml::from_str(&content)
+            .unwrap_or_else(|e| panic!("Failed to parse TOML from {}: {:?}", path.display(), e))
+    };
+
+    let mut artifacts_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    artifacts_dir.pop(); // to crates
+    artifacts_dir.pop(); // to AxiEngine
+    artifacts_dir.pop(); // to workflow
+    artifacts_dir.push("artifacts");
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    // Load base neuron type profiles
+    let nt_l4_real = load_neuron_type("L4_spiny_VISl4_4");
+    let nt_l23_real = load_neuron_type("L23_aspiny_VISp23_218");
+    let nt_l5_real = load_neuron_type("L5_spiny_VISp5_7");
+
+    let inh_l23_weight: i32 = -900;
+
+    // Build neuron types matching the spatial growth audit config
+    let mut nt_virtual = nt_l4_real.clone();
+    nt_virtual.name = "VirtualInput".to_string();
+    nt_virtual.gsop.is_inhibitory = false;
+    nt_virtual.gsop.initial_synapse_weight = 3500;
+    nt_virtual.growth.dendrite_whitelist = vec!["NoDendriteSource".to_string()];
+    nt_virtual.growth.growth_vertical_bias = 2.0;
+    nt_virtual.growth.dendrite_radius_um = 10.0;
+    nt_virtual.timing.fatigue_capacity = 255;
+
+    let mut nt_no_dendrite_source = nt_l4_real.clone();
+    nt_no_dendrite_source.name = "NoDendriteSource".to_string();
+
+    let mut nt_l4 = nt_l4_real.clone();
+    nt_l4.name = "L4_spiny".to_string();
+    nt_l4.timing.fatigue_capacity = 18;
+    nt_l4.gsop.gsop_potentiation = 240;
+    nt_l4.gsop.gsop_depression = 68;
+    nt_l4.gsop.is_inhibitory = false;
+    nt_l4.growth.dendrite_whitelist = vec!["VirtualInput".to_string(), "L23_aspiny".to_string()];
+    nt_l4.growth.growth_vertical_bias = 1.0;
+    nt_l4.growth.dendrite_radius_um = 12.0;
+
+    let mut nt_l23 = nt_l23_real.clone();
+    nt_l23.name = "L23_aspiny".to_string();
+    nt_l23.gsop.initial_synapse_weight = inh_l23_weight.unsigned_abs() as u16;
+    nt_l23.gsop.is_inhibitory = true;
+    nt_l23.growth.dendrite_whitelist = vec![
+        "L4_spiny".to_string(),
+        "L5_spiny".to_string(),
+        "L23_aspiny".to_string(),
+    ];
+    nt_l23.growth.growth_vertical_bias = 0.0;
+    nt_l23.growth.dendrite_radius_um = 10.0;
+
+    let mut nt_l5 = nt_l5_real.clone();
+    nt_l5.name = "L5_spiny".to_string();
+    nt_l5.gsop.is_inhibitory = false;
+    nt_l5.growth.dendrite_whitelist = vec!["L4_spiny".to_string(), "L23_aspiny".to_string()];
+    nt_l5.growth.growth_vertical_bias = -1.5;
+    nt_l5.growth.dendrite_radius_um = 10.0;
+
+    let layers = vec![
+        config::LayerConfig {
+            name: "Virtual".to_string(),
+            height_pct: 0.25,
+            density: 0.0625,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "VirtualInput".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L4".to_string(),
+            height_pct: 0.25,
+            density: 0.0625,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L4_spiny".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L23".to_string(),
+            height_pct: 0.25,
+            density: 0.03125,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L23_aspiny".to_string(),
+                share: 1.0,
+            }],
+        },
+        config::LayerConfig {
+            name: "L5".to_string(),
+            height_pct: 0.25,
+            density: 0.03125,
+            composition: vec![config::NeuronTypeDistribution {
+                type_name: "L5_spiny".to_string(),
+                share: 1.0,
+            }],
+        },
+    ];
+
+    let shard_config = config::ShardConfig {
+        meta: None,
+        dimensions: config::ShardDimensions {
+            w: 16,
+            d: 16,
+            h: 32,
+        },
+        settings: config::ShardSettings {
+            ghost_capacity: 1024,
+            prune_threshold: 0,
+            max_sprouts: 8,
+            night_interval_ticks: 100,
+            save_checkpoints_interval_ticks: 1000,
+        },
+        layers,
+        neuron_types: vec![
+            nt_virtual.clone(),
+            nt_l4.clone(),
+            nt_l23.clone(),
+            nt_l5.clone(),
+            nt_no_dendrite_source.clone(),
+        ],
+        sockets: None,
+        ports: None,
+    };
+
+    let type_names = ["VirtualInput", "L4_spiny", "L23_aspiny", "L5_spiny"];
+    let type_layer_names = ["Virtual", "L4", "L23", "L5"];
+
+    let seeds: Vec<u64> = vec![12345, 12346, 12347];
+    let mut variance_entries = Vec::new();
+
+    // Verification structures for seed 12345
+    let mut primary_somas = Vec::new();
+    let mut primary_axons = Vec::new();
+    let mut primary_candidates = Vec::new();
+    let mut primary_synapses = Vec::new();
+
+    for &seed_val in &seeds {
+        println!("--- Processing seed {} ---", seed_val);
+        let master_seed = MasterSeed(seed_val);
+
+        // Stage 1: Topology generation
+        let topo = topology::TopologyEngine::generate_single_shard_topology(
+            &topology::SingleShardTopologyInput {
+                config: &shard_config,
+                seed: master_seed,
+            },
+        )
+        .expect("Topology generation failed");
+
+        // Stage 2: Axon growth
+        let growth = topology::TopologyEngine::grow_local_axons(&topology::AxonGrowthInput {
+            config: &shard_config,
+            topology: &topo,
+            seed: master_seed,
+        })
+        .expect("Axon growth failed");
+
+        // Stage 3: Synapse formation
+        let synapse_plan =
+            topology::TopologyEngine::form_local_synapses(&topology::SynapseFormationInput {
+                config: &shard_config,
+                topology: &topo,
+                growth: &growth,
+                voxel_size_um: 1.0,
+                seed: master_seed,
+            })
+            .expect("Synapse formation failed");
+
+        // Determinism Check: Run twice for seed 12345 and compare
+        if seed_val == 12345 {
+            let topo_dup = topology::TopologyEngine::generate_single_shard_topology(
+                &topology::SingleShardTopologyInput {
+                    config: &shard_config,
+                    seed: master_seed,
+                },
+            )
+            .expect("Topology generation dup failed");
+            let growth_dup =
+                topology::TopologyEngine::grow_local_axons(&topology::AxonGrowthInput {
+                    config: &shard_config,
+                    topology: &topo_dup,
+                    seed: master_seed,
+                })
+                .expect("Axon growth dup failed");
+            let synapse_dup =
+                topology::TopologyEngine::form_local_synapses(&topology::SynapseFormationInput {
+                    config: &shard_config,
+                    topology: &topo_dup,
+                    growth: &growth_dup,
+                    voxel_size_um: 1.0,
+                    seed: master_seed,
+                })
+                .expect("Synapse formation dup failed");
+
+            assert_eq!(
+                topo.somas, topo_dup.somas,
+                "Non-deterministic soma placement!"
+            );
+            assert_eq!(
+                growth.axons, growth_dup.axons,
+                "Non-deterministic axon growth!"
+            );
+            assert_eq!(
+                synapse_plan, synapse_dup,
+                "Non-deterministic synapse formation!"
+            );
+            println!("Determinism check passed for seed 12345.");
+        }
+
+        // --- Hard gates checking ---
+        let shard_w = shard_config.dimensions.w;
+        let shard_d = shard_config.dimensions.d;
+        let shard_h = shard_config.dimensions.h;
+
+        let all_somas_coords: HashSet<(u32, u32, u32)> = topo
+            .somas
+            .iter()
+            .map(|s| {
+                (
+                    s.position.x() as u32,
+                    s.position.y() as u32,
+                    s.position.z() as u32,
+                )
+            })
+            .collect();
+
+        // 1. Any segment out of bounds, 2. self-intersection, 3. intersects a soma voxel
+        for axon in &growth.axons {
+            let soma = &topo.somas[axon.soma_id as usize];
+            let sx = soma.position.x() as u32;
+            let sy = soma.position.y() as u32;
+            let sz = soma.position.z() as u32;
+
+            let mut visited = HashSet::new();
+            visited.insert((sx, sy, sz));
+
+            for seg in &axon.segments {
+                let x = seg.position.x() as u32;
+                let y = seg.position.y() as u32;
+                let z = seg.position.z() as u32;
+
+                // Out of bounds check
+                assert!(
+                    x < shard_w,
+                    "Axon {} segment out of bounds: X={}",
+                    axon.soma_id,
+                    x
+                );
+                assert!(
+                    y < shard_d,
+                    "Axon {} segment out of bounds: Y={}",
+                    axon.soma_id,
+                    y
+                );
+                assert!(
+                    z < shard_h,
+                    "Axon {} segment out of bounds: Z={}",
+                    axon.soma_id,
+                    z
+                );
+
+                // Self intersection check
+                assert!(
+                    visited.insert((x, y, z)),
+                    "Axon {} self-intersects at ({}, {}, {})",
+                    axon.soma_id,
+                    x,
+                    y,
+                    z
+                );
+
+                // Soma voxel intersection check
+                assert!(
+                    !all_somas_coords.contains(&(x, y, z)),
+                    "Axon {} segment intersects a soma voxel at ({}, {}, {})",
+                    axon.soma_id,
+                    x,
+                    y,
+                    z
+                );
+            }
+        }
+
+        // Whitelist, missing axon segment, dendrite radius, self-synapse checks
+        for row in &synapse_plan.rows {
+            let target_soma_id = row.target_soma_id;
+            let target_soma = &topo.somas[target_soma_id as usize];
+            let target_type = &shard_config.neuron_types[target_soma.variant_id as usize];
+
+            let radius_voxels_f = target_type.growth.dendrite_radius_um.ceil();
+            let radius_voxels_sq = (radius_voxels_f as i64) * (radius_voxels_f as i64);
+
+            for (slot_idx, syn) in row.slots.iter().enumerate() {
+                assert_eq!(
+                    syn.dendrite_slot, slot_idx as u8,
+                    "Dendrite slot index mismatch!"
+                );
+                assert_ne!(
+                    syn.source_soma_id, target_soma_id,
+                    "Forbidden self-synapse on soma {}!",
+                    target_soma_id
+                );
+
+                let source_soma = &topo.somas[syn.source_soma_id as usize];
+                let source_type = &shard_config.neuron_types[source_soma.variant_id as usize];
+
+                // Whitelist check
+                let allowed = if target_type.growth.dendrite_whitelist.is_empty() {
+                    true
+                } else {
+                    target_type
+                        .growth
+                        .dendrite_whitelist
+                        .iter()
+                        .any(|name| name == &source_type.name)
+                };
+                assert!(
+                    allowed,
+                    "Synapse from {} to {} violates whitelist!",
+                    source_type.name, target_type.name
+                );
+
+                // Axon segment exists check
+                let axon = &growth.axons[syn.source_soma_id as usize];
+                assert!(
+                    syn.segment_offset >= 1 && (syn.segment_offset as usize) <= axon.segments.len(),
+                    "Synapse references missing segment offset {} (axon length {})",
+                    syn.segment_offset,
+                    axon.segments.len()
+                );
+
+                let seg = &axon.segments[syn.segment_offset as usize - 1];
+                assert_eq!(
+                    seg.segment_offset, syn.segment_offset,
+                    "Segment offset index mismatch!"
+                );
+
+                // Radius check
+                let dx = seg.position.x() as i32 - target_soma.position.x() as i32;
+                let dy = seg.position.y() as i32 - target_soma.position.y() as i32;
+                let dz = seg.position.z() as i32 - target_soma.position.z() as i32;
+                let dist_sq = (dx * dx + dy * dy + dz * dz) as i64;
+
+                assert!(dist_sq <= radius_voxels_sq,
+                        "Synapse target {} segment {} violates dendrite radius: dist_sq {} > radius_sq {}",
+                        target_soma_id, syn.segment_offset, dist_sq, radius_voxels_sq);
+            }
+        }
+        println!("All hard geometry invariants passed for seed {}.", seed_val);
+
+        // --- Replicate candidate collection logic for seed 12345 ---
+        if seed_val == 12345 {
+            // Somas
+            for soma in &topo.somas {
+                primary_somas.push(serde_json::json!({
+                    "soma_id": soma.soma_id,
+                    "variant_id": soma.variant_id,
+                    "type_name": type_names[soma.variant_id as usize],
+                    "x": soma.position.x(),
+                    "y": soma.position.y(),
+                    "z": soma.position.z()
+                }));
+            }
+
+            // Axons
+            for axon in &growth.axons {
+                let soma = &topo.somas[axon.soma_id as usize];
+                let type_name = type_names[soma.variant_id as usize];
+                let start_z = soma.position.z() as i32;
+                let end_z = if axon.segments.is_empty() {
+                    start_z
+                } else {
+                    axon.segments.last().unwrap().position.z() as i32
+                };
+                let delta_z = end_z - start_z;
+
+                let mut path_length = 0.0;
+                let mut prev_pos = (
+                    soma.position.x() as f32,
+                    soma.position.y() as f32,
+                    soma.position.z() as f32,
+                );
+                let mut layer_crossings = 0;
+                let mut current_layer = start_z / 8;
+
+                let mut seg_json = Vec::new();
+                for seg in &axon.segments {
+                    let sx = seg.position.x() as f32;
+                    let sy = seg.position.y() as f32;
+                    let sz = seg.position.z() as f32;
+
+                    let step_dist = ((sx - prev_pos.0).powi(2)
+                        + (sy - prev_pos.1).powi(2)
+                        + (sz - prev_pos.2).powi(2))
+                    .sqrt();
+                    path_length += step_dist;
+                    prev_pos = (sx, sy, sz);
+
+                    let seg_z = seg.position.z() as i32;
+                    let seg_layer = seg_z / 8;
+                    if seg_layer != current_layer {
+                        layer_crossings += 1;
+                        current_layer = seg_layer;
+                    }
+
+                    seg_json.push(serde_json::json!({
+                        "x": seg.position.x(),
+                        "y": seg.position.y(),
+                        "z": seg.position.z(),
+                        "offset": seg.segment_offset
+                    }));
+                }
+
+                let final_layer = type_layer_names[(end_z / 8).min(3) as usize];
+                let final_seg_pos = if axon.segments.is_empty() {
+                    (
+                        soma.position.x() as f32,
+                        soma.position.y() as f32,
+                        soma.position.z() as f32,
+                    )
+                } else {
+                    let last_seg = axon.segments.last().unwrap();
+                    (
+                        last_seg.position.x() as f32,
+                        last_seg.position.y() as f32,
+                        last_seg.position.z() as f32,
+                    )
+                };
+                let euclidean_dist = ((final_seg_pos.0 - soma.position.x() as f32).powi(2)
+                    + (final_seg_pos.1 - soma.position.y() as f32).powi(2)
+                    + (final_seg_pos.2 - soma.position.z() as f32).powi(2))
+                .sqrt();
+                let tortuosity = if euclidean_dist == 0.0 {
+                    1.0
+                } else {
+                    path_length / euclidean_dist
+                };
+
+                primary_axons.push(serde_json::json!({
+                    "soma_id": axon.soma_id,
+                    "type_name": type_name,
+                    "stop_reason": format!("{:?}", axon.stop_reason),
+                    "segments": seg_json,
+                    "start_z": start_z,
+                    "end_z": end_z,
+                    "delta_z": delta_z,
+                    "path_length": path_length,
+                    "tortuosity": tortuosity,
+                    "layer_crossings": layer_crossings,
+                    "final_layer": final_layer
+                }));
+            }
+
+            // Candidates collection
+            #[derive(Clone, Debug)]
+            struct LocalCandidate {
+                target_soma_id: u32,
+                source_soma_id: u32,
+                segment_offset: u8,
+                distance_sq: i64,
+                radius_sq: i64,
+            }
+
+            let mut soma_candidates_list: Vec<Vec<LocalCandidate>> =
+                vec![Vec::new(); topo.somas.len()];
+
+            for axon_path in &growth.axons {
+                let source_soma_id = axon_path.soma_id;
+                let source_soma = &topo.somas[source_soma_id as usize];
+                let source_type = &shard_config.neuron_types[source_soma.variant_id as usize];
+
+                for segment in &axon_path.segments {
+                    let x_seg = segment.position.x() as i32;
+                    let y_seg = segment.position.y() as i32;
+                    let z_seg = segment.position.z() as i32;
+
+                    for target_soma in &topo.somas {
+                        if source_soma_id == target_soma.soma_id {
+                            continue;
+                        }
+                        let target_type =
+                            &shard_config.neuron_types[target_soma.variant_id as usize];
+
+                        // Whitelist check
+                        let allowed = if target_type.growth.dendrite_whitelist.is_empty() {
+                            true
+                        } else {
+                            target_type
+                                .growth
+                                .dendrite_whitelist
+                                .iter()
+                                .any(|name| name == &source_type.name)
+                        };
+                        if !allowed {
+                            continue;
+                        }
+
+                        // Radius check
+                        let radius_voxels_f = target_type.growth.dendrite_radius_um.ceil();
+                        let radius_voxels_sq = (radius_voxels_f as i64) * (radius_voxels_f as i64);
+
+                        let dx = x_seg - target_soma.position.x() as i32;
+                        let dy = y_seg - target_soma.position.y() as i32;
+                        let dz = z_seg - target_soma.position.z() as i32;
+                        let dist_sq = (dx * dx + dy * dy + dz * dz) as i64;
+
+                        if dist_sq <= radius_voxels_sq {
+                            soma_candidates_list[target_soma.soma_id as usize].push(
+                                LocalCandidate {
+                                    target_soma_id: target_soma.soma_id,
+                                    source_soma_id,
+                                    segment_offset: segment.segment_offset,
+                                    distance_sq: dist_sq,
+                                    radius_sq: radius_voxels_sq,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Sort and rank candidates, then match with accepted formed synapses
+            for target_idx in 0..topo.somas.len() {
+                let candidates = &mut soma_candidates_list[target_idx];
+                candidates.sort_by(|a, b| {
+                    let cmp = a.distance_sq.cmp(&b.distance_sq);
+                    if cmp != std::cmp::Ordering::Equal {
+                        return cmp;
+                    }
+                    let cmp = a.segment_offset.cmp(&b.segment_offset);
+                    if cmp != std::cmp::Ordering::Equal {
+                        return cmp;
+                    }
+                    let cmp = a.source_soma_id.cmp(&b.source_soma_id);
+                    if cmp != std::cmp::Ordering::Equal {
+                        return cmp;
+                    }
+                    a.source_soma_id.cmp(&b.source_soma_id) // axon_id is equal to source_soma_id
+                });
+
+                let total_cands = candidates.len();
+                let cap = std::cmp::min(total_cands, layout::MAX_DENDRITES);
+
+                for (idx, cand) in candidates.iter().enumerate() {
+                    let accepted = idx < cap;
+                    primary_candidates.push(serde_json::json!({
+                        "target_soma_id": cand.target_soma_id,
+                        "target_type": type_names[topo.somas[cand.target_soma_id as usize].variant_id as usize],
+                        "target_layer": type_layer_names[topo.somas[cand.target_soma_id as usize].variant_id as usize],
+                        "source_soma_id": cand.source_soma_id,
+                        "source_type": type_names[topo.somas[cand.source_soma_id as usize].variant_id as usize],
+                        "segment_offset": cand.segment_offset,
+                        "distance_sq": cand.distance_sq,
+                        "radius_sq": cand.radius_sq,
+                        "accepted": accepted
+                    }));
+                }
+            }
+
+            // Formed Synapses
+            for row in &synapse_plan.rows {
+                for syn in &row.slots {
+                    primary_synapses.push(serde_json::json!({
+                        "target_soma_id": row.target_soma_id,
+                        "source_soma_id": syn.source_soma_id,
+                        "axon_id": syn.axon_id,
+                        "segment_offset": syn.segment_offset,
+                        "weight": syn.weight,
+                        "dendrite_slot": syn.dendrite_slot,
+                        "distance_sq": 0 // will be filled next
+                    }));
+                }
+            }
+
+            // Fill actual distance_sq in primary_synapses using candidates lookup
+            for syn in &mut primary_synapses {
+                let tid = syn["target_soma_id"].as_u64().unwrap() as usize;
+                let sid = syn["source_soma_id"].as_u64().unwrap() as u32;
+                let offset = syn["segment_offset"].as_u64().unwrap() as u8;
+
+                if let Some(cand) = soma_candidates_list[tid]
+                    .iter()
+                    .find(|c| c.source_soma_id == sid && c.segment_offset == offset)
+                {
+                    syn["distance_sq"] = serde_json::json!(cand.distance_sq);
+                }
+            }
+        }
+
+        // --- Collect seed variance details ---
+        let mut axon_length_stats_by_type = Vec::new();
+        let mut stop_reasons_by_type = Vec::new();
+        let mut delta_z_stats_by_type = Vec::new();
+        let mut tortuosity_stats_by_type = Vec::new();
+        let mut crossings_stats_by_type = Vec::new();
+
+        for tid in 0..4 {
+            let mut lengths = Vec::new();
+            let mut reasons = std::collections::HashMap::new();
+            let mut delta_zs = Vec::new();
+            let mut tortuosities = Vec::new();
+            let mut crossings = Vec::new();
+
+            for axon in &growth.axons {
+                let soma = &topo.somas[axon.soma_id as usize];
+                if soma.variant_id as usize == tid {
+                    lengths.push(axon.segments.len());
+                    *reasons
+                        .entry(format!("{:?}", axon.stop_reason))
+                        .or_insert(0usize) += 1;
+
+                    let start_z = soma.position.z() as i32;
+                    let end_z = if axon.segments.is_empty() {
+                        start_z
+                    } else {
+                        axon.segments.last().unwrap().position.z() as i32
+                    };
+                    delta_zs.push(end_z - start_z);
+
+                    let mut path_length = 0.0;
+                    let mut prev_pos = (
+                        soma.position.x() as f32,
+                        soma.position.y() as f32,
+                        soma.position.z() as f32,
+                    );
+                    let mut layer_crossings = 0;
+                    let mut current_layer = start_z / 8;
+
+                    for seg in &axon.segments {
+                        let sx = seg.position.x() as f32;
+                        let sy = seg.position.y() as f32;
+                        let sz = seg.position.z() as f32;
+
+                        let step_dist = ((sx - prev_pos.0).powi(2)
+                            + (sy - prev_pos.1).powi(2)
+                            + (sz - prev_pos.2).powi(2))
+                        .sqrt();
+                        path_length += step_dist;
+                        prev_pos = (sx, sy, sz);
+
+                        let seg_z = seg.position.z() as i32;
+                        let seg_layer = seg_z / 8;
+                        if seg_layer != current_layer {
+                            layer_crossings += 1;
+                            current_layer = seg_layer;
+                        }
+                    }
+                    crossings.push(layer_crossings);
+
+                    let final_seg_pos = if axon.segments.is_empty() {
+                        (
+                            soma.position.x() as f32,
+                            soma.position.y() as f32,
+                            soma.position.z() as f32,
+                        )
+                    } else {
+                        let last_seg = axon.segments.last().unwrap();
+                        (
+                            last_seg.position.x() as f32,
+                            last_seg.position.y() as f32,
+                            last_seg.position.z() as f32,
+                        )
+                    };
+                    let euclidean_dist = ((final_seg_pos.0 - soma.position.x() as f32).powi(2)
+                        + (final_seg_pos.1 - soma.position.y() as f32).powi(2)
+                        + (final_seg_pos.2 - soma.position.z() as f32).powi(2))
+                    .sqrt();
+                    tortuosities.push(if euclidean_dist == 0.0 {
+                        1.0
+                    } else {
+                        path_length / euclidean_dist
+                    });
+                }
+            }
+
+            // Stats helpers
+            let compute_i32_stats = |vals: &[i32]| -> serde_json::Value {
+                if vals.is_empty() {
+                    return serde_json::json!({"mean": 0.0, "min": 0, "max": 0});
+                }
+                let sum: i32 = vals.iter().sum();
+                serde_json::json!({
+                    "mean": sum as f64 / vals.len() as f64,
+                    "min": vals.iter().min().copied().unwrap(),
+                    "max": vals.iter().max().copied().unwrap()
+                })
+            };
+
+            let compute_f32_stats = |vals: &[f32]| -> serde_json::Value {
+                if vals.is_empty() {
+                    return serde_json::json!({"mean": 0.0, "min": 0.0, "max": 0.0});
+                }
+                let sum: f32 = vals.iter().sum();
+                let min_val = vals.iter().copied().fold(f32::NAN, f32::min);
+                let max_val = vals.iter().copied().fold(f32::NAN, f32::max);
+                serde_json::json!({
+                    "mean": sum as f64 / vals.len() as f64,
+                    "min": min_val,
+                    "max": max_val
+                })
+            };
+
+            let compute_usize_stats = |vals: &[usize]| -> serde_json::Value {
+                if vals.is_empty() {
+                    return serde_json::json!({"mean": 0.0, "min": 0, "max": 0});
+                }
+                let sum: usize = vals.iter().sum();
+                serde_json::json!({
+                    "mean": sum as f64 / vals.len() as f64,
+                    "min": vals.iter().min().copied().unwrap(),
+                    "max": vals.iter().max().copied().unwrap()
+                })
+            };
+
+            axon_length_stats_by_type.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "stats": compute_usize_stats(&lengths)
+            }));
+            stop_reasons_by_type.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "counts": reasons
+            }));
+            delta_z_stats_by_type.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "stats": compute_i32_stats(&delta_zs)
+            }));
+            tortuosity_stats_by_type.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "stats": compute_f32_stats(&tortuosities)
+            }));
+            crossings_stats_by_type.push(serde_json::json!({
+                "type_name": type_names[tid],
+                "stats": compute_usize_stats(&crossings)
+            }));
+        }
+
+        variance_entries.push(serde_json::json!({
+            "seed": seed_val,
+            "total_somas": topo.somas.len(),
+            "total_synapses": synapse_plan.total_live_synapses,
+            "dropped_candidates": synapse_plan.dropped_candidates,
+            "axon_lengths": axon_length_stats_by_type,
+            "stop_reasons": stop_reasons_by_type,
+            "delta_zs": delta_z_stats_by_type,
+            "tortuosities": tortuosity_stats_by_type,
+            "layer_crossings": crossings_stats_by_type
+        }));
+    }
+
+    // Write primary stats for seed 12345
+    let stats_data = serde_json::json!({
+        "somas": primary_somas,
+        "axons": primary_axons,
+        "candidates": primary_candidates,
+        "synapses": primary_synapses
+    });
+
+    let stats_path = artifacts_dir.join("baker_axon_geometry_stats.json");
+    let file = File::create(&stats_path).unwrap();
+    serde_json::to_writer_pretty(file, &stats_data).unwrap();
+    println!("Wrote {}", stats_path.display());
+
+    // Write variance stats across seeds
+    let variance_path = artifacts_dir.join("baker_axon_geometry_variance.json");
+    let file = File::create(&variance_path).unwrap();
+    serde_json::to_writer_pretty(file, &variance_entries).unwrap();
+    println!("Wrote {}", variance_path.display());
+
+    println!("=== Baker Axon Growth & Synapse Geometry Audit v1 Complete ===");
+}

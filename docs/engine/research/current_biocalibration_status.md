@@ -99,20 +99,39 @@ Status: active research index, not a final report.
 | 3.4 | **Plastic microcircuit v1.4 controlled + baker shadow** | completed / superseded | Manual selectivity gate закрыт (0.4318), baker shadow компилируется и сохраняет положительный matched-bias trend (0.0648). Старый hard fail по L4<3 Hz снят последующим sparse-activity аудитом v1.5. |
 | 3.5 | **Plastic microcircuit v1.5 biological sparse-activity gate audit** | completed / sparse-functional pass | Заменен жесткий порог L4 >= 3.0 Hz на биологический sparse-activity gate. Manual audit L4=1.91 Hz проходит sparse-functional gate; Baker audit L4=6.44 Hz сохраняет matched-bias trend. |
 | 4 | **Baker spatial growth audit v1** | completed / whitelist fixed, capacity warning | Baker строит реальный 3D-коннектом; whitelist fix убрал все unexpected projections, `VirtualInput` стал input-only, все 7 expected projections присутствуют. Остался capacity warning: L4/L23 насыщены 128/128, dropped candidates=106,010. |
-| 4.1 | **Baker VirtualInput target suppression + capacity retest** | completed / folded into v1 | Входящие синапсы на `VirtualInput` targets подавлены в том же аудите; projection matrix чистая, но saturation small-shard caveat остается. |
-| 4.2 | **Baker functional topology replay** | next | На fixed-whitelist baker-коннектоме прогнать activity/plasticity replay и проверить, что spatial topology дает функциональный выигрыш, а не только красивую геометрию. |
-| 4.3 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
-| 4.4 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
+| 4.1 | **Baker Axon Growth & Synapse Geometry Audit v1** | completed / pass | Проверена 3D геометрия роста аксонов, стоп-факторы, формирование кандидатов и соблюдение всех жестких геометрических инвариантов. Все invariants (out-of-bounds, self-intersection, soma collision, whitelist, radius) пройдены (0 нарушений). |
+| 4.2 | **Growth v2 MVP Extraction** | completed / source audit | Проведен аудит непрерывного векторного роста MVP Baker. Предложены метрики для выявления terminal knots и методы борьбы с ними. Создан изолированный тестовый таргет `baker_growth_v2.rs`. |
+| 4.3 | **Baker functional topology replay** | next / postponed | На fixed-whitelist baker-коннектоме прогнать activity/plasticity replay. Отложено до принятия дизайн-решения по Growth v2 (так как v1-рост признан слишком упрощенным). |
+| 4.4 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
+| 4.5 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
 
-### [Next] Baker Functional Topology Replay
+### [Next] Growth v2 Design Decision
+
+- **Вопрос**: Переходить ли на непрерывный векторный рост с FOV-конусами и градиентами (как в MVP) или дорабатывать дискретный Baker v1?
+- **Почему сейчас**: Результаты аудита Baker Axon Growth & Synapse Geometry Audit v1 и Growth v2 MVP Extraction показали, что текущий алгоритм роста v1 слишком прост и не реализует биологические градиенты, в то время как MVP-алгоритм подвержен проблеме terminal knot.
+- **Следующий шаг**: Выбрать архитектуру Growth v2 и реализовать её MVP в `baker_growth_v2.rs` с использованием предложенных метрик гашения/останова.
+
+### [Postponed] Baker Functional Topology Replay
 
 - **Вопрос**: Дает ли fixed-whitelist spatial topology функционально осмысленную активность и пластичность, а не только правильную projection matrix?
-- **Почему сейчас**: Baker Spatial Growth Audit v1 подтвердил, что whitelist-ошибка исправлена: все 7 expected projections присутствуют, unexpected projections отсутствуют, `VirtualInput` input-only. Оставшийся риск — saturation small-shard caveat (L4/L23 128/128).
+- **Почему отложено**: Отложено до выработки дизайн-решения и реализации Growth v2, поскольку текущая механика роста Baker v1 признана слишком упрощенной для демонстрации преимуществ сложной топологии.
 - **Gate**: activity не уходит в silence/runaway, sparse-functional metrics сохраняются, matched-bias/GSOP trend не ломается, saturation не превращается в патологическое подавление L4/L23/L5.
-- **Следующий шаг после gate**: `Night phase structural maintenance audit`, затем `Structural plasticity / growth loop`, и только после этого CartPole toy.
+
+### [Completed] Growth v2 MVP Extraction (`archive/2026-07-06_growth_v2_mvp_extraction/`)
+
+- **Вопрос**: Какие механики непрерывного роста есть в MVP Baker и отсутствуют в Baker v1, как формализовать проблему "terminal knot" и предотвратить слепой перенос whitelist-байпасов?
+- **Итоговый вердикт (Completed / Source Audit)**: Выполнен аудит MVP Baker. Задокументированы 11 отличий непрерывного роста от дискретного v1. Сформулирована проблема terminal knot, предложены 5 метрик оценки (tortuosity, density, angle variance) и 5 способов исправления. Отдельно зафиксировано, что legacy dendrite connect использовал cell-radius scan без финального exact radius gate, поэтому Growth v2 должен сохранить production-проверку `dist_sq <= radius_sq`. Создан новый файл тестов `baker_growth_v2.rs` и получен JSON инвентаря.
+- **Outputs**: Rust тест `run_growth_v2_mvp_extraction_inventory`, отчёт [growth_v2_mvp_extraction.md](archive/2026-07-06_growth_v2_mvp_extraction/reports/growth_v2_mvp_extraction.md).
+
+### [Completed] Baker Axon Growth & Synapse Geometry Audit v1 (`archive/2026-07-06_baker_axon_growth_synapse_geometry_v1/`)
+
+- **Вопрос**: Как именно растут аксоны в 3D, куда они доходят, почему останавливаются (stop reasons), корректно ли dendrite-radius ловит контакты по сегментам, соблюдаются ли все геометрические инварианты, и как выглядит 3D визуализация шарда?
+- **Итоговый вердикт (Pass / All Invariants Passed)**: Все 7 жестких геометрических инвариантов пройдены без единого нарушения (out-of-bounds, self-intersections, soma collisions, whitelist, radius, etc.). Детерминизм 100% подтвержден. Выявлена и физически объяснена причина коротких путей (~5.2 вокселей) и преобладания `BoundaryReached` (из-за узкого сечения шарда 16x16 аксоны быстро касаются боковых стенок). Направленность роста (вертикальные и латеральные градиенты) полностью соответствует V1-like ожиданиям.
+- **Следующий шаг**: `Baker Functional Topology Replay`.
+- **Outputs**: Rust runner `run_baker_axon_growth_synapse_geometry_v1`, Python-скрипт анализа, 4 обязательных 3D графика + 4 вспомогательных 2D графика, отчёт [baker_axon_growth_synapse_geometry_audit_v1.md](archive/2026-07-06_baker_axon_growth_synapse_geometry_v1/reports/baker_axon_growth_synapse_geometry_audit_v1.md).
 
 ### [Completed] Baker Spatial Growth Audit v1 (`archive/2026-07-05_baker_spatial_growth_audit_v1/`)
 
