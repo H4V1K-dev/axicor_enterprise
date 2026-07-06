@@ -105,21 +105,27 @@ Status: active research index, not a final report.
 | 4.5 | **Growth v2 Parameter Sweep & Pruning Policy v0.3** | completed / compile-candidate, functional caveat | Проведен sweep по 16 конфигурациям. Config 16 с dendrite radius 1.5 um сокращает raw candidates на 99.4% и насыщение сом до 0, но является low-pressure compile-parity candidate, а не финальным functional topology candidate: `L4_spiny -> L5_spiny` исчезает при строгом capture radius. |
 | 4.6 | **Growth v2 AOT-to-Flat Runtime Compile Parity** | completed / research flat-tree pass | Проверена событийная семантика при переносе AOT ветвления в плоский parent-pointer runtime contract. На Clean и Dense стресс-тестах под тремя детерминированными паттернами спайков достигнуто 100% совпадение (0 пропущенных/лишних событий). Production preference: compile branch terminals as separate linear axon streams; parent-pointer остается research oracle/reference. |
 | 4.7 | **Growth v2 Functional Topology Replay v0.5** | completed / research flat-tree pass, fan-in caveat | Проведена симуляция (10k ticks static, 10k ticks GSOP) на Sparse, Dense и Balanced кандидатах через research flat-tree runner. Balanced сохраняет все expected projections и дает matched learning bias (+335,345 vs +40,192), но остается fan-in caveat: 168 saturated target somas, p90/p99 = 128. |
-| 4.8 | **Growth v2 fan-in pressure reduction** | next | Подобрать radius/pruning/cap policy для Balanced topology, чтобы сохранить все projections и matched-bias replay, но снизить saturated target somas и p90/p99 fan-in перед night phase. |
-| 4.9 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
+| 4.8 | **Growth v2 fan-in pressure reduction** | completed / research winner selected | Снижена нагрузка на посты (p90 = 96, saturated = 0) за счет projection-aware cap = 96, сохранены все ожидаемые связи (L4->L5 = 606), подтвержден стабильный matched replay. Separate-stream compile пока является audit blueprint, не production runtime parity. |
+| 4.9 | **Night phase structural maintenance audit** | next | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
 | 4.10 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
 
-### [Next Gate] Growth v2 fan-in pressure reduction
+### [Next Gate] Night phase structural maintenance audit v1
 
-- **Вопрос**: Можно ли сохранить все expected projections, flat-tree functional replay и GSOP matched-bias, но снизить fan-in cap pressure Balanced topology?
-- **Почему нужен**: v0.5 доказал функциональную живость Growth v2 topology, но Balanced candidate все еще имеет 168 saturated target somas и fan-in p90/p99 = 128. Если сразу запускать night phase, будет трудно отделить работу ночного pruning от исправления дневной топологической перегрузки.
-- **Gate**: all expected projections present, `L4_spiny -> L5_spiny > 0`, replay stable, matched-bias сохраняется, saturated target somas и p90/p99 fan-in снижены относительно v0.5.
-- **Production compile preference**: ветвления компилировать как отдельные линейные axon streams, отбрасывая stream-и без синапсов. Это ближе к текущему runtime и будущей sparse-propagation оптимизации; parent-pointer flat-tree остается research oracle/reference.
+- **Вопрос**: Стабилен ли выращенный и обученный коннектом под действием ночного прунинга, синаптического распада (decay) и гомеостатической ренормализации?
+- **Почему нужен**: Мы получили сбалансированную топологию v0.6 с низким давлением на дендриты (cap=96) и подтвердили стабильный matched-bias. Но реальное обучение требует долгосрочной стабильности. Мы должны доказать, что ночной цикл не стирает накопленный matched-bias и не уводит сеть в silence/runaway.
+- **Gate**: сохранение matched-bias тренда после ночного цикла, отсутствие Dale violations, отсутствие silence/runaway.
+
+### [Completed] Growth v2 fan-in pressure reduction v0.6 (`archive/2026-07-06_growth_v2_fanin_reduction_v0_6/`)
+
+- **Вопрос**: Можно ли снизить fan-in cap pressure у Balanced Growth v2 topology (p90=128, saturated=168), сохранив при этом все expected projections, L4->L5 > 0, стабильный replay и GSOP matched-bias?
+- **Итоговый вердикт (Completed / Research Winner Selected)**: Да. По результатам 24-конфигурационного свипа лучшим биологическим компромиссом признан кандидат C17 (Radius 9, Cap 96, ProjAware). За счет soft_cap=96 и projection-aware сортировки количество насыщенных сом упало до 0, p90 fan-in снижен до 96, а число критических синапсов L4->L5 удалось сохранить на уровне 606. Стабильность research flat-tree spiking-реплея подтверждена, matched-bias силен (+303k vs +29k). Проведен streams compile audit для будущей оптимизации; отдельная production separate-stream runtime parity проверка еще не закрыта.
+- **Outputs**: Rust тест `baker_growth_v2_fanin_reduction.rs`, Python скрипт построения графиков, 10 панелей графиков, отчёт [growth_v2_fanin_reduction_v0_6.md](archive/2026-07-06_growth_v2_fanin_reduction_v0_6/reports/growth_v2_fanin_reduction_v0_6.md).
 
 ### [Completed] Growth v2 Functional Topology Replay v0.5 (`archive/2026-07-06_growth_v2_functional_replay_v0_5/`)
+
 
 - **Вопрос**: Работает ли выращенная Baker/Growth v2 топология как нейросеть (активность, передача между слоями, стабильность, fatigue/homeostasis) и дает ли она STDP matched-bias пластичность?
 - **Итоговый вердикт (Completed / Research Flat-Tree Functional Pass / Fan-in Caveat)**: Да, как research replay. Balanced Functional кандидат с радиусом 9.0 um рекрутирует все слои, включая L5 spiny (591 синапс L4->L5), runaway = 0, Dale/sign violations = 0. GSOP matched-bias сохраняется (matched mean +335,345 vs unmatched mean +40,192). Caveat: fan-in cap pressure остается высоким (168 saturated target somas, p90/p99 = 128), поэтому перед night phase рекомендуется отдельный pressure-reduction pass.
