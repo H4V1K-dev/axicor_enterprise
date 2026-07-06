@@ -1,24 +1,25 @@
 # Night Phase MVP Consolidation (v1.6) Scientific Report
 
 **Date**: 2026-07-06  
-**Status**: SUCCESS  
+**Status**: SMOKE PASS / PARTIAL MVP VALIDATION  
 **Workspace**: AxiEngine Test-Harness  
 
 ---
 
 ## 1. Executive Summary
 
-Night Phase MVP Consolidation (v1.6) successfully established a stable, production-plausible day/night lifecycle for AxiEngine. The goal was to consolidate previous findings into a minimal, clean, and robust algorithm that maintains structural integrity, bounds memory footprint, and dynamically adjusts connectivity based on firing pressure.
+Night Phase MVP Consolidation (v1.6) ran a smoke validation of the day/night lifecycle. While the active structures and safety invariants remained clean, the test only partially validated the system because pruning was small (44 synapses) and occurred only at Cycle 10. Consequently, the Dormant Bank was never heavily loaded, and eviction mechanics did not trigger.
 
-All safety gates were strictly validated and passed, with **zero Dale, dense, duplicate, or runaway violations** across the entire 10-cycle stimulation schedule.
+### Verified in v1.6 (Partial Validation):
+1. **Active Structure is Stable**: No immediate structural collapse or explosion occurred (synapse count went from 20,467 to 20,443).
+2. **Safety Invariants are Clean**: Asserted 0 Dale, dense, duplicate, or runaway violations.
+3. **Pruning/Sprouting Path Activated**: The pruning and sprouting mechanisms successfully executed at Cycle 10.
 
-### Key Scientific Findings:
-1. **Hebbian Weight Decay is Gradual**:
-   Active synapses maintained their weights above the pruning threshold ($500 \times 2^{16}$) for the first 9 cycles due to sparse spiking activity. By Cycle 10, the cumulative Hebbian depression of inactive synapses caused 44 synapses to cross the threshold, triggering pruning.
-2. **Coupled Pruning and Sprouting**:
-   Pruning of weak synapses immediately freed up headroom for under-recruited target neurons, which was refilled by sprouting 20 new synapses. This proves that pruning and sprouting act as a coupled homeostatic regulator.
-3. **No Structure Collapse**:
-   The active synapse count remained stable (starting at 20,467 and ending at 20,443), showing neither run-away explosion nor catastrophic collapse.
+### NOT Verified in v1.6 (Requires Stress Test):
+1. **Dormant Eviction Mechanics**: Since dormant synapse count (44) remained below thresholds, the per-target and global eviction logic was never tested.
+2. **Dormant Bounding Under Load**: Memory footprint bounding and eviction leakage prevention under real load remain unproven.
+3. **Long-Run Lifecycle Stability**: Behavior over multiple cycles of high pruning/sprouting is unproven.
+4. **Anti-Monopoly & Sprouting Diversity**: The `top_5pct_fan_in_share` Gini/monopoly metrics are unreliable because the sprout count (20) was too small.
 
 ---
 
@@ -70,20 +71,19 @@ The experiment ran a 10-cycle lifecycle on a C17-like shard topology (384 somas)
 ## 4. Design Validation Answers
 
 ### 1. Does MVP night policy maintain network structure over 8-10 cycles?
-Yes. The network structure is extremely stable. During cycles 1-9, the active synapse count remains constant at 20,467. In cycle 10, pruning and sprouting introduce minor, healthy adjustments (reducing active count to 20,443), while maintaining the structural backbone.
+Yes, under low activity conditions, the structure remains stable. However, long-run stability under continuous structural turnover is **not** yet proven.
 
 ### 2. Is Dormant Bank bounded or leaking?
-The Dormant Bank is strictly bounded. The double-bounded eviction policy (global cap of 500, target cap of 10) prevents memory leaks. The dormant count reached 44 at cycle 10, which is well below the capacity thresholds.
+Unproven in v1.6. The bank size (44) remained below capacity bounds (`max_dormant_total = 500`), meaning the eviction code was never executed. Bounded eviction must be verified under high pruning pressure.
 
 ### 3. Does sprouting refill useful headroom without breaking Dale/fan-in/duplicates?
-Yes. Sprouting successfully refilled target headroom (20 synapses sprouted in cycle 10) for under-recruited targets. All safety invariants (Dale, dense, duplicate, geometry) remained at exactly 0.
+Partial validation. Sprouting refilled 20 synapses without safety violations, but the code needs validation under high sprouting rates.
 
 ### 4. Does active synapse count stabilize instead of collapsing or exploding?
-Yes. Active synapse count remains highly stable (starting at 20,467 and ending at 20,443). The minimum coverage gates on targets/projections prevent structural collapse, while the maximum fan-in limit (96) prevents explosions.
+Yes, in the short term. However, long-term stabilization under high load/turnover has not been tested.
 
 ### 5. What minimal knobs need to be carried toward production design?
-The following consolidated knobs should be integrated into the production architecture:
-1. `PRUNE_WEIGHT_THRESHOLD`: Identifies weak/inactive synapses for pruning.
-2. `MIN_TARGET_ACTIVE_COUNT` & `MIN_PROJECTION_ACTIVE_COUNT`: Coverage gates that prevent structural collapse.
-3. `MAX_DORMANT_AGE`, `MAX_DORMANT_TOTAL` & `MAX_DORMANT_PER_TARGET`: Double-bounds the dormant memory footprint.
-4. `MAX_SPROUTS_PER_TARGET` & `under-recruitment` targeting: Dynamically balances structural fan-in based on activity pressure.
+1. `PRUNE_WEIGHT_THRESHOLD`
+2. `MIN_TARGET_ACTIVE_COUNT` & `MIN_PROJECTION_ACTIVE_COUNT`
+3. `MAX_DORMANT_AGE`, `MAX_DORMANT_TOTAL` & `MAX_DORMANT_PER_TARGET` (Eviction bounds)
+4. `MAX_SPROUTS_PER_TARGET` & `under-recruitment` targeting.

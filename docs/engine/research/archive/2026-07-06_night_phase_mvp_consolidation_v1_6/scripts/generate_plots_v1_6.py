@@ -27,39 +27,79 @@ os.makedirs(images_dir, exist_ok=True)
 cycles = [c["cycle"] for c in cycles_data]
 
 # 1. Lifecycle counts: active/dormant/dead over cycles
-# Use two subplots to separate active count (large scale) from dormant/dead count (small scale)
-fig, (ax_act, ax_dorm) = plt.subplots(1, 2, figsize=(12, 5), dpi=300)
-active = [c["active_count"] for c in cycles_data]
-dormant = [c["dormant_count"] for c in cycles_data]
-dead = [c["dead_count"] for c in cycles_data]
+fig, (ax_act, ax_dorm) = plt.subplots(1, 2, figsize=(14, 5), dpi=300)
 
+active = [c["active_count"] for c in cycles_data]
+active_delta = [active[i] - active[i-1] if i > 0 else 0 for i in range(len(active))]
+
+# Panel A: active_count and active_delta (twinx)
 ax_act.plot(cycles, active, marker='o', color='#4e79a7', linewidth=2.5, label="Active Synapses")
 ax_act.set_xlabel("Cycle", fontsize=10, fontweight="bold")
-ax_act.set_ylabel("Active Synapse Count", fontsize=10, fontweight="bold")
-ax_act.set_title("Active Synapses (Zoomed)", fontsize=11, fontweight="bold")
+ax_act.set_ylabel("Active Synapse Count", fontsize=10, color='#4e79a7', fontweight="bold")
+ax_act.tick_params(axis='y', labelcolor='#4e79a7')
+ax_act.set_title("Panel A: Active Synapse Count & Delta", fontsize=11, fontweight="bold")
 ax_act.set_xticks(cycles)
-# Zoom in to show the drop in cycle 10
 ax_act.set_ylim(20420, 20480)
 ax_act.grid(True, linestyle='--', alpha=0.5)
-ax_act.legend(loc="upper right", fontsize=9)
 
-ax_dorm.plot(cycles, dormant, marker='s', color='#f28e2b', linewidth=2.5, label="Dormant Bank")
-ax_dorm.plot(cycles, dead, marker='^', color='#e15759', linewidth=2.5, label="Dead (Cumulative)")
+ax_act_twin = ax_act.twinx()
+ax_act_twin.plot(cycles, active_delta, marker='x', linestyle='--', color='#e15759', linewidth=1.5, label="Active Delta (Step)")
+ax_act_twin.set_ylabel("Active Delta (Count Change)", fontsize=10, color='#e15759', fontweight="bold")
+ax_act_twin.tick_params(axis='y', labelcolor='#e15759')
+ax_act_twin.set_ylim(-30, 10)
+
+# Combine Panel A legends
+lines1, labels1 = ax_act.get_legend_handles_labels()
+lines2, labels2 = ax_act_twin.get_legend_handles_labels()
+ax_act.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=8)
+
+# Panel B: dormant_count / pruned_to_dormant / sprouted / dead
+dormant = [c["dormant_count"] for c in cycles_data]
+pruned = [c["pruned_to_dormant_count"] for c in cycles_data]
+sprouted = [c["sprouted_count"] for c in cycles_data]
+dead = [c["dead_count"] for c in cycles_data]
+
+ax_dorm.plot(cycles, dormant, marker='s', color='#f28e2b', linewidth=2.0, label="Dormant Bank (Total)")
+ax_dorm.plot(cycles, pruned, marker='P', linestyle=':', color='#76b7b2', linewidth=1.5, label="Pruned to Dormant (Step)")
+ax_dorm.plot(cycles, sprouted, marker='*', linestyle='-.', color='#59a14f', linewidth=1.5, label="Sprouted (Step)")
+ax_dorm.plot(cycles, dead, marker='^', color='#d3d3d3', linewidth=2.0, label="Dead (Cumulative Evicted)")
+
 ax_dorm.set_xlabel("Cycle", fontsize=10, fontweight="bold")
-ax_dorm.set_ylabel("Dormant / Dead Count", fontsize=10, fontweight="bold")
-ax_dorm.set_title("Dormant & Dead Synapses", fontsize=11, fontweight="bold")
+ax_dorm.set_ylabel("Synapse Count", fontsize=10, fontweight="bold")
+ax_dorm.set_title("Panel B: Dormant, Pruning, Sprouting & Dead", fontsize=11, fontweight="bold")
 ax_dorm.set_xticks(cycles)
-ax_dorm.set_ylim(-2, 50)
+ax_dorm.set_ylim(-5, 60)
 ax_dorm.grid(True, linestyle='--', alpha=0.5)
-ax_dorm.legend(loc="upper left", fontsize=9)
+ax_dorm.legend(loc="upper left", fontsize=8)
 
-fig.suptitle("Synapse Lifecycle Counts Over 10 Cycles", fontsize=13, fontweight="bold", y=0.98)
+fig.suptitle("Synapse Lifecycle Counts & Turnover Over 10 Cycles", fontsize=13, fontweight="bold", y=0.98)
 plt.tight_layout()
 plt.savefig(os.path.join(images_dir, "lifecycle_counts.png"), dpi=300)
 plt.close()
 print("lifecycle_counts.png generated.")
 
-# 2. (Removed dormant_bank_health.png as it was flat/redundant)
+# 2. Dormant bank health: explicitly show that eviction did not trigger
+fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+
+dormant_evicted = [c["dormant_evicted_count"] for c in cycles_data]
+dormant_age_max = [c["dormant_age_max"] for c in cycles_data]
+
+ax.plot(cycles, dormant, marker='s', color='#f28e2b', linewidth=2.0, label="Dormant Count (Current)")
+ax.plot(cycles, dormant_age_max, marker='o', linestyle='--', color='#e15759', linewidth=1.5, label="Max Dormant Age")
+ax.plot(cycles, dormant_evicted, marker='x', linestyle=':', color='#bab0ac', linewidth=2.0, label="Dormant Evicted (Step)")
+
+ax.set_xlabel("Cycle", fontsize=11, fontweight="bold")
+ax.set_ylabel("Count / Age (Cycles)", fontsize=11, fontweight="bold")
+ax.set_title("Dormant Bank Health (Eviction Mechanics Inactive)", fontsize=12, fontweight="bold")
+ax.set_xticks(cycles)
+ax.set_ylim(-2, 50)
+ax.grid(True, linestyle='--', alpha=0.5)
+ax.legend(loc="upper left", fontsize=10)
+
+plt.tight_layout()
+plt.savefig(os.path.join(images_dir, "dormant_bank_health.png"), dpi=300)
+plt.close()
+print("dormant_bank_health.png generated.")
 
 # 3. Network stability: firing pressure, silence/runaway ticks, Gini index, projection coverage
 fig, axs = plt.subplots(2, 2, figsize=(12, 10), dpi=300)
@@ -100,14 +140,14 @@ axs[0, 1].legend(loc="upper left", fontsize=9)
 
 # 3c. Fan-in Gini & top 5% share
 axs[1, 0].plot(cycles, [c["fan_in_gini"] for c in cycles_data], marker='o', color='#e15759', label="Fan-in Gini Index")
-axs[1, 0].plot(cycles, [c["top_5pct_fan_in_share"] for c in cycles_data], marker='s', color='#f28e2b', label="Top 5% Sprouted Share")
+axs[1, 0].plot(cycles, [c["top_5pct_fan_in_share"] for c in cycles_data], marker='s', color='#f28e2b', label="Top 5% Sprouted Share (unreliable when sprout_count is tiny)")
 axs[1, 0].set_xlabel("Cycle", fontsize=10, fontweight="bold")
 axs[1, 0].set_ylabel("Metric Value / Share", fontsize=10, fontweight="bold")
 axs[1, 0].set_title("Fan-in Inequality & Sprouting Monopoly Share", fontsize=11, fontweight="bold")
 axs[1, 0].set_xticks(cycles)
 axs[1, 0].set_ylim(-0.05, 1.15)
 axs[1, 0].grid(True, linestyle='--', alpha=0.5)
-axs[1, 0].legend(loc="upper right", fontsize=9)
+axs[1, 0].legend(loc="upper right", fontsize=7)
 
 # 3d. Projection Coverage & Under-Recruited Count before/after sprouting
 # Use twinx because projection coverage is [0, 1] and under-recruited is ~384
