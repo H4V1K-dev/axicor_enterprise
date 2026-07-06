@@ -103,24 +103,32 @@ Status: active research index, not a final report.
 | 4.2 | **Growth v2 MVP Extraction** | completed / source audit | Проведен аудит непрерывного векторного роста MVP Baker. Предложены метрики для выявления terminal knots и методы борьбы с ними. Создан изолированный тестовый таргет `baker_growth_v2.rs`. |
 | 4.4 | **Growth v2 Biology-Aligned Multifield Prototype v0.2** | completed / pass | Многополевая модель + Touch Detection Phase 2. Достигнуто 0 нарушений invariants, успешность Virtual->L4 = 82.8%, TKI снижен до 1.17, синапсы сокращены на 12.1% (apples-to-apples vs Hybrid), дубликаты устранены. |
 | 4.5 | **Growth v2 Parameter Sweep & Pruning Policy v0.3** | completed / compile-candidate, functional caveat | Проведен sweep по 16 конфигурациям. Config 16 с dendrite radius 1.5 um сокращает raw candidates на 99.4% и насыщение сом до 0, но является low-pressure compile-parity candidate, а не финальным functional topology candidate: `L4_spiny -> L5_spiny` исчезает при строгом capture radius. |
-| 4.6 | **Growth v2 AOT-to-Flat Runtime Compile Parity** | completed / research flat-tree pass | Проверена событийная семантика при переносе AOT ветвления в плоский parent-pointer runtime contract. На Clean и Dense стресс-тестах под тремя детерминированными паттернами спайков достигнуто 100% совпадение (0 пропущенных/лишних событий). Caveat: production runtime еще должен выбрать parent-array или separate-stream compile policy. |
-| 4.7 | **Baker functional topology replay** | next | На fixed-whitelist baker-коннектоме прогнать activity/plasticity replay. |
-| 4.8 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
-| 4.9 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
+| 4.6 | **Growth v2 AOT-to-Flat Runtime Compile Parity** | completed / research flat-tree pass | Проверена событийная семантика при переносе AOT ветвления в плоский parent-pointer runtime contract. На Clean и Dense стресс-тестах под тремя детерминированными паттернами спайков достигнуто 100% совпадение (0 пропущенных/лишних событий). Production preference: compile branch terminals as separate linear axon streams; parent-pointer остается research oracle/reference. |
+| 4.7 | **Growth v2 Functional Topology Replay v0.5** | completed / research flat-tree pass, fan-in caveat | Проведена симуляция (10k ticks static, 10k ticks GSOP) на Sparse, Dense и Balanced кандидатах через research flat-tree runner. Balanced сохраняет все expected projections и дает matched learning bias (+335,345 vs +40,192), но остается fan-in caveat: 168 saturated target somas, p90/p99 = 128. |
+| 4.8 | **Growth v2 fan-in pressure reduction** | next | Подобрать radius/pruning/cap policy для Balanced topology, чтобы сохранить все projections и matched-bias replay, но снизить saturated target somas и p90/p99 fan-in перед night phase. |
+| 4.9 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
+| 4.10 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
 
-### [Next Gate] Baker functional topology replay
+### [Next Gate] Growth v2 fan-in pressure reduction
 
-- **Вопрос**: Как ведет себя обученная активность и пластичность на реалистичном коннектоме, выращенном с помощью Growth v2?
-- **Почему нужен**: Мы доказали геометрическую чистоту и правильность компиляции в runtime-контракт. Теперь необходимо провести функциональную симуляцию (replay) активности и пластичности на полученной топологии, чтобы убедиться в правильности динамики синапсов и сохранении matched-bias тенденций.
-- **Gate**: успешное проведение replay-симуляции на коннектоме Growth v2 с валидацией пластичности и динамики спайков.
+- **Вопрос**: Можно ли сохранить все expected projections, flat-tree functional replay и GSOP matched-bias, но снизить fan-in cap pressure Balanced topology?
+- **Почему нужен**: v0.5 доказал функциональную живость Growth v2 topology, но Balanced candidate все еще имеет 168 saturated target somas и fan-in p90/p99 = 128. Если сразу запускать night phase, будет трудно отделить работу ночного pruning от исправления дневной топологической перегрузки.
+- **Gate**: all expected projections present, `L4_spiny -> L5_spiny > 0`, replay stable, matched-bias сохраняется, saturated target somas и p90/p99 fan-in снижены относительно v0.5.
+- **Production compile preference**: ветвления компилировать как отдельные линейные axon streams, отбрасывая stream-и без синапсов. Это ближе к текущему runtime и будущей sparse-propagation оптимизации; parent-pointer flat-tree остается research oracle/reference.
+
+### [Completed] Growth v2 Functional Topology Replay v0.5 (`archive/2026-07-06_growth_v2_functional_replay_v0_5/`)
+
+- **Вопрос**: Работает ли выращенная Baker/Growth v2 топология как нейросеть (активность, передача между слоями, стабильность, fatigue/homeostasis) и дает ли она STDP matched-bias пластичность?
+- **Итоговый вердикт (Completed / Research Flat-Tree Functional Pass / Fan-in Caveat)**: Да, как research replay. Balanced Functional кандидат с радиусом 9.0 um рекрутирует все слои, включая L5 spiny (591 синапс L4->L5), runaway = 0, Dale/sign violations = 0. GSOP matched-bias сохраняется (matched mean +335,345 vs unmatched mean +40,192). Caveat: fan-in cap pressure остается высоким (168 saturated target somas, p90/p99 = 128), поэтому перед night phase рекомендуется отдельный pressure-reduction pass.
+- **Outputs**: Rust тест `baker_growth_v2_replay.rs`, Python-скрипт построения графиков, 11 панелей графиков, отчёт [growth_v2_functional_replay_v0_5.md](archive/2026-07-06_growth_v2_functional_replay_v0_5/reports/growth_v2_functional_replay_v0_5.md).
 
 ### [Completed] Growth v2 AOT-to-Flat Runtime Compile Parity v0.4 (`archive/2026-07-06_growth_v2_aot_flat_parity_v0_4/`)
 
 - **Вопрос**: Сохраняется ли 1:1 событийная семантика после сворачивания богатой AOT-морфологии/ветвления в плоский runtime contract compute/GPU?
-- **Итоговый вердикт (Completed / Research Flat-Tree Pass)**: Да. Достигнуто 100% событийное совпадение на Clean и Dense стресс-тестах под тремя паттернами спайков. Выявленный баг активации концевых ветвей при пустом главном стволе (`main_len == 0`) успешно устранен в обоих симуляторах. Caveat: это доказывает parent-pointer flat-tree semantics, а не готовность текущего линейного production axon counter без изменений.
+- **Итоговый вердикт (Completed / Research Flat-Tree Pass)**: Да. Достигнуто 100% событийное совпадение на Clean и Dense стресс-тестах под тремя паттернами спайков. Выявленный баг активации концевых ветвей при пустом главном стволе (`main_len == 0`) успешно устранен в обоих симуляторах. Caveat: это доказывает parent-pointer flat-tree semantics; production-предпочтение после обсуждения — компилировать ветви в отдельные линейные axon streams, чтобы минимально менять runtime.
 - **Outputs**: Rust тест `baker_growth_v2_flat_parity.rs`, Python-скрипт построения 3D и 2D графиков, 7 панелей графиков, отчёт [growth_v2_aot_flat_parity_v0_4.md](archive/2026-07-06_growth_v2_aot_flat_parity_v0_4/reports/growth_v2_aot_flat_parity_v0_4.md).
 
 ### [Completed] Growth v2 Parameter Sweep & Pruning Policy v0.3 (`archive/2026-07-06_growth_v2_pruning_sweep_v0_3/`)
@@ -141,11 +149,6 @@ Status: active research index, not a final report.
 - **Итоговый вердикт (Completed / Geometry Pass / Density Caveat)**: Да, гибридный прототип прошел все геометрические invariants со 100% успехом. Успешность проецирования в целевой слой увеличилась на 37% по сравнению с baseline v1, а плотность окончаний снизилась на 38% за счет capture stop и attraction damping. 90.6% аксонов завершились по `TargetReached`. Caveat: Hybrid породил 112,261 raw contacts, после production-style cap осталось 29,021 accepted synapses и 83,240 dropped candidates; нужен отдельный fan-in/uniqueness sweep перед production migration.
 - **Outputs**: Rust тест `run_growth_v2_hybrid_prototype`, Python-скрипт построения 3D атласа, 6 панелей графиков, отчёт [growth_v2_hybrid_prototype.md](archive/2026-07-06_growth_v2_hybrid_prototype/reports/growth_v2_hybrid_prototype.md).
 
-### [Postponed] Baker Functional Topology Replay
-
-- **Вопрос**: Дает ли fixed-whitelist spatial topology функционально осмысленную активность и пластичность, а не только правильную projection matrix?
-- **Почему отложено**: Отложено до выработки дизайн-решения и реализации Growth v2, поскольку текущая механика роста Baker v1 признана слишком упрощенной для демонстрации преимуществ сложной топологии.
-- **Gate**: activity не уходит в silence/runaway, sparse-functional metrics сохраняются, matched-bias/GSOP trend не ломается, saturation не превращается в патологическое подавление L4/L23/L5.
 
 ### [Completed] Growth v2 MVP Extraction (`archive/2026-07-06_growth_v2_mvp_extraction/`)
 
