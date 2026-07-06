@@ -107,17 +107,25 @@ Status: active research index, not a final report.
 | 4.7 | **Growth v2 Functional Topology Replay v0.5** | completed / research flat-tree pass, fan-in caveat | Проведена симуляция (10k ticks static, 10k ticks GSOP) на Sparse, Dense и Balanced кандидатах через research flat-tree runner. Balanced сохраняет все expected projections и дает matched learning bias (+335,345 vs +40,192), но остается fan-in caveat: 168 saturated target somas, p90/p99 = 128. |
 | 4.8 | **Growth v2 fan-in pressure reduction** | completed / research winner selected | Снижена нагрузка на посты (p90 = 96, saturated = 0) за счет projection-aware cap = 96, сохранены все ожидаемые связи (L4->L5 = 606), подтвержден стабильный matched replay. Separate-stream compile пока является audit blueprint, не production runtime parity. |
 | 4.9 | **Night phase contract & MVP extraction** | completed / contract v0.1 pass | Зафиксирован архитектурный контракт ночной фазы: роли плоскостей данных, жесткие инварианты, независимость от исследовательских меток и приоритет AOT/Baker геометрии. |
-| 4.9.1 | **Night phase passive recovery** | next | Проверить пассивное гомеостатическое восстановление напряжения, порогов и распад синапсов (decay) без активации спаутинга для верификации стабильности сети при дневных/ночных циклах. |
+| 4.9.1 | **Night phase passive recovery** | completed / pass | Проверен day/night цикл на C17 топологии: пассивная релаксация снижает Day 2 тики тишины (с 2623 до 2036), matched bias сохраняется (retention = 1.0000), 0.1% weight decay безопасен (retention = 0.9990). |
+| 4.9.2 | **Night phase weight maintenance / prune-compact** | next | Проверить мягкий синаптический decay, прунинг слабых связей ниже порога и компрессию целевого массива (dendrite target compaction) для поддержания плотности синапсов. |
 | 4.10 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
 
-### [Next Gate] Night phase passive recovery v0.2
+### [Next Gate] Night phase weight maintenance / prune-compact v0.3
 
-- **Вопрос**: Стабилен ли обученный коннектом под воздействием циклического дневного/ночного пассивного восстановления (decay порогов, мембраны и синаптических весов) без спаутинга?
-- **Почему нужен**: Перед включением ночного роста (sprouting) необходимо изолировать и проверить динамическую стабильность чисто пассивных изменений. Мы должны убедиться, что гомеостатическое расслабление порогов и распад синаптических весов (decay) не разрушают селективность (matched-bias) и не вызывают коллапса или runaway в следующем дневном периоде.
-- **Gate**: сохранение matched-bias тренда после ночного decay, отсутствие Dale/sign violations, сохранение стабильности спайков на следующем дне.
+- **Вопрос**: Стабилен ли обученный коннектом под действием ночного прунинга слабых связей и компрессии целевого массива dendrite targets?
+- **Почему нужен**: Мы доказали безопасность пассивного восстановления и мягкого затухания. Теперь необходимо реализовать прунинг (удаление синапсов, чей вес упал ниже порога) и компрессию (сдвиг активных связей к началу массива для исключения пустых дыр). Мы должны убедиться, что удаление и уплотнение не разрушают селективность matched-bias и не приводят к silence/runaway.
+- **Gate**: сохранение matched-bias тренда после прунинга и компрессии, сохранение плотности целевого массива (dense targets), отсутствие Dale/sign violations.
+
+### [Completed] Night phase passive recovery v0.2 (`archive/2026-07-06_night_phase_passive_recovery_v0_2/`)
+
+- **Вопрос**: Не стирает ли пассивное ночное восстановление matched-bias и не уводит ли сеть в silence/runaway на C17 топологии при отключенном спаутинге?
+- **Итоговый вердикт (Completed / Pass)**: Нет, пассивная ночь безопасна и полезна. Сброс быстрых состояний (threshold offsets, dendritic fatigue, refractory timers, active propagation tails) снижает Day 2 тики тишины с 2623 до 2036, восстанавливая здоровую возбудимость слоев. Day 2 идет без learning, поэтому retention = 1.0000 означает сохранность learned weight structure при passive recovery. Мягкий синаптический decay (0.1%) также безопасен, не дает смены знаков или Dale violations, удерживая retention на уровне 0.9990.
+- **Outputs**: Rust тест `night_phase_passive_recovery_v0_2.rs`, отчёт [night_phase_passive_recovery_v0_2.md](archive/2026-07-06_night_phase_passive_recovery_v0_2/night_phase_passive_recovery_v0_2.md).
+
 
 ### [Completed] Night phase contract & MVP extraction v0.1 (`archive/2026-07-06_night_phase_contract_v0_1/`)
 
