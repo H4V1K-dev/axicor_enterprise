@@ -106,17 +106,24 @@ Status: active research index, not a final report.
 | 4.6 | **Growth v2 AOT-to-Flat Runtime Compile Parity** | completed / research flat-tree pass | Проверена событийная семантика при переносе AOT ветвления в плоский parent-pointer runtime contract. На Clean и Dense стресс-тестах под тремя детерминированными паттернами спайков достигнуто 100% совпадение (0 пропущенных/лишних событий). Production preference: compile branch terminals as separate linear axon streams; parent-pointer остается research oracle/reference. |
 | 4.7 | **Growth v2 Functional Topology Replay v0.5** | completed / research flat-tree pass, fan-in caveat | Проведена симуляция (10k ticks static, 10k ticks GSOP) на Sparse, Dense и Balanced кандидатах через research flat-tree runner. Balanced сохраняет все expected projections и дает matched learning bias (+335,345 vs +40,192), но остается fan-in caveat: 168 saturated target somas, p90/p99 = 128. |
 | 4.8 | **Growth v2 fan-in pressure reduction** | completed / research winner selected | Снижена нагрузка на посты (p90 = 96, saturated = 0) за счет projection-aware cap = 96, сохранены все ожидаемые связи (L4->L5 = 606), подтвержден стабильный matched replay. Separate-stream compile пока является audit blueprint, не production runtime parity. |
-| 4.9 | **Night phase structural maintenance audit** | next | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
+| 4.9 | **Night phase contract & MVP extraction** | completed / contract v0.1 pass | Зафиксирован архитектурный контракт ночной фазы: роли плоскостей данных, жесткие инварианты, независимость от исследовательских меток и приоритет AOT/Baker геометрии. |
+| 4.9.1 | **Night phase passive recovery** | next | Проверить пассивное гомеостатическое восстановление напряжения, порогов и распад синапсов (decay) без активации спаутинга для верификации стабильности сети при дневных/ночных циклах. |
 | 4.10 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
 
-### [Next Gate] Night phase structural maintenance audit v1
+### [Next Gate] Night phase passive recovery v0.2
 
-- **Вопрос**: Стабилен ли выращенный и обученный коннектом под действием ночного прунинга, синаптического распада (decay) и гомеостатической ренормализации?
-- **Почему нужен**: Мы получили сбалансированную топологию v0.6 с низким давлением на дендриты (cap=96) и подтвердили стабильный matched-bias. Но реальное обучение требует долгосрочной стабильности. Мы должны доказать, что ночной цикл не стирает накопленный matched-bias и не уводит сеть в silence/runaway.
-- **Gate**: сохранение matched-bias тренда после ночного цикла, отсутствие Dale violations, отсутствие silence/runaway.
+- **Вопрос**: Стабилен ли обученный коннектом под воздействием циклического дневного/ночного пассивного восстановления (decay порогов, мембраны и синаптических весов) без спаутинга?
+- **Почему нужен**: Перед включением ночного роста (sprouting) необходимо изолировать и проверить динамическую стабильность чисто пассивных изменений. Мы должны убедиться, что гомеостатическое расслабление порогов и распад синаптических весов (decay) не разрушают селективность (matched-bias) и не вызывают коллапса или runaway в следующем дневном периоде.
+- **Gate**: сохранение matched-bias тренда после ночного decay, отсутствие Dale/sign violations, сохранение стабильности спайков на следующем дне.
+
+### [Completed] Night phase contract & MVP extraction v0.1 (`archive/2026-07-06_night_phase_contract_v0_1/`)
+
+- **Вопрос**: Какова правильная архитектурная схема и ограничения ночной фазы в AxiEngine, какие части старого MVP (axicor-node/baker) применимы и какие инварианты критичны?
+- **Итоговый вердикт (Completed / Contract v0.1 Pass)**: Зафиксирован контракт ночной фазы. Ночь определена как offline-обслуживание графа/состояния между дневными эпохами. Установлены жесткие инварианты (configurable per-pair cap, Dense Target, Dale's Law). Запрещено использование matched/unmatched меток. Подтверждено, что спаутинг требует AOT-геометрии путей, а не только плоских runtime-массивов. В ранних исследовательских фазах IPC/daemon заменяются на in-process Rust вызовы.
+- **Outputs**: Отчёт [night_phase_contract_v0_1.md](archive/2026-07-06_night_phase_contract_v0_1/night_phase_contract_v0_1.md).
 
 ### [Completed] Growth v2 fan-in pressure reduction v0.6 (`archive/2026-07-06_growth_v2_fanin_reduction_v0_6/`)
 
