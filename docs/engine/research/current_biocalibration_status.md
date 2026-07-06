@@ -101,19 +101,32 @@ Status: active research index, not a final report.
 | 4 | **Baker spatial growth audit v1** | completed / whitelist fixed, capacity warning | Baker строит реальный 3D-коннектом; whitelist fix убрал все unexpected projections, `VirtualInput` стал input-only, все 7 expected projections присутствуют. Остался capacity warning: L4/L23 насыщены 128/128, dropped candidates=106,010. |
 | 4.1 | **Baker Axon Growth & Synapse Geometry Audit v1** | completed / pass | Проверена 3D геометрия роста аксонов, стоп-факторы, формирование кандидатов и соблюдение всех жестких геометрических инвариантов. Все invariants (out-of-bounds, self-intersection, soma collision, whitelist, radius) пройдены (0 нарушений). |
 | 4.2 | **Growth v2 MVP Extraction** | completed / source audit | Проведен аудит непрерывного векторного роста MVP Baker. Предложены метрики для выявления terminal knots и методы борьбы с ними. Создан изолированный тестовый таргет `baker_growth_v2.rs`. |
-| 4.3 | **Growth v2 Hybrid Prototype** | completed / pass | Построен гибридный прототип роста аксонов. Достигнуто 0 out-of-bounds/self-intersection/collision нарушений, успешность Virtual->L4 выросла с 60.9% до 83.6%, концевая плотность снижена на 38%. |
-| 4.4 | **Baker functional topology replay** | next / postponed | На fixed-whitelist baker-коннектоме прогнать activity/plasticity replay. Отложено до принятия дизайн-решения по Growth v2 (так как v1-рост признан слишком упрощенным). |
-| 4.5 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
-| 4.6 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
+| 4.4 | **Growth v2 Biology-Aligned Multifield Prototype v0.2** | completed / pass | Многополевая модель + Touch Detection Phase 2. Достигнуто 0 нарушений invariants, успешность Virtual->L4 = 82.8%, TKI снижен до 1.17, синапсы сокращены на 12.1% (apples-to-apples vs Hybrid), дубликаты устранены. |
+| 4.5 | **Growth v2 AOT-to-Flat Runtime Compile Parity** | planned / required gate | На плотном шарде проверить, что AOT morphology/branch topology компилируется в flat runtime/GPU contract без потери событийной semantics: при детерминированной стимуляции 10-15% сом все synapse hits/input events совпадают 1:1 между AOT-oracle и flat runtime representation. |
+| 4.6 | **Baker functional topology replay** | next / postponed | На fixed-whitelist baker-коннектоме прогнать activity/plasticity replay. Отложено до принятия дизайн-решения по Growth v2 (так как v1-рост признан слишком упрощенным). |
+| 4.7 | **Night phase structural maintenance audit** | planned | Проверить ночную фазу как отдельный контур: decay/cleanup/renormalization/structural maintenance без дневного reward и без разрушения обученных коррелированных путей. |
+| 4.8 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
 ## 8. Активные и следующие исследования
 
-### [Next] Growth v2 Biological Review & Fan-In Control
+### [Next] Growth v2 parameter sweep & pruning policy
 
-- **Вопрос**: Какие элементы continuous/FOV/affinity growth биологически оправданы, и как снизить fan-in pressure без потери tract-like формы?
-- **Почему сейчас**: Hybrid Growth v2 прошел геометрические invariants и улучшил target-layer success, но породил 112,261 raw contacts, из которых 83,240 отбрасываются после `MAX_DENDRITES=128` cap. Production-порт преждевременен до биологического аудита траекторий и sweep по плотности.
-- **Следующий шаг**: Дождаться биологического аудита, затем провести sweep по `w_global/w_attract/w_noise`, `R_capture`, `R_damping`, source-target uniqueness и fan-in cap pressure.
+- **Вопрос**: Какое влияние оказывает соотношение весов, радиус прунинга и уникальность связей на функциональные характеристики коннектома при replay симуляции?
+- **Почему сейчас**: Multifield v0.2 успешно доказал прохождение invariants, формирование tract-like bundles и снижение accepted synapses на 12.1% относительно Hybrid после cap. Но raw-кандидатов остается много (191,320), а 127/256 target somas все еще насыщены до `MAX_DENDRITES=128`, поэтому нужен sweep по ветвлению, fasciculation и pruning policy.
+- **Следующий шаг**: Настроить параметры `softmax_cap_per_pair`, `one_per_source_target`, branch count/length, `w_fascicle`, `R_fascicle`, `R_repulsion`, определить production compile policy для branch segments и после этого закрыть AOT-to-flat runtime parity gate.
+
+### [Planned Gate] Growth v2 AOT-to-Flat Runtime Compile Parity
+
+- **Вопрос**: Сохраняется ли 1:1 событийная семантика после сворачивания богатой AOT-морфологии/ветвления в плоский runtime contract compute/GPU?
+- **Почему нужен**: Growth v2 может иметь ветвления, tract-like morphology и сложную touch geometry, но runtime должен получать плоские targets/weights/segment offsets. Нужно доказать, что компиляция топологии не теряет и не добавляет synapse activations.
+- **Gate**: собрать достаточно плотный шард, детерминированно стимулировать 10-15% сом/аксонов и сравнить AOT-oracle с flat runtime representation по `active_tail_hit`, synapse hit count, target soma input events и missing/extra activations. При корректной компиляции расхождение должно быть 0.
+
+### [Completed] Growth v2 Biology-Aligned Multifield Prototype v0.2 (`archive/2026-07-06_growth_v2_multifield_v0_2/`)
+
+- **Вопрос**: Может ли multifield growth с двухфазной моделью (morphology + touch detection) дать tract-like волокна, огибающие сомы, снизить fan-in pressure и сохранить invariants?
+- **Итоговый вердикт (Completed / Pass / Fan-in Caveat)**: Да, multifield модель v0.2 прошла invariants. Успешность проецирования в целевой слой составила 82.8%, TKI снижен до 1.17, итоговые accepted synapses снижены с 29,021 до 25,496 (-12.1% apples-to-apples vs Hybrid after cap), дубликаты устранены. Caveat: raw candidates=191,320 и 127/256 целевых сом насыщены до cap, поэтому fan-in pressure требует отдельного sweep.
+- **Outputs**: Rust тест `run_growth_v2_multifield_v0_2`, Python-скрипт построения 3D атласа, 6 панелей графиков, отчёт [growth_v2_multifield_v0_2.md](archive/2026-07-06_growth_v2_multifield_v0_2/reports/growth_v2_multifield_v0_2.md).
 
 ### [Completed] Growth v2 Hybrid Prototype (`archive/2026-07-06_growth_v2_hybrid_prototype/`)
 
