@@ -118,6 +118,9 @@ struct DormantSynapse {
     short_trace: u16,
     dormant_age: u32,
     projection_class: String,
+    dormant_context_hits: u16,
+    pre_trace_timer: u8,
+    initial_weight: i32,
 }
 
 fn deterministic_rng(seed: u64, soma_id: u32, step: usize) -> u64 {
@@ -831,6 +834,7 @@ impl<'a> SimulationRunner<'a> {
         max_ticks: usize,
         is_learning: bool,
         collect_counters: bool,
+        mut dormant_synapses: Option<&mut [DormantSynapse]>,
     ) -> ReplayMetrics {
         let n = self.soma_variants.len();
         let mut firing_rates = HashMap::new();
@@ -946,6 +950,23 @@ impl<'a> SimulationRunner<'a> {
                 }
             }
 
+            // Side-channel dormant synapse evidence pre-trace updates
+            if let Some(ref mut dormant_list) = dormant_synapses {
+                for ds in dormant_list.iter_mut() {
+                    let pre_axon = ds.source_soma_id as usize;
+                    let seg_idx = ds.flat_segment_idx as usize;
+                    let is_hit = self
+                        .active_segments
+                        .get(pre_axon)
+                        .and_then(|segments| segments.get(seg_idx))
+                        .copied()
+                        .unwrap_or(false);
+                    if is_hit {
+                        ds.pre_trace_timer = 8;
+                    }
+                }
+            }
+
             for i in 0..n {
                 if self.soma_variants[i] == 0 {
                     if spikes_this_tick[i] {
@@ -1028,6 +1049,15 @@ impl<'a> SimulationRunner<'a> {
                 }
             }
 
+            // Side-channel dormant synapse evidence target-spike updates
+            if let Some(ref mut dormant_list) = dormant_synapses {
+                for ds in dormant_list.iter_mut() {
+                    if spikes_this_tick[ds.target_soma_id as usize] && ds.pre_trace_timer > 0 {
+                        ds.dormant_context_hits = ds.dormant_context_hits.saturating_add(1);
+                    }
+                }
+            }
+
             if is_learning {
                 for i in 0..n {
                     if spikes_this_tick[i] && self.soma_variants[i] > 0 {
@@ -1077,6 +1107,15 @@ impl<'a> SimulationRunner<'a> {
                 for syn in self.flat_synapses.iter_mut() {
                     if syn.pre_trace_timer > 0 {
                         syn.pre_trace_timer -= 1;
+                    }
+                }
+            }
+
+            // Side-channel dormant synapse evidence timer decay
+            if let Some(ref mut dormant_list) = dormant_synapses {
+                for ds in dormant_list.iter_mut() {
+                    if ds.pre_trace_timer > 0 {
+                        ds.pre_trace_timer -= 1;
                     }
                 }
             }
@@ -1445,7 +1484,16 @@ fn compute_percentile(vals: &[usize], pct: f64) -> f64 {
 }
 
 #[derive(serde::Serialize)]
-struct PolicyPlotDataV07 {
+struct BlockerBreakdownV08 {
+    trace_ok: usize,
+    context_ok: usize,
+    slot_ok: usize,
+    diversity_ok: usize,
+    all_ok: usize,
+}
+
+#[derive(serde::Serialize)]
+struct PolicyPlotDataV08 {
     name: String,
     active_day1: usize,
     active_day2: usize,
@@ -1454,27 +1502,33 @@ struct PolicyPlotDataV07 {
     dormant_day4: usize,
     deleted_day2: usize,
     deleted_day4: usize,
+    reactivated_total: usize,
+    reactivated_matched: usize,
+    reactivated_unmatched: usize,
+    reactivated_other: usize,
     matched_retention_day2_full: f64,
     matched_retention_day4_full: f64,
     matched_retention_day2_surv: f64,
     matched_retention_day4_surv: f64,
+    blockers: BlockerBreakdownV08,
 }
 
 #[derive(serde::Serialize)]
-struct DormantTraceData {
-    long_trace: u16,
-    age: u32,
+struct ReactivatedSynapsePlotData {
+    policy_name: String,
+    weight_mass: f32,
+    dormant_age: u32,
 }
 
 #[derive(serde::Serialize)]
-struct PlottingDataV07 {
-    policies: Vec<PolicyPlotDataV07>,
-    dormant_traces: Vec<DormantTraceData>,
+struct PlottingDataV08 {
+    policies: Vec<PolicyPlotDataV08>,
+    reactivated_synapses: Vec<ReactivatedSynapsePlotData>,
 }
 
 #[test]
-fn run_night_phase_dormant_bank_v0_7() {
-    println!("=== Starting Night Phase Dormant/Cold Bank Stress Test v0.7 ===");
+fn run_night_phase_dormant_reactivation_v0_8() {
+    println!("=== Starting Night Phase Dormant Reactivation v0.8 ===");
 
     let seed_val = 12345;
     let master_seed = MasterSeed(seed_val);
@@ -1529,7 +1583,7 @@ fn run_night_phase_dormant_bank_v0_7() {
             &soma_variants,
             seed_val,
         );
-        runner.run_day(max_ticks, true, true);
+        runner.run_day(max_ticks, true, true, None);
         runner.execute_night(true); // Night 1 trace merge
     }
 
@@ -1656,14 +1710,15 @@ fn run_night_phase_dormant_bank_v0_7() {
     }
 
     let policies = vec![
-        "hard_delete_absolute_floor",
         "hard_delete_trace_aware",
-        "dormant_trace_aware",
-        "dormant_trace_aware_with_return",
+        "dormant_no_reactivation",
+        "dormant_trace_only",
+        "dormant_context_reactivation",
+        "dormant_context_reactivation_conservative",
     ];
 
     let mut plotting_policies = Vec::new();
-    let mut dormant_traces_for_plotting = Vec::new();
+    let mut reactivated_synapses_for_plotting = Vec::new();
 
     for policy in &policies {
         println!("\n--- Testing Policy: {} ---", policy);
@@ -1672,65 +1727,55 @@ fn run_night_phase_dormant_bank_v0_7() {
         let mut dormant_synapses: Vec<DormantSynapse> = Vec::new();
 
         // 1. Demote or delete under pruning policy
-        match *policy {
-            "hard_delete_absolute_floor" => {
-                let mut survivors = Vec::new();
-                for syn in current_synapses {
-                    if syn.weight.abs() >= 1498 << 16 {
-                        survivors.push(syn);
-                    }
+        if *policy == "hard_delete_trace_aware" {
+            let mut sorted_scores = prune_scores.clone();
+            sorted_scores.sort_by_key(|&(_, score)| std::cmp::Reverse(score));
+            let victims_indices: HashSet<usize> = sorted_scores
+                .iter()
+                .take(budget_total)
+                .map(|&(idx, _)| idx)
+                .collect();
+            let mut survivors = Vec::new();
+            for (idx, syn) in current_synapses.into_iter().enumerate() {
+                if !victims_indices.contains(&idx) {
+                    survivors.push(syn);
                 }
-                current_synapses = survivors;
             }
-            "hard_delete_trace_aware" => {
-                let mut sorted_scores = prune_scores.clone();
-                sorted_scores.sort_by_key(|&(_, score)| std::cmp::Reverse(score));
-                let victims_indices: HashSet<usize> = sorted_scores
-                    .iter()
-                    .take(budget_total)
-                    .map(|&(idx, _)| idx)
-                    .collect();
-                let mut survivors = Vec::new();
-                for (idx, syn) in current_synapses.into_iter().enumerate() {
-                    if !victims_indices.contains(&idx) {
-                        survivors.push(syn);
-                    }
-                }
-                current_synapses = survivors;
-            }
-            "dormant_trace_aware" | "dormant_trace_aware_with_return" => {
-                let mut sorted_scores = prune_scores.clone();
-                sorted_scores.sort_by_key(|&(_, score)| std::cmp::Reverse(score));
-                let victims_indices: HashSet<usize> = sorted_scores
-                    .iter()
-                    .take(budget_total)
-                    .map(|&(idx, _)| idx)
-                    .collect();
+            current_synapses = survivors;
+        } else {
+            let mut sorted_scores = prune_scores.clone();
+            sorted_scores.sort_by_key(|&(_, score)| std::cmp::Reverse(score));
+            let victims_indices: HashSet<usize> = sorted_scores
+                .iter()
+                .take(budget_total)
+                .map(|&(idx, _)| idx)
+                .collect();
 
-                let mut survivors = Vec::new();
-                for (idx, syn) in current_synapses.into_iter().enumerate() {
-                    let sv = soma_variants[syn.source_soma_id as usize];
-                    let tv = soma_variants[syn.target_soma_id as usize];
-                    let proj = get_projection_type(sv, tv);
+            let mut survivors = Vec::new();
+            for (idx, syn) in current_synapses.into_iter().enumerate() {
+                let sv = soma_variants[syn.source_soma_id as usize];
+                let tv = soma_variants[syn.target_soma_id as usize];
+                let proj = get_projection_type(sv, tv);
 
-                    if victims_indices.contains(&idx) {
-                        dormant_synapses.push(DormantSynapse {
-                            source_soma_id: syn.source_soma_id,
-                            target_soma_id: syn.target_soma_id,
-                            flat_segment_idx: syn.flat_segment_idx,
-                            weight: syn.weight,
-                            long_trace: syn.long_trace,
-                            short_trace: syn.short_trace,
-                            dormant_age: 0,
-                            projection_class: proj,
-                        });
-                    } else {
-                        survivors.push(syn);
-                    }
+                if victims_indices.contains(&idx) {
+                    dormant_synapses.push(DormantSynapse {
+                        source_soma_id: syn.source_soma_id,
+                        target_soma_id: syn.target_soma_id,
+                        flat_segment_idx: syn.flat_segment_idx,
+                        weight: syn.weight,
+                        long_trace: syn.long_trace,
+                        short_trace: syn.short_trace,
+                        dormant_age: 0,
+                        projection_class: proj,
+                        dormant_context_hits: 0,
+                        pre_trace_timer: 0,
+                        initial_weight: syn.initial_weight,
+                    });
+                } else {
+                    survivors.push(syn);
                 }
-                current_synapses = survivors;
             }
-            _ => {}
+            current_synapses = survivors;
         }
 
         // Compact synapses after Demotion/Deletion
@@ -1771,7 +1816,7 @@ fn run_night_phase_dormant_bank_v0_7() {
                 &soma_variants,
                 seed_val,
             );
-            day2_metrics = runner.run_day(max_ticks, false, true);
+            day2_metrics = runner.run_day(max_ticks, false, true, None);
             day2_results = compute_metrics(&current_synapses, &soma_variants, &day2_metrics);
         }
 
@@ -1817,7 +1862,6 @@ fn run_night_phase_dormant_bank_v0_7() {
 
         // Day 3 Returned Context (learning enabled)
         println!("  Running Day 3 Returned Context (learning enabled)...");
-        let day3_spikes: Vec<u32>;
         {
             let mut runner = SimulationRunner::new(
                 &flat_axons,
@@ -1826,8 +1870,13 @@ fn run_night_phase_dormant_bank_v0_7() {
                 &soma_variants,
                 seed_val,
             );
-            runner.run_day(max_ticks, true, true);
-            day3_spikes = runner.somas.iter().map(|s| s.spike_count).collect();
+            // Collect context evidence on dormant synapses side-channel!
+            let dormant_ref = if dormant_synapses.is_empty() {
+                None
+            } else {
+                Some(dormant_synapses.as_mut_slice())
+            };
+            runner.run_day(max_ticks, true, true, dormant_ref);
         }
 
         // Night 2: trace merge, dormant decay, and reactivation pass
@@ -1850,16 +1899,22 @@ fn run_night_phase_dormant_bank_v0_7() {
             ds.dormant_age += 1;
         }
 
-        if *policy == "dormant_trace_aware_with_return" {
-            // Save dormant traces before Night 2 reactivation
-            for ds in &dormant_synapses {
-                dormant_traces_for_plotting.push(DormantTraceData {
-                    long_trace: ds.long_trace,
-                    age: ds.dormant_age,
-                });
-            }
+        let mut blockers = BlockerBreakdownV08 {
+            trace_ok: 0,
+            context_ok: 0,
+            slot_ok: 0,
+            diversity_ok: 0,
+            all_ok: 0,
+        };
+        let mut reactivated_total = 0;
+        let mut reactivated_matched = 0;
+        let mut reactivated_unmatched = 0;
+        let mut reactivated_other = 0;
 
-            // Reactivation pass
+        let requires_reactivation =
+            *policy != "hard_delete_trace_aware" && *policy != "dormant_no_reactivation";
+
+        if requires_reactivation {
             let mut reactivated_indices = Vec::new();
             let mut target_active_counts = vec![0; n_somas];
             for syn in &*runner.flat_synapses {
@@ -1875,13 +1930,23 @@ fn run_night_phase_dormant_bank_v0_7() {
                     .or_insert(0) += 1;
             }
 
-            let mut trace_ok_count = 0;
-            let mut slot_ok_count = 0;
-            let mut diversity_ok_count = 0;
-            let mut activity_ok_count = 0;
-
             for (d_idx, ds) in dormant_synapses.iter().enumerate() {
-                let trace_ok = ds.long_trace >= 20; // THETA_REACTIVATE_TRACE
+                let trace_ok = ds.long_trace >= 20; // THETA_REACTIVATE_TRACE (20)
+
+                let context_ok = match *policy {
+                    "dormant_trace_only" => false,
+                    "dormant_context_reactivation" => {
+                        ds.dormant_context_hits >= 3 // THETA_CONTEXT = 3
+                            || (ds.short_trace > 0 && ds.dormant_context_hits > 0)
+                    }
+                    "dormant_context_reactivation_conservative" => {
+                        ds.dormant_context_hits >= 3 && ds.short_trace > 0
+                    }
+                    _ => false,
+                };
+
+                let pass_evidence = trace_ok || context_ok;
+
                 let target_count = target_active_counts[ds.target_soma_id as usize];
                 let slot_ok = target_count < 96; // target soft cap limit
                 let initial_count = *initial_target_proj_counts
@@ -1892,24 +1957,20 @@ fn run_night_phase_dormant_bank_v0_7() {
                     .unwrap_or(&0);
                 let diversity_ok = current_proj_count < initial_count;
 
-                let source_spikes = day3_spikes[ds.source_soma_id as usize];
-                let target_spikes = day3_spikes[ds.target_soma_id as usize];
-                let activity_ok = source_spikes > 0 && target_spikes > 0;
-
                 if trace_ok {
-                    trace_ok_count += 1;
+                    blockers.trace_ok += 1;
+                }
+                if context_ok {
+                    blockers.context_ok += 1;
                 }
                 if slot_ok {
-                    slot_ok_count += 1;
+                    blockers.slot_ok += 1;
                 }
                 if diversity_ok {
-                    diversity_ok_count += 1;
-                }
-                if activity_ok {
-                    activity_ok_count += 1;
+                    blockers.diversity_ok += 1;
                 }
 
-                if trace_ok && slot_ok && diversity_ok && activity_ok {
+                if pass_evidence && slot_ok && diversity_ok {
                     reactivated_indices.push(d_idx);
                     target_active_counts[ds.target_soma_id as usize] += 1;
                     *target_proj_counts
@@ -1918,19 +1979,43 @@ fn run_night_phase_dormant_bank_v0_7() {
                 }
             }
 
+            reactivated_total = reactivated_indices.len();
+            blockers.all_ok = reactivated_total;
+
             println!(
                 "  Reactivation blocker breakdown (out of {}):",
                 dormant_synapses.len()
             );
-            println!("    trace_ok: {}", trace_ok_count);
-            println!("    slot_ok: {}", slot_ok_count);
-            println!("    diversity_ok: {}", diversity_ok_count);
-            println!("    activity_ok: {}", activity_ok_count);
-            println!("    all_ok/reactivated: {}", reactivated_indices.len());
+            println!("    trace_ok: {}", blockers.trace_ok);
+            println!("    context_ok: {}", blockers.context_ok);
+            println!("    slot_ok: {}", blockers.slot_ok);
+            println!("    diversity_ok: {}", blockers.diversity_ok);
+            println!("    all_ok/reactivated: {}", blockers.all_ok);
 
             let mut remaining_dormant = Vec::new();
             for (d_idx, ds) in dormant_synapses.iter().enumerate() {
                 if reactivated_indices.contains(&d_idx) {
+                    let is_matched = ds.source_soma_id < 48
+                        && (ds.target_soma_id >= 128 && ds.target_soma_id < 176);
+                    let is_unmatched = ds.source_soma_id >= 48
+                        && ds.source_soma_id < 128
+                        && (ds.target_soma_id >= 128 && ds.target_soma_id < 176);
+                    if is_matched {
+                        reactivated_matched += 1;
+                    } else if is_unmatched {
+                        reactivated_unmatched += 1;
+                    } else {
+                        reactivated_other += 1;
+                    }
+
+                    // Save reactivated details for scatter/histogram
+                    let w_mass = ds.weight as f32 / 65536.0;
+                    reactivated_synapses_for_plotting.push(ReactivatedSynapsePlotData {
+                        policy_name: policy.to_string(),
+                        weight_mass: w_mass,
+                        dormant_age: ds.dormant_age,
+                    });
+
                     runner.flat_synapses.push(FlatSynapse {
                         source_soma_id: ds.source_soma_id,
                         flat_segment_idx: ds.flat_segment_idx,
@@ -1945,7 +2030,7 @@ fn run_night_phase_dormant_bank_v0_7() {
                         long_trace: ds.long_trace,
                         age_or_grace: 0,
                         pre_trace_timer: 0,
-                        initial_weight: ds.weight,
+                        initial_weight: ds.initial_weight,
                     });
                 } else {
                     remaining_dormant.push(ds.clone());
@@ -1980,10 +2065,10 @@ fn run_night_phase_dormant_bank_v0_7() {
 
         // Day 4 Replay (without learning)
         println!("  Running Day 4 Replay (learning disabled)...");
-        let day4_metrics = runner.run_day(max_ticks, false, true);
+        let day4_metrics = runner.run_day(max_ticks, false, true, None);
         let day4_results = compute_metrics(runner.flat_synapses, &soma_variants, &day4_metrics);
 
-        // Safety Gate Assertions
+        // Safety Gate Assertions Day 4
         assert_eq!(
             day4_results.dale_violations, 0,
             "Dale violations detected under {} on Day 4!",
@@ -2026,18 +2111,6 @@ fn run_night_phase_dormant_bank_v0_7() {
             0.0
         };
 
-        // Dormant metrics
-        let dormant_matched = dormant_synapses
-            .iter()
-            .filter(|ds| {
-                ds.source_soma_id < 48 && ds.target_soma_id >= 128 && ds.target_soma_id < 176
-            })
-            .count();
-        let dormant_high_trace = dormant_synapses
-            .iter()
-            .filter(|ds| ds.long_trace >= 20)
-            .count();
-
         println!(
             "  Matched full-cohort retention Day2 / Day4: {:.4} / {:.4}",
             matched_retention_day2_full, matched_retention_day4_full
@@ -2050,13 +2123,12 @@ fn run_night_phase_dormant_bank_v0_7() {
             "  Silence ticks Day2 / Day4: {} / {}",
             day2_results.silence_ticks, day4_results.silence_ticks
         );
-        println!("  Dormant Protected Matched count: {}", dormant_matched);
         println!(
-            "  Dormant Protected High Long Trace count: {}",
-            dormant_high_trace
+            "  Reactivated Total / Matched / Unmatched: {} / {} / {}",
+            reactivated_total, reactivated_matched, reactivated_unmatched
         );
 
-        plotting_policies.push(PolicyPlotDataV07 {
+        plotting_policies.push(PolicyPlotDataV08 {
             name: policy.to_string(),
             active_day1,
             active_day2,
@@ -2065,24 +2137,29 @@ fn run_night_phase_dormant_bank_v0_7() {
             dormant_day4,
             deleted_day2,
             deleted_day4,
+            reactivated_total,
+            reactivated_matched,
+            reactivated_unmatched,
+            reactivated_other,
             matched_retention_day2_full,
             matched_retention_day4_full,
             matched_retention_day2_surv,
             matched_retention_day4_surv,
+            blockers,
         });
     }
 
     // Save plot data
-    let plot_data = PlottingDataV07 {
+    let plot_data = PlottingDataV08 {
         policies: plotting_policies,
-        dormant_traces: dormant_traces_for_plotting,
+        reactivated_synapses: reactivated_synapses_for_plotting,
     };
     let json_content = serde_json::to_string(&plot_data).unwrap();
     let dest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../docs/engine/research/archive/2026-07-06_night_phase_dormant_bank_v0_7/artifacts/plot_data.json");
+        .join("../../../docs/engine/research/archive/2026-07-06_night_phase_dormant_reactivation_v0_8/artifacts/plot_data.json");
     if let Some(parent) = dest_path.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
     std::fs::write(&dest_path, json_content).unwrap();
-    println!("Saved v0.7 plotting data to {:?}", dest_path);
+    println!("Saved v0.8 plotting data to {:?}", dest_path);
 }
