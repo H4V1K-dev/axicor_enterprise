@@ -46,6 +46,15 @@ struct FlatSynapse {
     dendrite_idx: u32,
     weight: i32,
     fatigue: u8,
+    // v0.5 research counters
+    pre_hits: u16,
+    coactivity_hits: u16,
+    weight_trend: i8,
+    short_trace: u16,
+    long_trace: u16,
+    age_or_grace: u8,
+    // Internal state
+    pre_trace_timer: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +95,8 @@ struct SomaState {
     thresh_offset: i32,
     refractory_timer: u8,
     burst_count: u32,
+    // v0.5 research counters
+    spike_count: u32,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -704,6 +715,13 @@ fn build_flat_tuples(
             dendrite_idx: syn.dendrite_idx,
             weight: w_mass,
             fatigue: 0,
+            pre_hits: 0,
+            coactivity_hits: 0,
+            weight_trend: 0,
+            short_trace: 0,
+            long_trace: 0,
+            age_or_grace: 0,
+            pre_trace_timer: 0,
         });
     }
 
@@ -764,6 +782,7 @@ impl<'a> SimulationRunner<'a> {
                 thresh_offset: 0,
                 refractory_timer: 0,
                 burst_count: 0,
+                spike_count: 0,
             });
         }
 
@@ -799,7 +818,12 @@ impl<'a> SimulationRunner<'a> {
         }
     }
 
-    fn run_day(&mut self, max_ticks: usize, is_learning: bool) -> ReplayMetrics {
+    fn run_day(
+        &mut self,
+        max_ticks: usize,
+        is_learning: bool,
+        collect_counters: bool,
+    ) -> ReplayMetrics {
         let n = self.soma_variants.len();
         let mut firing_rates = HashMap::new();
         let mut active_fractions = HashMap::new();
@@ -887,13 +911,14 @@ impl<'a> SimulationRunner<'a> {
                 let target_variant =
                     &self.variants[self.soma_variants[syn.target_soma_id as usize] as usize];
                 let seg_idx = syn.flat_segment_idx as usize;
-                if self
+                let is_hit = self
                     .active_segments
                     .get(pre_axon)
                     .and_then(|segments| segments.get(seg_idx))
                     .copied()
-                    .unwrap_or(false)
-                {
+                    .unwrap_or(false);
+
+                if is_hit {
                     let att_w = physics::apply_synaptic_fatigue(
                         syn.weight,
                         syn.fatigue,
@@ -905,6 +930,11 @@ impl<'a> SimulationRunner<'a> {
 
                     syn.fatigue =
                         physics::fatigue_after_spike(syn.fatigue, target_variant.fatigue_capacity);
+
+                    if collect_counters {
+                        syn.pre_hits = syn.pre_hits.saturating_add(1);
+                        syn.pre_trace_timer = 8;
+                    }
                 }
             }
 
@@ -912,6 +942,9 @@ impl<'a> SimulationRunner<'a> {
                 if self.soma_variants[i] == 0 {
                     if spikes_this_tick[i] {
                         active_somas_count[0].insert(i);
+                        if collect_counters {
+                            self.somas[i].spike_count = self.somas[i].spike_count.saturating_add(1);
+                        }
                     }
                     continue;
                 }
@@ -968,10 +1001,22 @@ impl<'a> SimulationRunner<'a> {
                     self.somas[i].burst_count = self.somas[i].burst_count.saturating_add(1);
 
                     active_somas_count[v_id].insert(i);
+
+                    if collect_counters {
+                        self.somas[i].spike_count = self.somas[i].spike_count.saturating_add(1);
+                    }
                 }
 
                 if self.somas[i].voltage > -25_000 {
                     vm_health_above_neg25 += 1;
+                }
+            }
+
+            if collect_counters {
+                for syn in self.flat_synapses.iter_mut() {
+                    if spikes_this_tick[syn.target_soma_id as usize] && syn.pre_trace_timer > 0 {
+                        syn.coactivity_hits = syn.coactivity_hits.saturating_add(1);
+                    }
                 }
             }
 
@@ -987,6 +1032,7 @@ impl<'a> SimulationRunner<'a> {
                                 let pre_variant =
                                     &self.variants[self.soma_variants[pre_axon] as usize];
 
+                                let old_w = syn.weight;
                                 let new_w = physics::apply_gsop_plasticity(
                                     syn.weight,
                                     &active_heads[pre_axon],
@@ -1003,8 +1049,26 @@ impl<'a> SimulationRunner<'a> {
                                     &tgt_variant.inertia_curve.map(|x| x as i32),
                                 );
                                 syn.weight = new_w;
+
+                                if collect_counters {
+                                    let old_abs = old_w.unsigned_abs();
+                                    let new_abs = new_w.unsigned_abs();
+                                    if new_abs > old_abs {
+                                        syn.weight_trend = syn.weight_trend.saturating_add(1);
+                                    } else if new_abs < old_abs {
+                                        syn.weight_trend = syn.weight_trend.saturating_sub(1);
+                                    }
+                                }
                             }
                         }
+                    }
+                }
+            }
+
+            if collect_counters {
+                for syn in self.flat_synapses.iter_mut() {
+                    if syn.pre_trace_timer > 0 {
+                        syn.pre_trace_timer -= 1;
                     }
                 }
             }
@@ -1098,10 +1162,9 @@ impl<'a> SimulationRunner<'a> {
         }
     }
 
-    fn execute_night(&mut self, decay_weights: bool, prune_floor: Option<i32>) -> usize {
+    fn execute_night(&mut self, merge_traces: bool) {
         let n = self.soma_variants.len();
 
-        // 1. Passive Recovery & Reset
         for i in 0..n {
             let v_id = self.soma_variants[i];
             let var = &self.variants[v_id as usize];
@@ -1109,61 +1172,41 @@ impl<'a> SimulationRunner<'a> {
             self.somas[i].thresh_offset = 0;
             self.somas[i].refractory_timer = 0;
             self.somas[i].burst_count = 0;
+            self.somas[i].spike_count = 0;
         }
 
-        // Reset active action potentials
         for axon in self.flat_axons {
             self.active_segments[axon.soma_id as usize] = vec![false; axon.total_segments];
         }
 
-        // 2. Synaptic fatigue decay/reset
         for syn in self.flat_synapses.iter_mut() {
             syn.fatigue = 0;
         }
 
-        // 3. Synaptic weight decay (if enabled)
-        if decay_weights {
+        if merge_traces {
+            let k_short = 2; // K_SHORT
+            let k_long = 5; // K_LONG
+            let theta_capture = 5; // THETA_CAPTURE
+            let capture_shift = 1; // CAPTURE_SHIFT
+
             for syn in self.flat_synapses.iter_mut() {
-                // 0.1% sign-preserving weight decay
-                let decay_amount = (syn.weight.abs() as f64 * 0.001).round() as i32;
-                let sign = syn.weight.signum();
-                let mut new_mag = syn.weight.abs() - decay_amount;
-                if new_mag < 0 {
-                    new_mag = 0;
+                syn.short_trace = syn.short_trace.saturating_sub(syn.short_trace >> k_short);
+                syn.long_trace = syn.long_trace.saturating_sub(syn.long_trace >> k_long);
+
+                syn.short_trace = syn.short_trace.saturating_add(syn.coactivity_hits);
+
+                if syn.short_trace >= theta_capture {
+                    syn.long_trace = syn
+                        .long_trace
+                        .saturating_add(syn.short_trace >> capture_shift);
                 }
-                syn.weight = new_mag * sign;
+
+                syn.pre_hits = 0;
+                syn.coactivity_hits = 0;
+                syn.weight_trend = 0;
+                syn.pre_trace_timer = 0;
             }
         }
-
-        // 4. Pruning and Compaction
-        let mut pruned_count = 0;
-        if let Some(floor) = prune_floor {
-            let mut by_target: Vec<Vec<FlatSynapse>> = vec![Vec::new(); n];
-            for syn in self.flat_synapses.iter() {
-                by_target[syn.target_soma_id as usize].push(syn.clone());
-            }
-
-            let mut remaining = Vec::new();
-            for target_id in 0..n {
-                let mut incoming = by_target[target_id].clone();
-                let before_len = incoming.len();
-                incoming.retain(|syn| syn.weight.abs() >= floor);
-                pruned_count += before_len - incoming.len();
-
-                // Sort descending by weight magnitude
-                incoming.sort_by(|a, b| b.weight.abs().cmp(&a.weight.abs()));
-
-                // Compact: re-assign dendrite_idx from 0..k-1
-                for (d_idx, syn) in incoming.iter_mut().enumerate() {
-                    syn.dendrite_idx = d_idx as u32;
-                }
-                remaining.extend(incoming);
-            }
-
-            *self.flat_synapses = remaining;
-        }
-
-        pruned_count
     }
 }
 
@@ -1277,14 +1320,12 @@ fn compute_metrics(
             }
         }
 
-        // Match initial weights based on source/target key to keep correct learning reference
         let is_matched =
             syn.source_soma_id < 48 && (syn.target_soma_id >= 128 && syn.target_soma_id < 176);
         let is_unmatched = syn.source_soma_id >= 48
             && syn.source_soma_id < 128
             && (syn.target_soma_id >= 128 && syn.target_soma_id < 176);
 
-        // Find matches in initial weights
         let initial_w = initial_weights[idx];
         let delta = (syn.weight.abs() - initial_w.abs()) as i64;
 
@@ -1350,32 +1391,261 @@ fn compute_percentile(vals: &[usize], pct: f64) -> f64 {
     sorted[idx.min(sorted.len() - 1)] as f64
 }
 
-#[derive(serde::Serialize)]
-struct PlotData {
-    pre_weights: Vec<f64>,
-    post_weights: Vec<f64>,
-    pre_fan_in: Vec<usize>,
-    post_fan_in: Vec<usize>,
-    matched_deltas: Vec<f64>,
-    unmatched_deltas: Vec<f64>,
-    pruned_synapses_coords: Vec<PrunedSynapseCoord>,
-    day2_firing_rates: HashMap<String, Vec<f64>>,
+// ----------------- Counter Metric Types -----------------
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct CounterMetrics {
+    total_pre_hits: u64,
+    total_coactivity_hits: u64,
+    nonzero_coactivity_count: usize,
+    short_trace_nonzero_count: usize,
+    long_trace_nonzero_count: usize,
+    short_trace_saturation_fraction: f64,
+    long_trace_saturation_fraction: f64,
+    per_projection_utilization: HashMap<String, ProjectionUtilization>,
+    per_soma_firing_pressure: HashMap<String, SomaPressureSummary>,
+    matched_mean_coactivity_hits: f64,
+    unmatched_mean_coactivity_hits: f64,
+    matched_mean_coactivity_ratio: f64,
+    unmatched_mean_coactivity_ratio: f64,
+    matched_mean_long_trace: f64,
+    unmatched_mean_long_trace: f64,
+    coactivity_ratios: Vec<f64>,
+    long_traces: Vec<u16>,
+    labels: Vec<String>, // "matched", "unmatched", "other"
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+struct ProjectionUtilization {
+    pre_hits: u64,
+    coactivity_hits: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct SomaPressureSummary {
+    min: i16,
+    max: i16,
+    mean: f64,
+}
+
+fn collect_research_metrics(runner: &SimulationRunner, max_ticks: usize) -> CounterMetrics {
+    let mut total_pre_hits = 0u64;
+    let mut total_coactivity_hits = 0u64;
+    let mut nonzero_coactivity_count = 0;
+    let mut short_trace_nonzero_count = 0;
+    let mut long_trace_nonzero_count = 0;
+    let mut short_trace_sat = 0;
+    let mut long_trace_sat = 0;
+
+    let mut matched_co_hits = 0u64;
+    let mut matched_co_hits_count = 0;
+    let mut unmatched_co_hits = 0u64;
+    let mut unmatched_co_hits_count = 0;
+
+    let mut matched_co_ratio_sum = 0.0;
+    let mut matched_co_ratio_count = 0;
+    let mut unmatched_co_ratio_sum = 0.0;
+    let mut unmatched_co_ratio_count = 0;
+
+    let mut matched_long_sum = 0u64;
+    let mut matched_long_count = 0;
+    let mut unmatched_long_sum = 0u64;
+    let mut unmatched_long_count = 0;
+
+    let mut coactivity_ratios = Vec::new();
+    let mut long_traces = Vec::new();
+    let mut labels = Vec::new();
+
+    let mut per_proj_util: HashMap<String, ProjectionUtilization> = HashMap::new();
+    let expected_proj_pairs = vec![
+        ("Virtual->L4", 0, 1),
+        ("L4->L23", 1, 2),
+        ("L4->L5", 1, 3),
+        ("L23->L4", 2, 1),
+        ("L23->L23", 2, 2),
+        ("L23->L5", 2, 3),
+        ("L5->L23", 3, 2),
+    ];
+    for &(name, _, _) in &expected_proj_pairs {
+        per_proj_util.insert(
+            name.to_string(),
+            ProjectionUtilization {
+                pre_hits: 0,
+                coactivity_hits: 0,
+            },
+        );
+    }
+    per_proj_util.insert(
+        "Other".to_string(),
+        ProjectionUtilization {
+            pre_hits: 0,
+            coactivity_hits: 0,
+        },
+    );
+
+    for syn in runner.flat_synapses.iter() {
+        total_pre_hits += syn.pre_hits as u64;
+        total_coactivity_hits += syn.coactivity_hits as u64;
+        if syn.coactivity_hits > 0 {
+            nonzero_coactivity_count += 1;
+        }
+        if syn.short_trace > 0 {
+            short_trace_nonzero_count += 1;
+        }
+        if syn.long_trace > 0 {
+            long_trace_nonzero_count += 1;
+        }
+        if syn.short_trace == u16::MAX {
+            short_trace_sat += 1;
+        }
+        if syn.long_trace == u16::MAX {
+            long_trace_sat += 1;
+        }
+
+        let sv = runner.soma_variants[syn.source_soma_id as usize];
+        let tv = runner.soma_variants[syn.target_soma_id as usize];
+        let proj_name = get_projection_type(sv, tv);
+        let util = per_proj_util
+            .entry(proj_name)
+            .or_insert(ProjectionUtilization {
+                pre_hits: 0,
+                coactivity_hits: 0,
+            });
+        util.pre_hits += syn.pre_hits as u64;
+        util.coactivity_hits += syn.coactivity_hits as u64;
+
+        let is_matched =
+            syn.source_soma_id < 48 && (syn.target_soma_id >= 128 && syn.target_soma_id < 176);
+        let is_unmatched = syn.source_soma_id >= 48
+            && syn.source_soma_id < 128
+            && (syn.target_soma_id >= 128 && syn.target_soma_id < 176);
+
+        let co_ratio = syn.coactivity_hits as f64 / (syn.pre_hits as f64).max(1.0);
+        coactivity_ratios.push(co_ratio);
+        long_traces.push(syn.long_trace);
+
+        let label = if is_matched {
+            matched_co_hits += syn.coactivity_hits as u64;
+            matched_co_hits_count += 1;
+            matched_co_ratio_sum += co_ratio;
+            matched_co_ratio_count += 1;
+            matched_long_sum += syn.long_trace as u64;
+            matched_long_count += 1;
+            "matched".to_string()
+        } else if is_unmatched {
+            unmatched_co_hits += syn.coactivity_hits as u64;
+            unmatched_co_hits_count += 1;
+            unmatched_co_ratio_sum += co_ratio;
+            unmatched_co_ratio_count += 1;
+            unmatched_long_sum += syn.long_trace as u64;
+            unmatched_long_count += 1;
+            "unmatched".to_string()
+        } else {
+            "other".to_string()
+        };
+        labels.push(label);
+    }
+
+    let mut per_soma_firing_pressure = HashMap::new();
+    let layer_names = ["Virtual", "L4", "L23", "L5"];
+    let layer_targets = [100, 50, 20, 30]; // rough targets for Virtual, L4, L23, L5 (rate * max_ticks)
+
+    for (layer_idx, name) in layer_names.iter().enumerate() {
+        let mut min_pressure = i16::MAX;
+        let mut max_pressure = i16::MIN;
+        let mut pressure_sum = 0.0;
+        let mut count = 0;
+
+        let target = layer_targets[layer_idx];
+
+        for soma in &runner.somas {
+            if runner.soma_variants[soma.id as usize] as usize == layer_idx {
+                let actual = soma.spike_count as i32;
+                let pressure = (actual - target).clamp(-32768, 32767) as i16;
+
+                if pressure < min_pressure {
+                    min_pressure = pressure;
+                }
+                if pressure > max_pressure {
+                    max_pressure = pressure;
+                }
+                pressure_sum += pressure as f64;
+                count += 1;
+            }
+        }
+
+        if count > 0 {
+            per_soma_firing_pressure.insert(
+                name.to_string(),
+                SomaPressureSummary {
+                    min: min_pressure,
+                    max: max_pressure,
+                    mean: pressure_sum / count as f64,
+                },
+            );
+        }
+    }
+
+    CounterMetrics {
+        total_pre_hits,
+        total_coactivity_hits,
+        nonzero_coactivity_count,
+        short_trace_nonzero_count,
+        long_trace_nonzero_count,
+        short_trace_saturation_fraction: short_trace_sat as f64 / runner.flat_synapses.len() as f64,
+        long_trace_saturation_fraction: long_trace_sat as f64 / runner.flat_synapses.len() as f64,
+        per_projection_utilization: per_proj_util,
+        per_soma_firing_pressure,
+        matched_mean_coactivity_hits: if matched_co_hits_count > 0 {
+            matched_co_hits as f64 / matched_co_hits_count as f64
+        } else {
+            0.0
+        },
+        unmatched_mean_coactivity_hits: if unmatched_co_hits_count > 0 {
+            unmatched_co_hits as f64 / unmatched_co_hits_count as f64
+        } else {
+            0.0
+        },
+        matched_mean_coactivity_ratio: if matched_co_ratio_count > 0 {
+            matched_co_ratio_sum / matched_co_ratio_count as f64
+        } else {
+            0.0
+        },
+        unmatched_mean_coactivity_ratio: if unmatched_co_ratio_count > 0 {
+            unmatched_co_ratio_sum / unmatched_co_ratio_count as f64
+        } else {
+            0.0
+        },
+        matched_mean_long_trace: if matched_long_count > 0 {
+            matched_long_sum as f64 / matched_long_count as f64
+        } else {
+            0.0
+        },
+        unmatched_mean_long_trace: if unmatched_long_count > 0 {
+            unmatched_long_sum as f64 / unmatched_long_count as f64
+        } else {
+            0.0
+        },
+        coactivity_ratios,
+        long_traces,
+        labels,
+    }
+}
+
+// ----------------- Serialization structures for report plotting -----------------
+
 #[derive(serde::Serialize)]
-struct PrunedSynapseCoord {
-    x: f32,
-    y: f32,
-    z: f32,
-    src_layer: String,
-    tgt_layer: String,
+struct PlottingData {
+    coactivity_ratios: Vec<f64>,
+    long_traces: Vec<u16>,
+    labels: Vec<String>,
 }
 
 // ----------------- The Main Test Function -----------------
 
 #[test]
-fn run_night_phase_prune_compact() {
-    println!("=== Starting Night Phase Prune & Compact v0.3 ===");
+fn run_night_phase_activity_counters() {
+    println!("=== Starting Night Phase Activity Counters Baseline v0.5 ===");
 
     let seed_val = 12345;
     let master_seed = MasterSeed(seed_val);
@@ -1399,7 +1669,7 @@ fn run_night_phase_prune_compact() {
     nt_virtual.is_inhibitory = 0;
     let variants = vec![nt_virtual, nt_l4_real, nt_l23_real, nt_l5_real];
 
-    // Winner 2 config (C17)
+    // Growth v2 C17 Winner
     let winner_cfg = RunConfig {
         name: "Radius_9_Cap_96_Pair_2_ProjAware".to_string(),
         max_branches: 2,
@@ -1415,18 +1685,19 @@ fn run_night_phase_prune_compact() {
     };
 
     let policies = vec![
-        "passive_recovery_control",
-        "light_decay_no_prune",
-        "light_decay_prune_floor_weak",
-        "stress_prune_floor_moderate",
+        "baseline_no_counters",
+        "counters_collect_only",
+        "counters_collect_and_merge",
     ];
 
     let max_ticks = 10000;
     let mut policy_metrics = HashMap::new();
-    let mut policy_pruned = HashMap::new();
+    let mut policy_counter_metrics = HashMap::new();
+    let mut final_synapse_weights = HashMap::new();
+    let mut final_firing_rates = HashMap::new();
 
     for policy in &policies {
-        println!("\n--- Testing Night Phase Policy: {} ---", policy);
+        println!("\n--- Testing Policy: {} ---", policy);
 
         let (axons, synapses) =
             run_multifield_simulation(&topo, &shard_config, seed_val, &winner_cfg);
@@ -1441,105 +1712,98 @@ fn run_night_phase_prune_compact() {
             seed_val,
         );
 
-        // Day 1 Learning
-        println!("  Running Day 1 Learning...");
-        let day1_metrics = runner.run_day(max_ticks, true);
+        // Day 1
+        let collect = *policy != "baseline_no_counters";
+        println!("  Running Day 1 Learning (collect={})...", collect);
+        let day1_metrics = runner.run_day(max_ticks, true, collect);
 
-        let mut min_w = i32::MAX;
-        let mut max_w = 0;
-        let mut changed_count = 0;
-        let mut below_1480 = 0;
-        let mut below_1500 = 0;
-        for syn in runner.flat_synapses.iter() {
-            let w = syn.weight.abs();
-            if w < min_w {
-                min_w = w;
-            }
-            if w > max_w {
-                max_w = w;
-            }
-            if w != (1500 << 16) {
-                changed_count += 1;
-            }
-            if w < (1480 << 16) {
-                below_1480 += 1;
-            }
-            if w < (1500 << 16) {
-                below_1500 += 1;
-            }
-        }
-        println!(
-            "  Weight stats: min={:.4}, max={:.4}, changed={}, below_1500={}, below_1480={}",
-            min_w as f64 / 65536.0,
-            max_w as f64 / 65536.0,
-            changed_count,
-            below_1500,
-            below_1480
-        );
+        // Collect research metrics before night resets them
+        let mut counter_metrics = if collect {
+            let m = collect_research_metrics(&runner, max_ticks);
+            println!(
+                "  Day 1 Counter stats: pre_hits={}, coactivity_hits={}, nonzero_co={}",
+                m.total_pre_hits, m.total_coactivity_hits, m.nonzero_coactivity_count
+            );
+            Some(m)
+        } else {
+            None
+        };
 
         let pre_night_results = compute_metrics(
-            &runner.flat_synapses,
+            runner.flat_synapses,
             &initial_weights,
             &soma_variants,
             &day1_metrics,
         );
 
-        // Execute Night Phase
-        println!("  Executing Night Phase policy...");
+        // Execute Night
+        let merge = *policy == "counters_collect_and_merge";
+        println!("  Executing Night Phase (merge_traces={})...", merge);
+        runner.execute_night(merge);
 
-        let mut plot_pre_weights = Vec::new();
-        let mut plot_pre_fan_in = Vec::new();
-        let mut synapses_before = Vec::new();
+        // Update traces from post-night state if merged
+        if merge {
+            if let Some(ref mut m) = counter_metrics {
+                m.short_trace_nonzero_count = 0;
+                m.long_trace_nonzero_count = 0;
+                let mut short_trace_sat = 0;
+                let mut long_trace_sat = 0;
+                let mut matched_long_sum = 0u64;
+                let mut matched_long_count = 0;
+                let mut unmatched_long_sum = 0u64;
+                let mut unmatched_long_count = 0;
+                m.long_traces.clear();
 
-        if *policy == "stress_prune_floor_moderate" {
-            plot_pre_weights = runner
-                .flat_synapses
-                .iter()
-                .map(|s| s.weight.abs() as f64 / 65536.0)
-                .collect();
-            plot_pre_fan_in = vec![0usize; n];
-            for s in runner.flat_synapses.iter() {
-                plot_pre_fan_in[s.target_soma_id as usize] += 1;
+                for syn in runner.flat_synapses.iter() {
+                    m.long_traces.push(syn.long_trace);
+                    if syn.short_trace > 0 {
+                        m.short_trace_nonzero_count += 1;
+                    }
+                    if syn.long_trace > 0 {
+                        m.long_trace_nonzero_count += 1;
+                    }
+                    if syn.short_trace == u16::MAX {
+                        short_trace_sat += 1;
+                    }
+                    if syn.long_trace == u16::MAX {
+                        long_trace_sat += 1;
+                    }
+
+                    let is_matched = syn.source_soma_id < 48
+                        && (syn.target_soma_id >= 128 && syn.target_soma_id < 176);
+                    let is_unmatched = syn.source_soma_id >= 48
+                        && syn.source_soma_id < 128
+                        && (syn.target_soma_id >= 128 && syn.target_soma_id < 176);
+                    if is_matched {
+                        matched_long_sum += syn.long_trace as u64;
+                        matched_long_count += 1;
+                    } else if is_unmatched {
+                        unmatched_long_sum += syn.long_trace as u64;
+                        unmatched_long_count += 1;
+                    }
+                }
+                m.short_trace_saturation_fraction =
+                    short_trace_sat as f64 / runner.flat_synapses.len() as f64;
+                m.long_trace_saturation_fraction =
+                    long_trace_sat as f64 / runner.flat_synapses.len() as f64;
+                m.matched_mean_long_trace = if matched_long_count > 0 {
+                    matched_long_sum as f64 / matched_long_count as f64
+                } else {
+                    0.0
+                };
+                m.unmatched_mean_long_trace = if unmatched_long_count > 0 {
+                    unmatched_long_sum as f64 / unmatched_long_count as f64
+                } else {
+                    0.0
+                };
             }
-            synapses_before = runner.flat_synapses.clone();
-        }
-
-        let pruned = match *policy {
-            "passive_recovery_control" => runner.execute_night(false, None),
-            "light_decay_no_prune" => runner.execute_night(true, None),
-            "light_decay_prune_floor_weak" => {
-                // Weak floor = 500 << 16
-                runner.execute_night(true, Some(500 << 16))
-            }
-            "stress_prune_floor_moderate" => {
-                // Moderate floor = 1498 << 16
-                runner.execute_night(true, Some(1498 << 16))
-            }
-            _ => panic!("Unknown night phase policy: {}", policy),
-        };
-
-        let mut plot_post_weights = Vec::new();
-        let mut plot_post_fan_in = Vec::new();
-        let mut synapses_after = Vec::new();
-
-        if *policy == "stress_prune_floor_moderate" {
-            plot_post_weights = runner
-                .flat_synapses
-                .iter()
-                .map(|s| s.weight.abs() as f64 / 65536.0)
-                .collect();
-            plot_post_fan_in = vec![0usize; n];
-            for s in runner.flat_synapses.iter() {
-                plot_post_fan_in[s.target_soma_id as usize] += 1;
-            }
-            synapses_after = runner.flat_synapses.clone();
         }
 
         // Day 2 Replay
-        println!("  Running Day 2 Replay...");
-        let day2_metrics = runner.run_day(max_ticks, false);
+        println!("  Running Day 2 Replay (collect={})...", collect);
+        let day2_metrics = runner.run_day(max_ticks, false, collect);
         let post_night_results = compute_metrics(
-            &runner.flat_synapses,
+            runner.flat_synapses,
             &initial_weights,
             &soma_variants,
             &day2_metrics,
@@ -1552,216 +1816,190 @@ fn run_night_phase_prune_compact() {
         };
 
         println!(
-            "  Policy results: pre_bias={:.4}, post_bias={:.4}, retention={:.4}, pruned={}",
-            pre_night_results.matched_bias,
-            post_night_results.matched_bias,
-            retention_ratio,
-            pruned
+            "  Policy results: pre_bias={:.4}, post_bias={:.4}, retention={:.4}",
+            pre_night_results.matched_bias, post_night_results.matched_bias, retention_ratio
         );
 
-        if *policy == "stress_prune_floor_moderate" {
-            let mut plot_matched_deltas = Vec::new();
-            let mut plot_unmatched_deltas = Vec::new();
-            for (idx, syn) in synapses_before.iter().enumerate() {
-                let is_matched = syn.source_soma_id < 48
-                    && (syn.target_soma_id >= 128 && syn.target_soma_id < 176);
-                let is_unmatched = syn.source_soma_id >= 48
-                    && syn.source_soma_id < 128
-                    && (syn.target_soma_id >= 128 && syn.target_soma_id < 176);
-                let initial_w = initial_weights[idx];
-                let delta = (syn.weight.abs() - initial_w.abs()) as f64 / 65536.0;
-                if is_matched {
-                    plot_matched_deltas.push(delta);
-                } else if is_unmatched {
-                    plot_unmatched_deltas.push(delta);
-                }
-            }
-
-            let after_set: HashSet<(u32, u32, u32)> = synapses_after
-                .iter()
-                .map(|s| (s.source_soma_id, s.flat_segment_idx, s.target_soma_id))
-                .collect();
-            let mut plot_pruned_synapses_coords = Vec::new();
-            for syn in &synapses_before {
-                let key = (syn.source_soma_id, syn.flat_segment_idx, syn.target_soma_id);
-                if !after_set.contains(&key) {
-                    let src_soma = &topo.somas[syn.source_soma_id as usize];
-                    let src_layer = match src_soma.variant_id {
-                        0 => "Virtual",
-                        1 => "L4",
-                        2 => "L23",
-                        3 => "L5",
-                        _ => "Other",
-                    }
-                    .to_string();
-                    let tgt_soma = &topo.somas[syn.target_soma_id as usize];
-                    let tgt_layer = match tgt_soma.variant_id {
-                        0 => "Virtual",
-                        1 => "L4",
-                        2 => "L23",
-                        3 => "L5",
-                        _ => "Other",
-                    }
-                    .to_string();
-
-                    plot_pruned_synapses_coords.push(PrunedSynapseCoord {
-                        x: src_soma.position.x() as f32,
-                        y: src_soma.position.y() as f32,
-                        z: src_soma.position.z() as f32,
-                        src_layer,
-                        tgt_layer,
-                    });
-                }
-            }
-
-            let plot_data = PlotData {
-                pre_weights: plot_pre_weights,
-                post_weights: plot_post_weights,
-                pre_fan_in: plot_pre_fan_in,
-                post_fan_in: plot_post_fan_in,
-                matched_deltas: plot_matched_deltas,
-                unmatched_deltas: plot_unmatched_deltas,
-                pruned_synapses_coords: plot_pruned_synapses_coords,
-                day2_firing_rates: day2_metrics.firing_rates.clone(),
-            };
-
-            let mut out_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            out_path.pop(); // test-harness
-            out_path.pop(); // crates
-            out_path.pop(); // AxiEngine
-            out_path.push("docs");
-            out_path.push("engine");
-            out_path.push("research");
-            out_path.push("archive");
-            out_path.push("2026-07-06_night_phase_prune_compact_v0_3");
-            out_path.push("artifacts");
-            std::fs::create_dir_all(&out_path).expect("Failed to create artifacts directory");
-            out_path.push("plot_data.json");
-
-            let json_str =
-                serde_json::to_string(&plot_data).expect("Failed to serialize plot data");
-            std::fs::write(&out_path, json_str).expect("Failed to write plot_data.json");
-            println!("  Saved plotting data to {}", out_path.display());
-        }
-
-        // Assert Hard Gates (Acceptance Gates)
-        // 1. Dale/sign violations = 0
-        assert_eq!(
-            post_night_results.dale_violations, 0,
-            "{} has {} Dale/sign violations!",
-            policy, post_night_results.dale_violations
-        );
-
-        // 2. Dense target violations = 0
-        assert_eq!(
-            post_night_results.dense_violations, 0,
-            "{} has {} dense target violations!",
-            policy, post_night_results.dense_violations
-        );
-
-        // 3. Duplicate per-pair cap violations = 0
-        assert_eq!(
-            post_night_results.duplicate_violations, 0,
-            "{} has {} duplicate per-pair cap violations!",
-            policy, post_night_results.duplicate_violations
-        );
-
-        // 4. Fan-in max <= 96
-        assert!(
-            post_night_results.fan_in_max <= 96,
-            "{} has fan_in_max ({}) > 96!",
-            policy,
-            post_night_results.fan_in_max
-        );
-
-        // 5. Day 2 runaway ticks = 0
-        assert_eq!(
-            post_night_results.runaway_ticks, 0,
-            "{} triggered runaway dynamics (runaway_ticks = {})!",
-            policy, post_night_results.runaway_ticks
-        );
-
-        // 6. No complete silence collapse
-        assert!(
-            post_night_results.silence_ticks < max_ticks,
-            "{} triggered complete silence collapse!",
-            policy
-        );
-
-        // 7. Matched bias remains positive
-        assert!(
-            post_night_results.matched_bias > 0.0,
-            "{} has non-positive matched bias ({:.4}) after night!",
-            policy,
-            post_night_results.matched_bias
-        );
-
-        // Gate checks specific to non-stress policies
-        if *policy != "stress_prune_floor_moderate" {
-            // expected projections preserved
-            for (proj, &count) in &post_night_results.projections {
-                assert!(
-                    count > 0,
-                    "Projection {} lost completely (count = 0) in {}!",
-                    proj,
-                    policy
-                );
-            }
-
-            // topology unchanged for non-pruning policies
-            if *policy == "passive_recovery_control" || *policy == "light_decay_no_prune" {
-                assert_eq!(
-                    pre_night_results.total_synapses, post_night_results.total_synapses,
-                    "{} changed synapse count from {} to {}!",
-                    policy, pre_night_results.total_synapses, post_night_results.total_synapses
-                );
-                assert_eq!(
-                    pre_night_results.projections, post_night_results.projections,
-                    "{} changed projection counts!",
-                    policy
-                );
-            }
-
-            // retention ratio check for weak pruning
-            if *policy == "light_decay_prune_floor_weak" {
-                assert!(
-                    retention_ratio >= 0.90,
-                    "light_decay_prune_floor_weak retention ({:.4}) below 0.90!",
-                    retention_ratio
-                );
-            }
-        }
+        // Store synapse weights and firing rates to assert identity across policies
+        let weights: Vec<i32> = runner.flat_synapses.iter().map(|s| s.weight).collect();
+        final_synapse_weights.insert(policy.to_string(), weights);
+        final_firing_rates.insert(policy.to_string(), day2_metrics.firing_rates.clone());
 
         policy_metrics.insert(
             policy.to_string(),
             (pre_night_results, post_night_results, retention_ratio),
         );
-        policy_pruned.insert(policy.to_string(), pruned);
+
+        if let Some(m) = counter_metrics {
+            policy_counter_metrics.insert(policy.to_string(), m);
+        }
     }
 
-    println!("\n=== Night Phase Prune & Compact Summary ===");
+    // ----------------- Safety Assertions (Hard Gates) -----------------
+    let baseline_weights = &final_synapse_weights["baseline_no_counters"];
+    let baseline_rates = &final_firing_rates["baseline_no_counters"];
+
+    for policy in &policies {
+        if *policy == "baseline_no_counters" {
+            continue;
+        }
+
+        let policy_weights = &final_synapse_weights[*policy];
+        assert_eq!(
+            baseline_weights, policy_weights,
+            "Weights under policy {} differ from baseline!",
+            policy
+        );
+
+        let policy_rates = &final_firing_rates[*policy];
+        for layer in &["Virtual", "L4", "L23", "L5"] {
+            let b_rates = &baseline_rates[*layer];
+            let p_rates = &policy_rates[*layer];
+            assert_eq!(
+                b_rates, p_rates,
+                "Layer {} firing rate under policy {} differs from baseline!",
+                layer, policy
+            );
+        }
+    }
+
+    let (pre, post, ret) = &policy_metrics["counters_collect_and_merge"];
+    assert_eq!(
+        pre.total_synapses, post.total_synapses,
+        "Synapse count changed under counters_collect_and_merge!"
+    );
+    assert_eq!(
+        pre.projections, post.projections,
+        "Projections changed under counters_collect_and_merge!"
+    );
+    assert_eq!(
+        post.dale_violations, 0,
+        "Dale violations detected in post-night state!"
+    );
+    assert_eq!(
+        post.dense_violations, 0,
+        "Dense violations detected in post-night state!"
+    );
+    assert_eq!(
+        post.duplicate_violations, 0,
+        "Duplicate violations detected in post-night state!"
+    );
+    assert_eq!(post.runaway_ticks, 0, "Runaway dynamics occurred on Day 2!");
+    assert!(
+        post.silence_ticks < max_ticks,
+        "Complete silence collapse occurred on Day 2!"
+    );
+
+    if let Some(m) = &policy_counter_metrics.get("counters_collect_and_merge") {
+        let plot_data = PlottingData {
+            coactivity_ratios: m.coactivity_ratios.clone(),
+            long_traces: m.long_traces.clone(),
+            labels: m.labels.clone(),
+        };
+
+        let mut out_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        out_path.pop(); // test-harness
+        out_path.pop(); // crates
+        out_path.pop(); // AxiEngine
+        out_path.push("docs");
+        out_path.push("engine");
+        out_path.push("research");
+        out_path.push("archive");
+        out_path.push("2026-07-06_night_phase_activity_counters_v0_5");
+        out_path.push("artifacts");
+
+        if !out_path.exists() {
+            std::fs::create_dir_all(&out_path).expect("Failed to create artifacts directory");
+        }
+
+        out_path.push("plot_data.json");
+        let json_str =
+            serde_json::to_string(&plot_data).expect("Failed to serialize plotting data");
+        std::fs::write(&out_path, json_str).expect("Failed to write plot_data.json");
+        println!("Saved plotting data to {}", out_path.display());
+    }
+
+    println!("\n=== Night Phase Activity Counters Baseline Summary ===");
     for policy in &policies {
         let (pre, post, ret) = &policy_metrics[*policy];
-        let pruned = policy_pruned[*policy];
         println!("  - Policy: {}", policy);
-        println!(
-            "    Total Synapses (Pre/Post): {} / {} (pruned: {})",
-            pre.total_synapses, post.total_synapses, pruned
-        );
+        println!("    Total Synapses:              {}", post.total_synapses);
         println!("    Pre-night matched bias:      {:.4}", pre.matched_bias);
         println!("    Post-night matched bias:     {:.4}", post.matched_bias);
         println!("    Retention Ratio:             {:.4}", ret);
         println!(
-            "    Fan-in Max / Saturated:      {} / {}",
-            post.fan_in_max, post.saturated_target_count
-        );
-        println!(
-            "    Dale / Dense / Duplicate:    {} / {} / {}",
-            post.dale_violations, post.dense_violations, post.duplicate_violations
-        );
-        println!(
             "    Silence / Runaway Ticks:     {} / {}",
             post.silence_ticks, post.runaway_ticks
         );
+
+        if let Some(m) = policy_counter_metrics.get(*policy) {
+            println!("    Day 1 Total Pre Hits:        {}", m.total_pre_hits);
+            println!(
+                "    Day 1 Total Coactivity Hits: {}",
+                m.total_coactivity_hits
+            );
+            println!(
+                "    Non-zero Coactivity Synapses: {}",
+                m.nonzero_coactivity_count
+            );
+            println!(
+                "    Non-zero Short Trace Count:  {}",
+                m.short_trace_nonzero_count
+            );
+            println!(
+                "    Non-zero Long Trace Count:   {}",
+                m.long_trace_nonzero_count
+            );
+            println!(
+                "    Short Trace Saturation Frac: {:.6}",
+                m.short_trace_saturation_fraction
+            );
+            println!(
+                "    Long Trace Saturation Frac:  {:.6}",
+                m.long_trace_saturation_fraction
+            );
+
+            println!("    Signal Quality:");
+            println!(
+                "      Matched mean coactivity:     {:.4}",
+                m.matched_mean_coactivity_hits
+            );
+            println!(
+                "      Unmatched mean coactivity:   {:.4}",
+                m.unmatched_mean_coactivity_hits
+            );
+            println!(
+                "      Matched mean co-ratio:       {:.4}",
+                m.matched_mean_coactivity_ratio
+            );
+            println!(
+                "      Unmatched mean co-ratio:     {:.4}",
+                m.unmatched_mean_coactivity_ratio
+            );
+            println!(
+                "      Matched mean long_trace:     {:.4}",
+                m.matched_mean_long_trace
+            );
+            println!(
+                "      Unmatched mean long_trace:   {:.4}",
+                m.unmatched_mean_long_trace
+            );
+
+            println!("    Per-projection Utilization:");
+            for (p_name, util) in &m.per_projection_utilization {
+                println!(
+                    "      {}: pre_hits={}, co_hits={}",
+                    p_name, util.pre_hits, util.coactivity_hits
+                );
+            }
+
+            println!("    Per-soma Firing Pressure:");
+            for (l_name, press) in &m.per_soma_firing_pressure {
+                println!(
+                    "      {}: min={}, max={}, mean={:.4}",
+                    l_name, press.min, press.max, press.mean
+                );
+            }
+        }
     }
 }
