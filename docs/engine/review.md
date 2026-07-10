@@ -91,14 +91,15 @@
 
 ### REV-NIGHT-001: Host/device ownership и mutable paths / ghost capacity для Night Phase
 - **ID**: REV-NIGHT-001
-- **Status**: Open (Proposed lean)
+- **Status**: Resolved (specs updated)
 - **Priority**: P0
 - **Owner candidate**: `layout` / `boot` / `runtime` / `ipc`
 - **Source**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md) (§6, §11.2) vs [boot_spec.md](./spec_L6/boot_spec.md) vs [layout_spec.md](./spec_L1/layout_spec.md)
 - **Question / Problem**: Не зафиксированы: (1) host-side maintenance representation vs device memory; (2) где лежит mutable working copy `.paths`; (3) кто владеет ghost capacity planes; (4) poison recovery после mid-mutation failure.
 - **Why it matters**: Блокирует вертикальный slice Day/Night и корректный multi-backend parity.
 - **Affected specs**: [layout_spec.md](./spec_L1/layout_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [ipc_spec.md](./spec_L2/ipc_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [config_spec.md](./spec_L1/config_spec.md)
-- **Notes**: **Proposed lean**: Night мутирует только host-side mutable working state; backend export/import; RO `.axic` никогда не пишется; `boot` возвращает full runtime asset bundle (paths + geometry); poison → no Day resume without recovery. См. D3–D6 в [night_phase_production_transfer.md](./night_phase_production_transfer.md).
+- **Notes**: **Resolved (2026-07-10)**: Все вопросы (1) представления обслуживания на хосте, (2) мутабельной копии путей, (3) емкости призрачных нейронов и (4) fail-closed/poison recovery разрешены на уровне спецификаций L1-L6 (layout, ipc, weaver, topology, boot, runtime). *Остаточный риск (residual)*: реализация кода в Rust отложена до этапа PR-10.
+
 
 ### REV-TEST-002: Feature matrix test-harness (baseline vs research vs GPU)
 - **ID**: REV-TEST-002
