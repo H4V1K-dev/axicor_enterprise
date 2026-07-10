@@ -212,8 +212,9 @@ pub struct BackendMaintenanceRef<'a> {
 Функция `expected_axons_blob_size` возвращает ожидаемый размер байтового буфера аксонов в зависимости от их количества:
 ```rust
 pub fn expected_axons_blob_size(total_axons: u32) -> Result<usize, ComputeApiError> {
-    // В будущем это тонкая обертка над layout::calculate_axons_blob_size (landed in T002b).
+    // Функция является тонкой оберткой над layout::calculate_axons_blob_size (введенным в T002b).
     // Любой сбой переполнения или None преобразуется в ComputeApiError::InvalidShape.
+
     let num_axons = total_axons as usize;
     num_axons.checked_mul(32)
         .and_then(|axons_size| axons_size.checked_add(16))

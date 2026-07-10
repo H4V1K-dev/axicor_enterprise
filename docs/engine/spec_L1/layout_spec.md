@@ -1,7 +1,7 @@
 # spec_layout
 
-> Версия спеки: 2.2  
-> Дата: 2026-06-29  
+> Версия спеки: 2.3  
+> Дата: 2026-07-10  
 
 ---
 
@@ -13,7 +13,7 @@
 | Слой | Слой 1 — Контракты Данных и Раскладка Памяти (Memory Layouts) |
 | Тип | Library (`lib`) |
 | no_std | Строго обязателен (`true`) |
-| Описание | Единый источник истины для C-ABI контрактов физической памяти, SoA (Structure of Arrays) макетов, формул смещения плоских массивов (State Offsets) и выравнивания структур в движке `AxiEngine`. Крейт содержит исключительно POD (Plain Old Data) структуры с атрибутами `#[repr(C)]` и гарантирует побитовую совместимость (Zero-Copy DMA) между CPU хостом, VRAM видеокарты (CUDA/HIP) и дисковыми файлами дампов (`.state`, `.axons`, `.paths`). Не содержит логики аллокации, FFI-вызовов, математических уравнений физики и системных вызовов ОС. |
+| Описание | Единый источник истины для C-ABI контрактов физической памяти, SoA (Structure of Arrays) макетов, формул смещения плоских массивов (State Offsets) и выравнивания структур в движке `AxiEngine`. Крейт содержит исключительно POD (Plain Old Data) структуры с атрибутами `#[repr(C)]` и гарантирует побитовую совместимость (Zero-Copy DMA) между CPU хостом, VRAM видеокарты (CUDA/HIP), разделяемой памятью (SHM) и дисковыми файлами дампов (`.state`, `.axons`, `.paths`). Не содержит логики аллокации, FFI-вызовов, математических уравнений физики и системных вызовов ОС. |
 
 ---
 
@@ -27,7 +27,7 @@
 
 ### §2.2. Зависимые компоненты (outbound consumers)
 
-Вычислительные ядра и бэкенды (`compute`, `compute-cuda`, `compute-hip`, `compute-cpu`), компилятор топологии (`baker`), а также хранилища и VFS (`ipc`, `vfs`) обязаны использовать структуры данных и формулы расчета смещений исключительно из `layout`. Самостоятельное определение макетов SoA или смещений полей в других крейтах **строжайше запрещено**.
+Вычислительные ядра и бэкенды (`compute`, `compute-cuda`, `compute-hip`, `compute-cpu`), компилятор топологии (`baker`), планировщик биологических шагов (`weaver-daemon`), а также инфраструктура и VFS (`ipc`, `vfs`, `runtime`) обязаны использовать структуры данных и формулы расчета смещений исключительно из `layout`. Самостоятельное определение макетов SoA или смещений полей в других крейтах **строжайше запрещено**.
 
 ### §2.3. Внешние зависимости
 
@@ -52,6 +52,7 @@
 - Парсинг конфигураций TOML/JSON и Serde-структуры (принадлежат `config`).
 - Реализация математических формул GLIF/GSOP и деривация физических параметров (принадлежат `physics`).
 - Повторное объявление функций упаковки/распаковки таргетов (таких как `pack_dendrite_target` / `unpack_axon_id`), принадлежащих `types`.
+- Прямая или транзитивная зависимость от `compute-api` (для сохранения чистоты no_std / no_alloc и предотвращения циклов).
 
 ---
 
@@ -61,11 +62,11 @@
 
 | Крейт / Модуль | Монопольная Зона Владения (Single Source of Truth) | Строгие Запреты (Что категорически запрещено в крейте) |
 |---|---|---|
-| **`layout`** (Слой 1) | **Макеты физической памяти и C-ABI выравнивание**: структуры `VariantParameters`, `BurstHeads8`, `ShardVramPtrs`, порядок плоскостей SoA-дампа, формулы расчёта смещений `StateOffsets`, заголовки файлов `.state`, `.axons`, `.paths`, константы `MAX_DENDRITES = 128`, `MAX_SEGMENTS_PER_AXON = 256`, `CACHE_LINE_BYTES = 64`. | Запрещены формулы физики, упаковка битовых полей, FFI-вызовы GPU, аллокации памяти (`Vec`), системные вызовы mmap и парсинг TOML. |
+| **`layout`** (Слой 1) | **Макеты физической памяти и C-ABI выравнивание**: структуры `VariantParameters`, `BurstHeads8`, `ShardVramPtrs`, `ShmHeader`, порядок плоскостей SoA-дампа, формулы расчёта смещений `StateOffsets`, заголовки файлов `.state`, `.axons`, `.paths`, структуры представлений Ночной Фазы `NightWorkingViewMut/Ref`, константы `MAX_DENDRITES = 128`, `MAX_SEGMENTS_PER_AXON = 256`, `CACHE_LINE_BYTES = 64`. | Запрещены формулы физики, упаковка битовых полей, FFI-вызовы GPU, аллокации памяти (`Vec`), системные вызовы mmap и парсинг TOML. |
 | **`types`** (Слой 0) | **Примитивы и ABI-упаковка**: `PackedPosition`, `PackedTarget`, `SomaFlags`, сентинели (`AXON_SENTINEL`, `EMPTY_PIXEL`), функции `pack()/unpack()`. | Запрещены SoA-массивы, выравнивание плоскостей и заголовки файлов. |
-| **`physics`** (Слой 0) | **Чистая математика**: формулы GLIF, GSOP, Active Tail, Stochastic Heartbeat, деривация `v_seg`. | Запрещено определение констант лимитов памяти (`MAX_DENDRITES`) и структур VRAM. |
+| **`physics`** (Слой 0) | **Физическая Математика**: формулы GLIF, GSOP, Active Tail, Stochastic Heartbeat, деривация `v_seg`. | Запрещено определение констант лимитов памяти (`MAX_DENDRITES`) и структур VRAM. |
 | **`compute`** (Слой 3) | **Оркестрация и память вычислителей**: аллокация VRAM/RAM, управление pinned буферами, FFI-вызовы `cudaMemcpyAsync`, исполнение ядер. | Запрещено переопределение C-ABI структур макетов памяти. |
-| **`ipc` / `vfs`** (Слой 2) | **Системные вызовы и хранилище**: mmap-монтирование архивов `.axic`, создание песочниц tmpfs, управление разделяемой памятью SHM. | Запрещена бизнес-логика расчёта внутренних смещений плоскостей SoA. |
+| **`ipc` / `vfs`** (Слой 2) | **Системные вызовы и хранилище**: mmap-монтирование архивов `.axic`, создание песочниц tmpfs, управление разделяемой памятью SHM, атомарные переходы CAS автомата состояний. | Запрещена бизнес-логика расчёта внутренних смещений плоскостей SoA и макетов заголовков. |
 | **`config`** (Слой 1) | **Парсинг конфигурации TOML**: Serde-структуры DSL и поверхностная валидация. | Запрещены C-ABI структуры с `#[repr(C, align)]` и бинарные макеты. |
 
 ### Устранение легаси-дублирования
@@ -88,7 +89,7 @@
 | `VARIANT_LUT_LEN` | `usize` | `16` | Количество доступных вариаций (профилей) параметров нейронов в таблицы LUT. |
 
 > [!IMPORTANT]
-> Константы сентинелей `AXON_SENTINEL` (`0x80000000`) и `EMPTY_PIXEL` (`0xFFFF_FFFF`) импортируются строго из крейта `types` и не дублируются в `layout`.
+> Константы сентинелей `AXON_SENTINEL` (`0x80000000`) and `EMPTY_PIXEL` (`0xFFFF_FFFF`) импортируются строго из крейта `types` и не дублируются в `layout`.
 
 ---
 
@@ -252,6 +253,135 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
 
 ---
 
+### §6.4. Вспомогательные типы и размеры фазы обслуживания (Maintenance / Night Phase Layouts)
+
+Для выполнения Ночной Фазы (Night Phase) за рамками вычислительного API вводятся структуры представлений мутабельного состояния на хосте. Эти структуры принадлежат слою `layout` и не завязаны на HAL-контракты ускорителей.
+
+#### §6.4.1. Представления рабочего состояния Ночной Фазы (`NightWorkingViewMut` / `NightWorkingViewRef`)
+
+Представления используются `weaver-daemon` и `runtime` для сборки и передачи изменяемых представлений данных Ночной Фазы. `topology` принимает только неизменяемые ссылки/слайсы (`NightWorkingViewRef`) или планирует операции, не выполняя прямых мутаций рабочей памяти (согласно принципу чистых алгоритмов):
+
+```rust
+/// Хост-ориентированное изменяемое представление данных шарда для Ночной Фазы.
+pub struct NightWorkingViewMut<'a> {
+    pub padded_n: u32,
+    pub total_axons: u32,
+    pub total_ghosts: u32,
+    pub state_blob: &'a mut [u8],
+    pub axons_blob: &'a mut [u8],
+    /// Пути аксонов. Всегда хост-резидентные; None указывает на запрет перезаписи путей в текущей эпохе.
+    pub paths_blob: Option<&'a mut [u8]>,
+    pub offsets: StateOffsets,
+}
+
+/// Хост-ориентированное неизменяемое представление данных шарда для Ночной Фазы.
+pub struct NightWorkingViewRef<'a> {
+    pub padded_n: u32,
+    pub total_axons: u32,
+    pub total_ghosts: u32,
+    pub state_blob: &'a [u8],
+    pub axons_blob: &'a [u8],
+    pub paths_blob: Option<&'a [u8]>,
+    pub offsets: StateOffsets,
+}
+```
+
+#### §6.4.2. Расчет физического размера блоба аксонов (`calculate_axons_blob_size`)
+
+Функция `calculate_axons_blob_size` является единственным источником истины (Source of Truth) для вычисления размера файла/памяти аксонов на диске и в VRAM. Вычисление защищено от переполнения и возвращает `None` при некорректных параметрах:
+
+```rust
+pub const fn calculate_axons_blob_size(total_axons: u32) -> Option<usize> {
+    let num_axons = total_axons as usize;
+    // 16 байт заголовка + total_axons * 32 байта (размер BurstHeads8)
+    match num_axons.checked_mul(32) {
+        Some(axons_size) => axons_size.checked_add(16),
+        None => None,
+    }
+}
+```
+
+#### §6.4.3. Функция валидации представлений (`validate_night_working_view`)
+
+Библиотека `layout` предоставляет чистую функцию проверки размеров буферов на соответствие геометрии:
+
+```rust
+pub fn validate_night_working_view(
+    padded_n: u32,
+    total_axons: u32,
+    state_len: usize,
+    axons_len: usize,
+    paths_len: Option<usize>,
+) -> Result<(), LayoutError> {
+    if padded_n % 64 != 0 {
+        return Err(LayoutError::AlignmentViolation);
+    }
+    if state_len != calculate_state_blob_size(padded_n) {
+        return Err(LayoutError::SizeMismatch);
+    }
+    let expected_axons = calculate_axons_blob_size(total_axons)
+        .ok_or(LayoutError::InvalidShape)?;
+    if axons_len != expected_axons {
+        return Err(LayoutError::SizeMismatch);
+    }
+    if let Some(actual_paths_len) = paths_len {
+        if actual_paths_len != calculate_paths_file_size(total_axons) {
+            return Err(LayoutError::SizeMismatch);
+        }
+    }
+    Ok(())
+}
+```
+
+#### §6.4.4. C-ABI заголовок разделяемой памяти (`ShmHeader`) и смещения планов
+
+Для обеспечения бинарной совместимости процессов при использовании модели разделяемой памяти (mmap/SHM) структура `ShmHeader` описывается на уровне слоя `layout` (закрытие решения `REV-IPC-001`).
+
+```rust
+#[repr(C, align(16))]
+pub struct ShmHeader {
+    pub magic: [u8; 4],      // Идентификатор сегмента, строго *b"AXSM"
+    pub version: u32,        // Версия формата SHM (текущая = 1)
+    pub state: u32,          // Атомарное состояние автомата (CAS SM): Idle(0), NightStart(1), Sprouting(2), NightDone(3), Error(4)
+    pub padded_n: u32,       // Нейроны шарда (кратно 64)
+    pub total_axons: u32,     // Общее количество аксонов
+    pub total_ghosts: u32,    // Количество призрачных нейронов (ghosts)
+    pub zone_hash: u32,      // Хэш зоны
+    pub _pad0: [u8; 4],      // Явное выравнивание u64 по границе 8 байт (гарантирует размер ShmHeader в 64B)
+    pub off_state_blob: u64, // Смещение SoA плоскостей состояния сомы/дендритов в SHM
+    pub off_axons_blob: u64, // Смещение буфера головок аксонов
+    pub off_paths_blob: u64, // Смещение буфера трассировки путей (paths)
+    pub total_size: u64,     // Полный выровненный размер сегмента разделяемой памяти
+}
+
+```
+
+Смещения планов в SHM-сегменте вычисляются с выравниванием по границе 64 байт (`CACHE_LINE_BYTES`) для исключения накладок при DMA:
+1. `off_state_blob = align64(size_of::<ShmHeader>())` = 64
+2. `off_axons_blob = align64(off_state_blob + calculate_state_blob_size(padded_n))`
+3. `off_paths_blob = align64(off_axons_blob + calculate_axons_blob_size(total_axons))`
+4. `total_size = align64(off_paths_blob + calculate_paths_file_size(total_axons))`
+
+#### §6.4.5. Концепция мутабельной копии путей (Mutable Paths Invariant)
+
+Пути аксонов (`paths_blob`) являются исключительно хост-резидентными данными. В процессе фазы обслуживания (`Maintenance`) мутации геометрии выполняются только над временной копией путей в оперативной памяти хоста (in-proc куча или выделенный регион SHM). Изменения никогда не записываются обратно в исходные файлы архивов `.axic`, которые сохраняют статус строго для чтения (`Read-Only`).
+
+#### §6.4.6. Иерархия Ошибок Раскладки (`LayoutError`)
+
+Ошибки валидации размеров, геометрии и выравнивания буферов транслируются в единый no_std-совместимый enum:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutError {
+    AlignmentViolation, // Нарушение требований выравнивания по границе 64 байт
+    SizeMismatch,       // Несоответствие фактического размера буфера ожидаемому
+    InvalidShape,       // Некорректные параметры геометрии шарда (переполнение при расчете размеров)
+}
+```
+
+---
+
+
 ## §7. Форматы Заголовков Файлов
 
 Все заголовки файлов бинарных дампов имеют фиксированный размер **16 байт** и выравнивание **16 байт** (`#[repr(C, align(16))]`).
@@ -310,6 +440,8 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
 - **INV-LAYOUT-004**: `size_of::<AxonsFileHeader>() == 16` и `align_of::<AxonsFileHeader>() == 16`.
 - **INV-LAYOUT-005**: `size_of::<PathsFileHeader>() == 16` и `align_of::<PathsFileHeader>() == 16`.
 - **INV-LAYOUT-006**: Выравнивание начала каждой SoA-плоскости в `.state` блобе кратно 64 байтам.
+- **INV-LAYOUT-007**: `size_of::<ShmHeader>() == 64` и `align_of::<ShmHeader>() == 16`.
+- **INV-LAYOUT-008**: Выравнивание начала планов в SHM-сегменте кратно 64 байтам.
 
 ### §8.2. Межкрейтовые инварианты
 
@@ -326,6 +458,7 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
    - `VariantParameters`: размер 64, выравнивание 64.
    - `BurstHeads8`: размер 32, выравнивание 32.
    - `StateFileHeader`, `AxonsFileHeader`, `PathsFileHeader`: размер ровно 16 байт, выравнивание ровно 16 байт.
+   - `ShmHeader`: размер 64, выравнивание 16.
 2. **Точные смещения полей `VariantParameters` (`test_variant_parameters_field_offsets`)**:
    - Проверка смещения каждого поля (`threshold` at 0, `inertia_curve` at 32, `adaptive_leak_min_shift` at 48, `heartbeat_m` at 60).
 3. **Инициализация `BurstHeads8` (`test_burst_heads_sentinel_init`)**:
@@ -342,6 +475,14 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
    - Проверка фиксированного порядка полей, смещений и размеров указателей DTO через static_assertions / core::mem::offset_of! без bytemuck byte-cast.
 8. **Изоляция ABI упаковки (`test_no_duplicate_target_packing`)**:
    - Проверка полного отсутствия дублирующих функций упаковки таргетов в `layout` и корректной работы с `types::PackedTarget`.
+9. **Размер axons_blob (`test_calculate_axons_blob_size`)**:
+   - Проверка возвращаемого значения для разных total_axons (0 -> 16B, 100 -> 3216B).
+   - Проверка переполнения (возврат None при экстремальных значениях).
+10. **Проверка ShmHeader и смещений планов в SHM (`test_shm_layout_offsets`)**:
+    - Проверка размеров и смещений полей в `ShmHeader` (magic at 0, version at 4, total_size at 56).
+    - Валидация формул смещения планов для `padded_n = 64` и `total_axons = 100`.
+11. **Валидация представлений обслуживания (`test_validate_night_working_view_logic`)**:
+    - Проверка возврата Ok при правильных размерах и Error при неверных.
 
 ---
 
@@ -369,3 +510,6 @@ $$\text{align64}(x) = (x + 63) \ \& \ \sim 63$$
 
 7. **[RESOLVED] Аннулирование устаревшего сентинеля аксона (REV-LAYOUT-007)**:
    - *Решение*: Подтверждено полное аннулирование устаревшей записи `0xFFFFFFFF` из легаси-комментариев. Единственным стандартом сентинеля неактивности аксона зафиксирован `AXON_SENTINEL = 0x8000_0000` из `types v2.2`.
+
+8. **[RESOLVED] Владение макетом `ShmHeader` и планов SHM (REV-IPC-001 / Pass 2.3)**:
+   - *Решение*: Все C-ABI структуры и расчет смещений разделяемой памяти (mmap/SHM) переданы под владение крейта `layout` для обеспечения чистоты разделения ответственности. Крейт `ipc` осуществляет только системные операции, не владея логической разметкой байтов.

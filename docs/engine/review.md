@@ -173,14 +173,15 @@
 
 ### REV-IPC-001: Разделение владения C-ABI структурами SHM (`ShmHeader`, `ShmState`, `EphysShm`)
 - **ID**: REV-IPC-001
-- **Status**: Open
+- **Status**: Resolved (specs updated)
 - **Priority**: P1
 - **Owner candidate**: `layout`
 - **Source**: [ipc_spec.md](./spec_L2/ipc_spec.md#L257) (§12.1) vs [boot_spec.md](./spec_L6/boot_spec.md#L353) (§8.3) vs [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L264) (§11.1)
 - **Question / Problem**: Спецификация `ipc` описывает C-ABI структуры разделяемой памяти (`ShmHeader`, `ShmState`, `EphysShm`), но по общей архитектурной конвенции все бинарные layouts должны владеться крейтом `layout`.
 - **Why it matters**: Размытие границ владения приводит к дублированию DTO структур между `layout` и `ipc`.
 - **Affected specs**: [ipc_spec.md](./spec_L2/ipc_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
-- **Notes**: Перенести бинарные описания структур заголовков в `layout`, а в `ipc` оставить управление жизненным циклом и кольцевыми буферами.
+- **Notes**: **Resolved (2026-07-10)**: Перенесено бинарное описание заголовков и расчет смещений планов SHM на уровень спецификации `layout`. Крейт `ipc` осуществляет только системные операции, не владея логической разметкой байтов. *Остаточный риск (residual)*: кодовая реализация в Rust (`crates/layout` и `crates/ipc`) отложена до PR-03+ (PR-05).
+
 
 ### REV-TOPOLOGY-006: Владение и разметка артефактов Ghost-связей (`.gxi`, `.gxo`, `.ghosts`)
 - **ID**: REV-TOPOLOGY-006
