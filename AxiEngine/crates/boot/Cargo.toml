@@ -11,6 +11,7 @@ compute-api = { path = "../compute-api" }
 compute = { path = "../compute" }
 bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"] }
 thiserror = "=1.0.69"
+runtime = { path = "../runtime" }
 
 [dev-dependencies]
 baker = { path = "../baker" }

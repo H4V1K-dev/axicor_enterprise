@@ -78,3 +78,20 @@ pub struct RuntimeBatchReport {
     /// Total ticks executed in this step.
     pub ticks_executed: u32,
 }
+
+/// Durable host state copy and coordinates storage for Day/Night orchestration.
+#[derive(Debug, Clone)]
+pub struct HostWorkingState {
+    /// Durable host copy of somatic and dendritic state blob (export/import target).
+    pub state_blob: Vec<u8>,
+    /// Durable host copy of axons burst heads blob (export/import target).
+    pub axons_blob: Vec<u8>,
+    /// Durable axon paths coordinate coordinates list. NEVER zero-wiped for "fresh night".
+    pub paths_blob: Vec<u8>,
+    /// Count of aligned soma neurons.
+    pub padded_n: u32,
+    /// Total count of active axons.
+    pub total_axons: u32,
+    /// Total count of ghost axons.
+    pub total_ghosts: u32,
+}

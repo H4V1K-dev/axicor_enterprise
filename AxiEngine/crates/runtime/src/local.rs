@@ -1,7 +1,8 @@
 //! Implement local day loop runtime coordinator.
 
 use crate::dto::{
-    LocalRuntimeConfig, RuntimeBatchInput, RuntimeBatchReport, RuntimeState, RuntimeStats,
+    HostWorkingState, LocalRuntimeConfig, RuntimeBatchInput, RuntimeBatchReport, RuntimeState,
+    RuntimeStats,
 };
 use crate::error::RuntimeError;
 
@@ -14,6 +15,7 @@ pub struct LocalRuntime {
     current_tick: u64,
     cached_output_spikes: Vec<u32>,
     cached_output_spike_counts: Vec<u32>,
+    working: Option<HostWorkingState>,
 }
 
 impl LocalRuntime {
@@ -37,6 +39,32 @@ impl LocalRuntime {
             current_tick: 0,
             cached_output_spikes: Vec::new(),
             cached_output_spike_counts: Vec::new(),
+            working: None,
+        })
+    }
+
+    /// Constructs a new runtime instance with pre-initialized durable working state.
+    pub fn new_with_state(
+        engine: compute::ShardEngine,
+        config: LocalRuntimeConfig,
+        working: HostWorkingState,
+    ) -> Result<Self, RuntimeError> {
+        let engine_state = engine.state();
+        if engine_state != compute::LifecycleState::Running {
+            return Err(RuntimeError::InvalidEngineLifecycle {
+                actual: engine_state,
+            });
+        }
+
+        Ok(Self {
+            engine,
+            config,
+            state: RuntimeState::Running,
+            stats: RuntimeStats::default(),
+            current_tick: 0,
+            cached_output_spikes: Vec::new(),
+            cached_output_spike_counts: Vec::new(),
+            working: Some(working),
         })
     }
 
@@ -59,6 +87,13 @@ impl LocalRuntime {
             return Err(RuntimeError::InvalidState {
                 from: self.state,
                 expected: "Running",
+            });
+        }
+
+        let engine_state = self.engine.state();
+        if engine_state == compute::LifecycleState::Maintenance {
+            return Err(RuntimeError::InvalidEngineLifecycle {
+                actual: engine_state,
             });
         }
 
@@ -274,30 +309,38 @@ impl LocalRuntime {
         total_axons: u32,
         total_ghosts: u32,
     ) -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+        // Check presence of HostWorkingState before enter_maintenance
+        if self.working.is_none() {
+            return Err(RuntimeError::InvalidState {
+                from: self.state,
+                expected: "HostWorkingState must be pre-initialized",
+            });
+        }
+
         // 1. Enter maintenance mode
         self.engine
             .enter_maintenance()
             .map_err(RuntimeError::Compute)?;
 
-        // Calculate sizes
-        let state_size = layout::offsets::calculate_state_blob_size(padded_n as usize);
-        let axons_size = layout::offsets::calculate_axons_blob_size(total_axons).ok_or(
-            RuntimeError::CapacityExceeded {
-                reason: "axons blob size overflow",
-            },
-        )?;
-        let paths_size = layout::offsets::calculate_paths_file_size(total_axons as usize);
-
-        // Allocate host buffers
-        let mut state_bytes = vec![0u8; state_size];
-        let mut axons_bytes = vec![0u8; axons_size];
-        let mut paths_bytes = vec![0u8; paths_size];
+        let working = self.working.as_mut().unwrap();
 
         let execute_result = (|| -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+            // Validate args match working dims
+            if padded_n != working.padded_n
+                || total_axons != working.total_axons
+                || total_ghosts != working.total_ghosts
+            {
+                return Err(RuntimeError::InvalidInputDimensions {
+                    field: "Night Phase Dimensions",
+                    expected: working.padded_n as usize,
+                    actual: padded_n as usize,
+                });
+            }
+
             {
                 let maintenance_mut = compute_api::BackendMaintenanceMut {
-                    state_blob: &mut state_bytes,
-                    axons_blob: &mut axons_bytes,
+                    state_blob: &mut working.state_blob,
+                    axons_blob: &mut working.axons_blob,
                 };
                 self.engine
                     .export_maintenance_state(maintenance_mut)
@@ -305,14 +348,22 @@ impl LocalRuntime {
             }
 
             // Construct NightWorkingViewMut
-            let offsets = layout::offsets::compute_state_offsets(padded_n as usize);
+            let offsets = layout::offsets::compute_state_offsets(working.padded_n as usize);
+
+            // OQ-6 attach policy: paths_blob is Some iff growth_context is Some
+            let paths_opt = if context.is_some() {
+                Some(working.paths_blob.as_mut_slice())
+            } else {
+                None
+            };
+
             let view = layout::NightWorkingViewMut {
-                padded_n,
-                total_axons,
-                total_ghosts,
-                state_blob: &mut state_bytes,
-                axons_blob: &mut axons_bytes,
-                paths_blob: Some(&mut paths_bytes),
+                padded_n: working.padded_n,
+                total_axons: working.total_axons,
+                total_ghosts: working.total_ghosts,
+                state_blob: &mut working.state_blob,
+                axons_blob: &mut working.axons_blob,
+                paths_blob: paths_opt,
                 offsets,
             };
 
@@ -325,8 +376,8 @@ impl LocalRuntime {
             // Import maintenance state
             {
                 let maintenance_ref = compute_api::BackendMaintenanceRef {
-                    state_blob: &state_bytes,
-                    axons_blob: &axons_bytes,
+                    state_blob: &working.state_blob,
+                    axons_blob: &working.axons_blob,
                 };
                 self.engine
                     .import_maintenance_state(maintenance_ref)
@@ -346,9 +397,16 @@ impl LocalRuntime {
             }
             Err(e) => {
                 // On error, DO NOT exit maintenance (fail-closed)
+                // and transition runtime state to Faulted
+                self.state = RuntimeState::Faulted;
                 Err(e)
             }
         }
+    }
+
+    /// Returns a reference to the durable HostWorkingState, if initialized.
+    pub fn working_state(&self) -> Option<&HostWorkingState> {
+        self.working.as_ref()
     }
 }
 

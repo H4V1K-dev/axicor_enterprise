@@ -104,6 +104,7 @@ dependencies = [
  "compute-api",
  "config",
  "layout",
+ "runtime",
  "thiserror",
  "types",
  "vfs",

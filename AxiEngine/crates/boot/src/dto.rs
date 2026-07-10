@@ -47,4 +47,54 @@ impl LocalShardBootBundle {
             variant_table: &self.variant_table,
         }
     }
+
+    pub fn into_working_state(self) -> runtime::HostWorkingState {
+        let padded_n = self.spec.padded_n;
+        let total_axons = self.spec.total_axons;
+        let total_ghosts = self.spec.total_ghosts;
+
+        runtime::HostWorkingState {
+            state_blob: self.state_blob,
+            axons_blob: self.axons_blob,
+            paths_blob: self.paths_blob,
+            padded_n,
+            total_axons,
+            total_ghosts,
+        }
+    }
+}
+
+/// Extension trait for HostWorkingState to bootstrap it from a LocalShardBootBundle.
+pub trait HostWorkingStateBootExt {
+    /// Constructs a durable HostWorkingState from a loaded boot bundle.
+    fn from_boot_bundle(bundle: LocalShardBootBundle) -> Self;
+}
+
+impl HostWorkingStateBootExt for runtime::HostWorkingState {
+    fn from_boot_bundle(bundle: LocalShardBootBundle) -> Self {
+        bundle.into_working_state()
+    }
+}
+
+/// Extension trait for LocalRuntime to construct it from a loaded boot bundle.
+pub trait LocalRuntimeBootExt {
+    /// Constructs a LocalRuntime from a loaded boot bundle, including durable working state.
+    fn from_boot_bundle(
+        engine: compute::ShardEngine,
+        config: runtime::LocalRuntimeConfig,
+        bundle: LocalShardBootBundle,
+    ) -> Result<Self, runtime::RuntimeError>
+    where
+        Self: Sized;
+}
+
+impl LocalRuntimeBootExt for runtime::LocalRuntime {
+    fn from_boot_bundle(
+        engine: compute::ShardEngine,
+        config: runtime::LocalRuntimeConfig,
+        bundle: LocalShardBootBundle,
+    ) -> Result<Self, runtime::RuntimeError> {
+        let working = bundle.into_working_state();
+        Self::new_with_state(engine, config, working)
+    }
 }

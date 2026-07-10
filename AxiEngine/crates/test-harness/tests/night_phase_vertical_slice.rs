@@ -138,7 +138,20 @@ fn test_in_proc_day_night_day_slice() {
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
     };
-    let mut runtime = LocalRuntime::new(engine, config).unwrap();
+    let padded_n = bundle.spec.padded_n;
+    let total_axons = bundle.spec.total_axons;
+    let total_ghosts = bundle.spec.total_ghosts;
+
+    use boot::LocalRuntimeBootExt;
+    let mut runtime = LocalRuntime::from_boot_bundle(engine, config, bundle).unwrap();
+
+    // Verify paths are loaded and non-empty (> 16 bytes header)
+    let paths_len = runtime.working_state().unwrap().paths_blob.len();
+    assert!(
+        paths_len > 16,
+        "paths_blob is empty or too small: {}",
+        paths_len
+    );
 
     // 1. Day batch 1
     let report1 = runtime.run_empty_batch().expect("Day batch 1 failed");
@@ -162,13 +175,7 @@ fn test_in_proc_day_night_day_slice() {
     };
 
     let report_night = runtime
-        .run_night_phase(
-            &job,
-            None,
-            bundle.spec.padded_n,
-            bundle.spec.total_axons,
-            bundle.spec.total_ghosts,
-        )
+        .run_night_phase(&job, None, padded_n, total_axons, total_ghosts)
         .expect("Night phase execution failed");
 
     // Report sprouted_count should match job.max_sprouts
@@ -186,12 +193,140 @@ fn test_in_proc_day_night_day_slice() {
         &job,
         None,
         0, // Mismatched padded_n (must trigger error)
-        bundle.spec.total_axons,
-        bundle.spec.total_ghosts,
+        total_axons,
+        total_ghosts,
     );
     assert!(err_res.is_err());
     // In fail-closed behavior, the engine must remain in Maintenance/not return to Running
     assert_eq!(runtime.engine_state(), compute::LifecycleState::Maintenance);
+    // The runtime state must transition to Faulted
+    assert_eq!(runtime.state(), runtime::RuntimeState::Faulted);
+
+    // Attempting a day batch must refuse to run and return Err
+    let day_after_fail = runtime.run_empty_batch();
+    assert!(day_after_fail.is_err());
+
+    let _ = remove_file(path);
+}
+
+#[test]
+fn test_night_without_working_state_fails() {
+    let (engine, _bundle, path) = create_test_engine_and_bundle();
+    let config = LocalRuntimeConfig {
+        sync_batch_ticks: 2,
+        v_seg: 1,
+        dopamine: 0,
+        max_spikes_per_tick: 4,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_words_per_tick: 1,
+        mapped_soma_ids: vec![0, 1],
+    };
+
+    // Construct via new (working is None)
+    let mut runtime = LocalRuntime::new(engine, config).unwrap();
+
+    let job = WeaverJobRequest {
+        shard_id: 0,
+        zone_hash: 0x11223344,
+        night_epoch: 1,
+        master_seed: [0u8; 32],
+        prune_threshold: 5,
+        max_sprouts: 8,
+        w_distance: 100,
+        w_power: 50,
+        w_explore: 10,
+        initial_synapse_weight: 100,
+        has_growth_context: false,
+    };
+
+    let err_res = runtime.run_night_phase(&job, None, 1600, 100, 10);
+    assert!(err_res.is_err());
+
+    // Engine must NOT be in Maintenance because the check happened BEFORE enter_maintenance
+    assert_eq!(runtime.engine_state(), compute::LifecycleState::Running);
+
+    let _ = remove_file(path);
+}
+
+#[test]
+fn test_durability_and_attach_scenarios() {
+    let (engine, bundle, path) = create_test_engine_and_bundle();
+    let config = LocalRuntimeConfig {
+        sync_batch_ticks: 2,
+        v_seg: 1,
+        dopamine: 0,
+        max_spikes_per_tick: 4,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_words_per_tick: 1,
+        mapped_soma_ids: vec![0, 1],
+    };
+
+    let padded_n = bundle.spec.padded_n;
+    let total_axons = bundle.spec.total_axons;
+    let total_ghosts = bundle.spec.total_ghosts;
+
+    use boot::LocalRuntimeBootExt;
+    let mut runtime = LocalRuntime::from_boot_bundle(engine, config, bundle).unwrap();
+
+    // 1. Paths non-empty from bake/boot
+    let initial_paths = runtime.working_state().unwrap().paths_blob.clone();
+    assert!(initial_paths.len() > 16, "paths_blob is too small");
+    assert!(
+        initial_paths.iter().any(|&b| b != 0),
+        "paths_blob is completely zeroed"
+    );
+
+    // 2. After Night with growth_context: None: paths_blob is byte-identical (not wiped)
+    let job = WeaverJobRequest {
+        shard_id: 0,
+        zone_hash: 0x11223344,
+        night_epoch: 1,
+        master_seed: [0u8; 32],
+        prune_threshold: 5,
+        max_sprouts: 8,
+        w_distance: 100,
+        w_power: 50,
+        w_explore: 10,
+        initial_synapse_weight: 100,
+        has_growth_context: false,
+    };
+
+    runtime
+        .run_night_phase(&job, None, padded_n, total_axons, total_ghosts)
+        .unwrap();
+    let paths_after_no_growth = runtime.working_state().unwrap().paths_blob.clone();
+    assert_eq!(
+        initial_paths, paths_after_no_growth,
+        "paths_blob was mutated or wiped under None growth context"
+    );
+
+    // 3. After Night with growth_context: Some(minimal): paths attached path exercised
+    let growth_ctx = weaver_daemon::WeaverGrowthContext {
+        target_somas: vec![0; 4],
+        attraction_radius: 5,
+    };
+
+    let job_with_growth = WeaverJobRequest {
+        has_growth_context: true,
+        ..job
+    };
+
+    runtime
+        .run_night_phase(
+            &job_with_growth,
+            Some(&growth_ctx),
+            padded_n,
+            total_axons,
+            total_ghosts,
+        )
+        .unwrap();
+    let paths_after_growth = runtime.working_state().unwrap().paths_blob.clone();
+    assert_eq!(
+        paths_after_no_growth, paths_after_growth,
+        "paths_blob was unexpectedly modified or zeroed"
+    );
 
     let _ = remove_file(path);
 }
