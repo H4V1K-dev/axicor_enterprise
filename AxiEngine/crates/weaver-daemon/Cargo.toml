@@ -18,6 +18,7 @@ types = { path = "../types" }
 layout = { path = "../layout" }
 ipc = { path = "../ipc" }
 wire = { path = "../wire" }
+topology = { path = "../topology" }
 thiserror = "=1.0.69"
 anyhow = "=1.0.86"
 tracing = "=0.1.40"

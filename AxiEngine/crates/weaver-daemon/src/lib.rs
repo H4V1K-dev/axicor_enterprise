@@ -118,7 +118,7 @@ pub fn run_night_pipeline(
             let (targets_bytes, rest) = rest.split_at_mut(off_weights - off_targets);
             let (weights_bytes, timers_bytes) = rest.split_at_mut(off_dtimers - off_weights);
 
-            let targets_slice = bytemuck::cast_slice_mut::<u8, u32>(
+            let targets_slice = bytemuck::cast_slice_mut::<u8, types::PackedTarget>(
                 &mut targets_bytes[..layout::MAX_DENDRITES * padded_n * 4],
             );
             let weights_slice = bytemuck::cast_slice_mut::<u8, i32>(
@@ -126,77 +126,80 @@ pub fn run_night_pipeline(
             );
             let timers_slice = &mut timers_bytes[..layout::MAX_DENDRITES * padded_n];
 
-            let prune_limit = req.prune_threshold as i32;
             let mut pruned_count = 0;
 
-            for d in 0..layout::MAX_DENDRITES {
-                for i in 0..padded_n {
+            for i in 0..padded_n {
+                let mut weights_row = [0i32; layout::MAX_DENDRITES];
+                for (d, val) in weights_row.iter_mut().enumerate() {
                     let idx = d * padded_n + i;
-                    let target = targets_slice[idx];
-                    if target != types::EMPTY_PIXEL {
-                        let w = weights_slice[idx];
-                        if w < prune_limit {
-                            targets_slice[idx] = types::EMPTY_PIXEL;
-                            weights_slice[idx] = 0;
-                            timers_slice[idx] = 0;
-                            pruned_count += 1;
-                        }
-                    }
+                    *val = weights_slice[idx];
+                }
+
+                let prune_idx = topology::plan_pruning(&weights_row, req.prune_threshold);
+                for &d in &prune_idx {
+                    let idx = d * padded_n + i;
+                    targets_slice[idx] = types::PackedTarget::TOMBSTONE;
+                    weights_slice[idx] = 0;
+                    timers_slice[idx] = 0;
+                    pruned_count += 1;
                 }
             }
 
             // Phase 7: Sprout
             tracing::info!("Phase 7: Executing synapse sprouting plans");
-            // Find empty slots and sprout synapses up to max_sprouts limit
             let mut sprouted_count = 0;
-            'sprout_loop: for d in 0..layout::MAX_DENDRITES {
-                for i in 0..padded_n {
-                    if sprouted_count >= req.max_sprouts {
-                        break 'sprout_loop;
-                    }
+            'sprout_loop: for i in 0..padded_n {
+                if sprouted_count >= req.max_sprouts {
+                    break 'sprout_loop;
+                }
+
+                let mut targets_row = [types::PackedTarget::NONE; layout::MAX_DENDRITES];
+                for (d, val) in targets_row.iter_mut().enumerate() {
                     let idx = d * padded_n + i;
-                    if targets_slice[idx] == types::EMPTY_PIXEL {
-                        // Generate a stub target: axon 10, segment 1
-                        let target_val = 10u32 | (1u32 << 24);
-                        targets_slice[idx] = target_val;
-                        weights_slice[idx] = req.initial_synapse_weight;
-                        timers_slice[idx] = 0;
-                        sprouted_count += 1;
-                    }
+                    *val = targets_slice[idx];
+                }
+
+                if let Some(d) = topology::choose_dendrite_slot(&targets_row) {
+                    let idx = (d as usize) * padded_n + i;
+                    targets_slice[idx] = types::PackedTarget::pack(10, 1);
+                    weights_slice[idx] = req.initial_synapse_weight;
+                    timers_slice[idx] = 0;
+                    sprouted_count += 1;
                 }
             }
 
             // Phase 8: Compact
             tracing::info!("Phase 8: Executing synapse compaction plans");
-            // Compact columns in-place, pushing EMPTY_PIXEL slots to the tail of each soma column
             let mut compacted_count = 0;
             for i in 0..padded_n {
-                let mut active_slots = std::vec::Vec::new();
-                for d in 0..layout::MAX_DENDRITES {
+                let mut targets_row = [types::PackedTarget::NONE; layout::MAX_DENDRITES];
+                for (d, val) in targets_row.iter_mut().enumerate() {
                     let idx = d * padded_n + i;
-                    if targets_slice[idx] != types::EMPTY_PIXEL {
-                        active_slots.push((
-                            targets_slice[idx],
-                            weights_slice[idx],
-                            timers_slice[idx],
-                        ));
+                    *val = targets_slice[idx];
+                }
+
+                let plan = topology::build_compaction_plan(&targets_row);
+
+                if !plan.moves.is_empty() {
+                    for &(from, to) in &plan.moves {
+                        let from_idx = (from as usize) * padded_n + i;
+                        let to_idx = (to as usize) * padded_n + i;
+
+                        targets_slice[to_idx] = targets_slice[from_idx];
+                        weights_slice[to_idx] = weights_slice[from_idx];
+                        timers_slice[to_idx] = timers_slice[from_idx];
+
+                        compacted_count += 1;
                     }
                 }
 
-                for d in 0..layout::MAX_DENDRITES {
+                let limit = layout::MAX_DENDRITES;
+                let active_count = limit - plan.tail_clear_count as usize;
+                for d in active_count..limit {
                     let idx = d * padded_n + i;
-                    if let Some(&(t, w, tm)) = active_slots.get(d) {
-                        if targets_slice[idx] != t {
-                            compacted_count += 1;
-                        }
-                        targets_slice[idx] = t;
-                        weights_slice[idx] = w;
-                        timers_slice[idx] = tm;
-                    } else {
-                        targets_slice[idx] = types::EMPTY_PIXEL;
-                        weights_slice[idx] = 0;
-                        timers_slice[idx] = 0;
-                    }
+                    targets_slice[idx] = types::PackedTarget::TOMBSTONE;
+                    weights_slice[idx] = 0;
+                    timers_slice[idx] = 0;
                 }
             }
 

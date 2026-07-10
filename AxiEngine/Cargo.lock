@@ -849,6 +849,7 @@ dependencies = [
  "rayon",
  "static_assertions",
  "thiserror",
+ "topology",
  "tracing",
  "tracing-subscriber",
  "types",
