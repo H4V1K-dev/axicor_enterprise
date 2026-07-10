@@ -66,15 +66,15 @@
 
 ### REV-WEAVER-001: Отсутствие экспорта типов Weaver-сообщений для Runtime
 - **ID**: REV-WEAVER-001
-- **Status**: Open
+- **Status**: Resolved (specs updated)
 - **Priority**: P0
 - **Owner candidate**: `ipc`
 - **Source**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L276) (§11.4) vs [runtime_spec.md](./spec_L6/runtime_spec.md#L479) (§8)
 - **Question / Problem**: Крейт `weaver-daemon` собирается как исполняемый бинарный файл (`bin`) и не экспортирует библиотечную публичную API-часть. Однако `runtime` обязан формировать и отправлять структуры `WeaverJobRequest`, `WeaverReport` и `WeaverGrowthContext` по IPC.
 - **Why it matters**: `runtime` не может импортировать типы сообщений Weaver, что делает невозможным сборку L6 процесса.
 - **Affected specs**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [ipc_spec.md](./spec_L2/ipc_spec.md)
-- **Notes**: Перенести DTO-структуры сообщений в крейт `ipc` (Layer 2) или в новый интерфейсный крейт `weaver-api`.
-- **2026-07-10 lean (Night transfer)**: Предложено зафиксировать пакет `weaver-daemon` как **lib + bin** (без отдельного `weaver-core`, пока не потребуется); control DTO — в `ipc` или re-export из lib. Полный план: [night_phase_production_transfer.md](./night_phase_production_transfer.md) (D7).
+- **Notes**: **Resolved (2026-07-10)**: Пакет `weaver-daemon` зафиксирован как `lib + bin` (без выделения отдельного `weaver-core`). Все DTO-структуры сообщений управления (`WeaverJobRequest`, `WeaverReport`, `WeaverGrowthContext`) размещены в `ipc` и реэкспортируются библиотекой `weaver-daemon`. *Остаточный риск (residual)*: кодовая реализация в Rust отложена до PR-06.
+
 
 ### REV-MAINT-001: Production maintenance export/import vs diagnostic `debug_snapshot`
 - **ID**: REV-MAINT-001
@@ -1064,14 +1064,15 @@
   - *Resolution*: Утвержден полный переход на целочисленную fixed-point fixed-scale арифметику (Q16 формат, тип `i64`). Веса `GrowthParams` переводятся во внутреннее fixed-point представление на AOT-границе, а горячий выбор направления Moore neighborhood выполняется исключительно в целых числах. Вещественная математика, тригонометрия и нормализация векторов исключены из горячего рантайма. Для tie-break используется лексикографический Moore-индекс. Дополнительно: в рамках micro-hardening реализована строгая Shift-Left валидация GrowthParams на config-границе, а также добавлены защитные проверки на этапе Q16-конверсии весов (сброс в InvalidGrowthParameter при NaN/Inf/overflow) и checked-арифметика score_q в горячем цикле роста (сброс в CapacityOverflow).
 
 
-
 #### [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
 *Source items: 7 / Registered items: 7*
 
 - **REV-WEAVER-001**: Разграничение Владения `ShmHeader` и `ShmState`
-  - *Status*: Open | *Priority*: P0 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L264)
+  - *Status*: Resolved (specs updated) | *Priority*: P0 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L264)
   - *Question / Problem*: - *Контекст*: Структуры заголовков и автомата состояний используются при подключении.
     - *Вопрос*: В каком крейте (`layout` или `ipc`) должны монопольно зафиксироваться структуры `ShmHeader` и представление живого состояния?
+  - *Resolution*: Решено. Монопольное владение `ShmHeader` и структурой состояний передано крейту `layout` (REV-IPC-001 / Pass 2.3).
+
 
 - **REV-WEAVER-002**: Локализация Изменяемой Рабочей Копии Геометрии Аксонов (.paths)
   - *Status*: Open | *Priority*: P2 | *Owner*: `weaver-daemon` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L268)
