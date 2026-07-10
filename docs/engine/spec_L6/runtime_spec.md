@@ -2,7 +2,6 @@
 
 > Версия спеки: 2.1  
 > Дата: 2026-07-01  
-> Статус: Approved / Ready for Implementation (Stage A: Single-Shard Local Day Loop)
 
 ---
 

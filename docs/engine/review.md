@@ -74,6 +74,42 @@
 - **Why it matters**: `runtime` не может импортировать типы сообщений Weaver, что делает невозможным сборку L6 процесса.
 - **Affected specs**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [ipc_spec.md](./spec_L2/ipc_spec.md)
 - **Notes**: Перенести DTO-структуры сообщений в крейт `ipc` (Layer 2) или в новый интерфейсный крейт `weaver-api`.
+- **2026-07-10 lean (Night transfer)**: Предложено зафиксировать пакет `weaver-daemon` как **lib + bin** (без отдельного `weaver-core`, пока не потребуется); control DTO — в `ipc` или re-export из lib. Полный план: [night_phase_production_transfer.md](./night_phase_production_transfer.md) (D7).
+
+### REV-MAINT-001: Production maintenance export/import vs diagnostic `debug_snapshot`
+- **ID**: REV-MAINT-001
+- **Status**: Resolved (specs updated)
+- **Priority**: P0
+- **Owner candidate**: `compute-api` / `compute`
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§5.1) vs Night production contract
+- **Question / Problem**: Единственный полный host dump сегодня — `debug_snapshot` (диагностика test-harness). Night Phase требует production-контракт: Day quiesce → export mutable working state → Night mutation → import → resume Day. Использование `debug_snapshot` как production API смешивает diagnostic & maintenance ownership.
+- **Why it matters**: Без отдельного HAL CUDA/HIP не смогут изоморфно участвовать в Night Phase; lifecycle фасада не выражает `Maintenance`.
+- **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_spec.md](./spec_L3/compute_spec.md), [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
+- **Notes**: **Resolved (2026-07-10)**: Добавлены новые структуры `BackendMaintenanceMut`/`Ref` (без `paths_blob`), методы `export_maintenance_state`/`import_maintenance_state` и состояние жизненного цикла `Maintenance` в спецификации L3 (API, фасад, CPU, CUDA и HIP). Установлен явный запрет на выполнение Night policies внутри ускорителей. *Остаточный риск (residual)*: реализация кода в Rust отложена до PR-03+; структуры `layout::calculate_axons_blob_size` и `NightWorkingView` будут добавлены в рамках T002b; интеграция с runtime/weaver все еще вне рамок текущего этапа.
+
+
+
+### REV-NIGHT-001: Host/device ownership и mutable paths / ghost capacity для Night Phase
+- **ID**: REV-NIGHT-001
+- **Status**: Open (Proposed lean)
+- **Priority**: P0
+- **Owner candidate**: `layout` / `boot` / `runtime` / `ipc`
+- **Source**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md) (§6, §11.2) vs [boot_spec.md](./spec_L6/boot_spec.md) vs [layout_spec.md](./spec_L1/layout_spec.md)
+- **Question / Problem**: Не зафиксированы: (1) host-side maintenance representation vs device memory; (2) где лежит mutable working copy `.paths`; (3) кто владеет ghost capacity planes; (4) poison recovery после mid-mutation failure.
+- **Why it matters**: Блокирует вертикальный slice Day/Night и корректный multi-backend parity.
+- **Affected specs**: [layout_spec.md](./spec_L1/layout_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [ipc_spec.md](./spec_L2/ipc_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [config_spec.md](./spec_L1/config_spec.md)
+- **Notes**: **Proposed lean**: Night мутирует только host-side mutable working state; backend export/import; RO `.axic` никогда не пишется; `boot` возвращает full runtime asset bundle (paths + geometry); poison → no Day resume without recovery. См. D3–D6 в [night_phase_production_transfer.md](./night_phase_production_transfer.md).
+
+### REV-TEST-002: Feature matrix test-harness (baseline vs research vs GPU)
+- **ID**: REV-TEST-002
+- **Status**: Open (Code partially landed)
+- **Priority**: P0
+- **Owner candidate**: `test-harness`
+- **Source**: [test_harness_spec.md](./spec_L3/test_harness_spec.md) (§2.4) vs production CI contract
+- **Question / Problem**: Research/integration targets (`legacy_baseline`, heatmap example, full-chain, mvp replay) must not break default `cargo test --workspace --all-targets`. `--all-features` cannot be the sole CI gate.
+- **Why it matters**: Без gating Night/production CI неразличим от research/CUDA toolchain requirements.
+- **Affected specs**: [test_harness_spec.md](./spec_L3/test_harness_spec.md)
+- **Notes**: **2026-07-10**: `legacy_baseline` получил `#![cfg(feature = "legacy-baseline")]` + `[[test]] required-features`; heatmap example — `required-features = ["mvp-cpu-replay"]`; явная матрица в Cargo.toml comments и [night_phase_production_transfer.md](./night_phase_production_transfer.md) §1. Спека test-harness ещё не обновлена.
 
 ---
 

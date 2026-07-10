@@ -2,7 +2,6 @@
 
 > Версия спеки: 2.2  
 > Дата: 2026-07-01  
-> Статус: Approved / Ready for Implementation (Stage B: Local .axic Packaging)
 
 ---
 

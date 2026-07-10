@@ -2,7 +2,6 @@
 
 > Spec Version: 1.1  
 > Date: 2026-07-01  
-> Status: Draft (Evaluation & Design Direction)
 
 ---
 

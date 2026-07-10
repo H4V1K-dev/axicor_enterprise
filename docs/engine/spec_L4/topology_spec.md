@@ -2,7 +2,6 @@
 
 > Версия спеки: 2.3  
 > Дата: 2026-07-01  
-> Статус: Approved v2.3 / Ready for Implementation (Stage A, B1 & B2 Local Growth)
 
 ---
 

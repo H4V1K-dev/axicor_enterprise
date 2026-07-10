@@ -2,7 +2,6 @@
 
 > Версия спеки: 2.1  
 > Дата: 2026-07-01  
-> Статус: Approved / Implemented (Stage A: Local Shard Archive Loader)
 
 ---
 
