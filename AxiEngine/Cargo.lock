@@ -515,6 +515,7 @@ dependencies = [
  "layout",
  "thiserror",
  "types",
+ "weaver-daemon",
 ]
 
 [[package]]
@@ -660,6 +661,7 @@ dependencies = [
  "serde_json",
  "toml",
  "types",
+ "weaver-daemon",
 ]
 
 [[package]]

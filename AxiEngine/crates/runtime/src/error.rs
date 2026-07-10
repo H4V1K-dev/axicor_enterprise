@@ -51,4 +51,8 @@ pub enum RuntimeError {
         /// The actual buffer slice size provided.
         actual: usize,
     },
+
+    /// General night phase execution error.
+    #[error("General error: {0}")]
+    General(String),
 }

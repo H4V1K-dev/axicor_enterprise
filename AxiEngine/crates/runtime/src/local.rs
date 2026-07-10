@@ -259,6 +259,97 @@ impl LocalRuntime {
     pub fn state(&self) -> RuntimeState {
         self.state
     }
+
+    /// Returns the lifecycle state of the underlying compute engine.
+    pub fn engine_state(&self) -> compute::LifecycleState {
+        self.engine.state()
+    }
+
+    /// Executes the in-process Night Phase vertical slice.
+    pub fn run_night_phase(
+        &mut self,
+        job: &weaver_daemon::WeaverJobRequest,
+        context: Option<&weaver_daemon::WeaverGrowthContext>,
+        padded_n: u32,
+        total_axons: u32,
+        total_ghosts: u32,
+    ) -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+        // 1. Enter maintenance mode
+        self.engine
+            .enter_maintenance()
+            .map_err(RuntimeError::Compute)?;
+
+        // Calculate sizes
+        let state_size = layout::offsets::calculate_state_blob_size(padded_n as usize);
+        let axons_size = layout::offsets::calculate_axons_blob_size(total_axons).ok_or(
+            RuntimeError::CapacityExceeded {
+                reason: "axons blob size overflow",
+            },
+        )?;
+        let paths_size = layout::offsets::calculate_paths_file_size(total_axons as usize);
+
+        // Allocate host buffers
+        let mut state_bytes = vec![0u8; state_size];
+        let mut axons_bytes = vec![0u8; axons_size];
+        let mut paths_bytes = vec![0u8; paths_size];
+
+        let execute_result = (|| -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+            {
+                let maintenance_mut = compute_api::BackendMaintenanceMut {
+                    state_blob: &mut state_bytes,
+                    axons_blob: &mut axons_bytes,
+                };
+                self.engine
+                    .export_maintenance_state(maintenance_mut)
+                    .map_err(RuntimeError::Compute)?;
+            }
+
+            // Construct NightWorkingViewMut
+            let offsets = layout::offsets::compute_state_offsets(padded_n as usize);
+            let view = layout::NightWorkingViewMut {
+                padded_n,
+                total_axons,
+                total_ghosts,
+                state_blob: &mut state_bytes,
+                axons_blob: &mut axons_bytes,
+                paths_blob: Some(&mut paths_bytes),
+                offsets,
+            };
+
+            let mut source = weaver_daemon::NightBufferSource::HostSlices(view);
+
+            // Execute weaver daemon pipeline
+            let (report, _handovers) = weaver_daemon::run_night_pipeline(job, context, &mut source)
+                .map_err(|e| RuntimeError::General(e.to_string()))?;
+
+            // Import maintenance state
+            {
+                let maintenance_ref = compute_api::BackendMaintenanceRef {
+                    state_blob: &state_bytes,
+                    axons_blob: &axons_bytes,
+                };
+                self.engine
+                    .import_maintenance_state(maintenance_ref)
+                    .map_err(RuntimeError::Compute)?;
+            }
+
+            Ok(report)
+        })();
+
+        match execute_result {
+            Ok(report) => {
+                // Exit maintenance mode
+                self.engine
+                    .exit_maintenance()
+                    .map_err(RuntimeError::Compute)?;
+                Ok(report)
+            }
+            Err(e) => {
+                // On error, DO NOT exit maintenance (fail-closed)
+                Err(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
