@@ -17,6 +17,8 @@ members = [
     "crates/baker-cli",
     "crates/node",
     "crates/ipc",
+    "crates/wire",
+    "crates/weaver-daemon",
 ]
 resolver = "2"
 
