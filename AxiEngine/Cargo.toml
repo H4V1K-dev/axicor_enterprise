@@ -16,6 +16,7 @@ members = [
     "crates/runtime",
     "crates/baker-cli",
     "crates/node",
+    "crates/ipc",
 ]
 resolver = "2"
 

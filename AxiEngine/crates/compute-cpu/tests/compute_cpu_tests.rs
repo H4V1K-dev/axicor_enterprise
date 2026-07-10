@@ -1549,7 +1549,10 @@ fn test_cpu_soma_order_independence() {
 
 #[test]
 fn test_cpu_maintenance_roundtrip() {
-    let mut backend = CpuBackend::new(CpuBackendConfig { thread_count: Some(1) }).unwrap();
+    let mut backend = CpuBackend::new(CpuBackendConfig {
+        thread_count: Some(1),
+    })
+    .unwrap();
     let spec = ShardAllocSpec {
         padded_n: 64,
         total_axons: 10,
@@ -1625,7 +1628,8 @@ fn test_cpu_maintenance_roundtrip() {
         )
         .unwrap();
 
-    let voltage_slice = bytemuck::cast_slice::<u8, i32>(&snap_state[offsets.off_voltage..offsets.off_flags]);
+    let voltage_slice =
+        bytemuck::cast_slice::<u8, i32>(&snap_state[offsets.off_voltage..offsets.off_flags]);
     assert_eq!(voltage_slice[0], 5000);
 
     // 5. Test size mismatch rejection
@@ -1649,4 +1653,3 @@ fn test_cpu_maintenance_roundtrip() {
     );
     assert_eq!(res, Err(ComputeApiError::SizeMismatch));
 }
-
