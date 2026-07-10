@@ -10,8 +10,9 @@ mod simulation;
 pub use config::CpuBackendConfig;
 
 use compute_api::{
-    validation, BackendCapabilities, BackendKind, BatchResult, ComputeApiError, ComputeBackend,
-    DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload, VramHandle,
+    validation, BackendCapabilities, BackendKind, BackendMaintenanceMut, BackendMaintenanceRef,
+    BatchResult, ComputeApiError, ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut,
+    ShardUpload, VramHandle,
 };
 use resource::ResourceRegistry;
 use std::sync::Mutex;
@@ -139,6 +140,60 @@ impl ComputeBackend for CpuBackend {
         snapshot
             .axons_blob
             .copy_from_slice(resource.axons_blob.as_slice());
+
+        Ok(())
+    }
+
+    fn export_maintenance_state(
+        &mut self,
+        handle: VramHandle,
+        maintenance: BackendMaintenanceMut<'_>,
+    ) -> Result<(), ComputeApiError> {
+        let mut registry = self
+            .registry
+            .lock()
+            .map_err(|_| ComputeApiError::DeviceLost)?;
+        let resource = registry.get_resource_mut(handle)?;
+        if !resource.uploaded {
+            return Err(ComputeApiError::InvalidDebugProbeBounds);
+        }
+
+        validation::validate_maintenance_export(&resource.spec, &maintenance)?;
+
+        maintenance
+            .state_blob
+            .copy_from_slice(resource.state_blob.as_slice());
+        maintenance
+            .axons_blob
+            .copy_from_slice(resource.axons_blob.as_slice());
+
+        Ok(())
+    }
+
+    fn import_maintenance_state(
+        &mut self,
+        handle: VramHandle,
+        maintenance: BackendMaintenanceRef<'_>,
+    ) -> Result<(), ComputeApiError> {
+        let mut registry = self
+            .registry
+            .lock()
+            .map_err(|_| ComputeApiError::DeviceLost)?;
+        let resource = registry.get_resource_mut(handle)?;
+        if !resource.uploaded {
+            return Err(ComputeApiError::InvalidDebugProbeBounds);
+        }
+
+        validation::validate_maintenance_import(&resource.spec, &maintenance)?;
+
+        resource
+            .state_blob
+            .as_slice_mut()
+            .copy_from_slice(maintenance.state_blob);
+        resource
+            .axons_blob
+            .as_slice_mut()
+            .copy_from_slice(maintenance.axons_blob);
 
         Ok(())
     }
