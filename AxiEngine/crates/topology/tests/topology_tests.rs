@@ -1861,3 +1861,157 @@ fn test_topology_formation_huge_radius_saturates() {
     // Shard is fully covered, so target 1 (TypeB) should receive synapses.
     assert!(!plan.rows[1].slots.is_empty());
 }
+
+#[test]
+fn test_sprout_ranking_logic() {
+    use core::cmp::Ordering;
+    use topology::night_planning::{cmp_rank, SproutRankKey};
+
+    let k1 = SproutRankKey {
+        score_fixed: 1000,
+        power_fixed: 50,
+        target_soma_id: 10,
+        dendrite_slot: 0,
+    };
+    // Higher score has priority (comes first/is greater, so cmp_rank (k2, k1) should be Ordering::Less)
+    let k2 = SproutRankKey {
+        score_fixed: 2000,
+        power_fixed: 50,
+        target_soma_id: 10,
+        dendrite_slot: 0,
+    };
+    assert_eq!(cmp_rank(&k1, &k2), Ordering::Greater); // k1 < k2, so a < b returns Greater because we sort DESC on score
+
+    // Same score, higher power DESC
+    let k3 = SproutRankKey {
+        score_fixed: 1000,
+        power_fixed: 60,
+        target_soma_id: 10,
+        dendrite_slot: 0,
+    };
+    assert_eq!(cmp_rank(&k1, &k3), Ordering::Greater);
+
+    // Same score/power, target_soma_id ASC
+    let k4 = SproutRankKey {
+        score_fixed: 1000,
+        power_fixed: 50,
+        target_soma_id: 5,
+        dendrite_slot: 0,
+    };
+    assert_eq!(cmp_rank(&k1, &k4), Ordering::Greater); // k1 (soma 10) vs k4 (soma 5) -> 10 > 5 -> Greater
+
+    // Same score/power/soma, slot ASC
+    let k5 = SproutRankKey {
+        score_fixed: 1000,
+        power_fixed: 50,
+        target_soma_id: 10,
+        dendrite_slot: 1,
+    };
+    assert_eq!(cmp_rank(&k1, &k5), Ordering::Less); // k1 (slot 0) vs k5 (slot 1) -> 0 < 1 -> Less
+}
+
+#[test]
+fn test_compute_power_fixed() {
+    use topology::night_planning::compute_power_fixed;
+    // 128 elements
+    let mut weights = [0i32; 128];
+    for w in weights.iter_mut() {
+        *w = 128;
+    }
+    // average = 128 * 128 / 128 = 128. Clamp to 65535.
+    assert_eq!(compute_power_fixed(&weights), 128);
+
+    // Absolute values used
+    for (i, w) in weights.iter_mut().enumerate() {
+        if i % 2 == 0 {
+            *w = -200;
+        } else {
+            *w = 200;
+        }
+    }
+    // average = 200
+    assert_eq!(compute_power_fixed(&weights), 200);
+
+    // Clamp
+    for w in weights.iter_mut() {
+        *w = 100000;
+    }
+    // average = 100000. min(65535, 100000) = 65535
+    assert_eq!(compute_power_fixed(&weights), 65535);
+}
+
+#[test]
+fn test_sprout_scoring_fixed_point() {
+    use topology::night_planning::{compute_sprout_score, SproutWeightParams};
+    let params = SproutWeightParams {
+        w_distance: 100,
+        w_power: 50,
+        w_explore: 10,
+    };
+
+    let score = compute_sprout_score(&params, 5, 20, 10).unwrap();
+    // 10 * 5 + 100 * 20 + 50 * 10 = 50 + 2000 + 500 = 2550
+    assert_eq!(score, 2550);
+
+    // Overflow check
+    let params_huge = SproutWeightParams {
+        w_distance: u32::MAX,
+        w_power: u32::MAX,
+        w_explore: u32::MAX,
+    };
+    let score_overflow = compute_sprout_score(&params_huge, 65535, u32::MAX, 65535);
+    assert!(score_overflow.is_none());
+}
+
+#[test]
+fn test_compaction_plan_construction() {
+    use topology::night_planning::build_compaction_plan;
+    use types::PackedTarget;
+
+    // targets array of size 128
+    let mut targets = [PackedTarget::NONE; 128];
+    // Populate some active/inactive targets
+    targets[0] = PackedTarget::pack(1, 0); // Active
+    targets[1] = PackedTarget::TOMBSTONE; // Inactive
+    targets[2] = PackedTarget::pack(2, 0); // Active
+    targets[3] = PackedTarget::NONE; // Inactive
+    targets[4] = PackedTarget::pack(3, 0); // Active
+
+    let plan = build_compaction_plan(&targets);
+
+    // Moves should be:
+    // index 2 -> 1
+    // index 4 -> 2
+    assert_eq!(plan.moves, vec![(2, 1), (4, 2)]);
+    // Total active = 3. limit = 128. tail_clear_count = 128 - 3 = 125.
+    assert_eq!(plan.tail_clear_count, 125);
+}
+
+#[test]
+fn test_choose_dendrite_slot() {
+    use topology::night_planning::choose_dendrite_slot;
+    use types::PackedTarget;
+
+    let mut targets = [PackedTarget::pack(1, 0); 128];
+    // All active
+    assert_eq!(choose_dendrite_slot(&targets), None);
+
+    // Slot 5 inactive
+    targets[5] = PackedTarget::NONE;
+    assert_eq!(choose_dendrite_slot(&targets), Some(5));
+
+    // Slot 2 tombstone (takes priority as first)
+    targets[2] = PackedTarget::TOMBSTONE;
+    assert_eq!(choose_dendrite_slot(&targets), Some(2));
+}
+
+#[test]
+fn test_pruning_plan_construction() {
+    use topology::night_planning::plan_pruning;
+
+    let weights = [0, 5, 20, 2, -3, -15, 8];
+    // Threshold 6. Abs weights: [0, 5, 20, 2, 3, 15, 8]
+    // Weights to prune (w != 0 and abs(w) < 6): 5 (idx 1), 2 (idx 3), -3 (idx 4)
+    let prune_plan = plan_pruning(&weights, 6);
+    assert_eq!(prune_plan, vec![1, 3, 4]);
+}
