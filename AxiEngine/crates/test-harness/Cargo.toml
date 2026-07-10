@@ -41,3 +41,12 @@ hip = []
 facade = ["dep:compute", "compute/cpu"]
 cuda-native = ["facade", "compute/cuda-native"]
 
+[[test]]
+name = "legacy_baseline"
+required-features = ["legacy-baseline"]
+
+[[example]]
+name = "heatmap_experiment"
+required-features = ["mvp-cpu-replay"]
+
+

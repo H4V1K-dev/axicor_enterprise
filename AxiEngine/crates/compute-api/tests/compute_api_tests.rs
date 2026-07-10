@@ -838,3 +838,55 @@ fn test_validate_day_batch_cmd_tick_overflow() {
 
     assert!(validation::validate_day_batch_cmd(&cmd_ok).is_ok());
 }
+
+#[test]
+fn test_validate_maintenance_export_import() {
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 100,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = expected_axons_blob_size(100).unwrap();
+
+    let mut state_buf = vec![0u8; state_size];
+    let mut axons_buf = vec![0u8; axons_size];
+
+    // Valid export/import
+    let maint_mut = BackendMaintenanceMut {
+        state_blob: &mut state_buf,
+        axons_blob: &mut axons_buf,
+    };
+    assert!(validate_maintenance_export(&spec, &maint_mut).is_ok());
+
+    let maint_ref = BackendMaintenanceRef {
+        state_blob: &state_buf,
+        axons_blob: &axons_buf,
+    };
+    assert!(validate_maintenance_import(&spec, &maint_ref).is_ok());
+
+    // Invalid state size
+    let mut state_buf_bad = vec![0u8; state_size + 1];
+    let maint_bad_state = BackendMaintenanceMut {
+        state_blob: &mut state_buf_bad,
+        axons_blob: &mut axons_buf,
+    };
+    assert_eq!(
+        validate_maintenance_export(&spec, &maint_bad_state),
+        Err(ComputeApiError::SizeMismatch)
+    );
+
+    // Invalid axons size
+    let axons_buf_bad = vec![0u8; axons_size - 1];
+    let maint_bad_axons = BackendMaintenanceRef {
+        state_blob: &state_buf,
+        axons_blob: &axons_buf_bad,
+    };
+
+    assert_eq!(
+        validate_maintenance_import(&spec, &maint_bad_axons),
+        Err(ComputeApiError::SizeMismatch)
+    );
+}

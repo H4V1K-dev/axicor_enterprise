@@ -8,6 +8,7 @@
 
 pub mod burst;
 pub mod constants;
+pub mod error;
 pub mod headers;
 pub mod offsets;
 pub mod variant;
@@ -15,6 +16,7 @@ pub mod vram;
 
 pub use burst::*;
 pub use constants::*;
+pub use error::*;
 pub use headers::*;
 pub use offsets::*;
 pub use variant::*;

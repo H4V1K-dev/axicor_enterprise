@@ -86,3 +86,33 @@ impl PathsFileHeader {
         }
     }
 }
+
+/// Shared memory segment header (64 bytes, 64-byte aligned).
+#[repr(C, align(64))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct ShmHeader {
+    /// Four-byte file type magic identifier, strictly `*b"AXSM"`.
+    pub magic: [u8; 4],
+    /// Binary format version number (1).
+    pub version: u32,
+    /// Atomic state of the CAS SM: Idle(0), NightStart(1), Sprouting(2), NightDone(3), Error(4).
+    pub state: u32,
+    /// Aligned count of soma neurons (padded_n).
+    pub padded_n: u32,
+    /// Total count of active axons in the shard.
+    pub total_axons: u32,
+    /// Total count of ghost axons in inter-shard communication planes.
+    pub total_ghosts: u32,
+    /// Hash of the allocation zone / configuration identifier.
+    pub zone_hash: u32,
+    /// Explicit padding bytes to align u64 fields and reach 64 bytes structure size.
+    pub _pad0: [u8; 4],
+    /// Byte offset of SoA planes in SHM.
+    pub off_state_blob: u64,
+    /// Byte offset of the circular axon burst heads buffer.
+    pub off_axons_blob: u64,
+    /// Byte offset of the mutable paths trace buffer.
+    pub off_paths_blob: u64,
+    /// Calculated total byte size of the SHM segment including all plane alignments.
+    pub total_size: u64,
+}

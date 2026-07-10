@@ -1,7 +1,10 @@
 //! Hardware abstraction layer (HAL) trait definition for compute execution backends.
 
 use crate::capabilities::BackendCapabilities;
-use crate::dto::{BatchResult, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload};
+use crate::dto::{
+    BackendMaintenanceMut, BackendMaintenanceRef, BatchResult, DayBatchCmd, ShardAllocSpec,
+    ShardSnapshotMut, ShardUpload,
+};
 use crate::error::ComputeApiError;
 use crate::handle::VramHandle;
 use crate::kind::BackendKind;
@@ -44,6 +47,28 @@ pub trait ComputeBackend {
         &mut self,
         _handle: VramHandle,
         _snapshot: ShardSnapshotMut<'_>,
+    ) -> Result<(), ComputeApiError> {
+        Err(ComputeApiError::UnsupportedFeature)
+    }
+
+    /// Exports the current simulation state from VRAM to host memory buffers for maintenance.
+    ///
+    /// Default implementation returns `Err(ComputeApiError::UnsupportedFeature)`.
+    fn export_maintenance_state(
+        &mut self,
+        _handle: VramHandle,
+        _maintenance: BackendMaintenanceMut<'_>,
+    ) -> Result<(), ComputeApiError> {
+        Err(ComputeApiError::UnsupportedFeature)
+    }
+
+    /// Imports the updated simulation state from host memory buffers back into VRAM.
+    ///
+    /// Default implementation returns `Err(ComputeApiError::UnsupportedFeature)`.
+    fn import_maintenance_state(
+        &mut self,
+        _handle: VramHandle,
+        _maintenance: BackendMaintenanceRef<'_>,
     ) -> Result<(), ComputeApiError> {
         Err(ComputeApiError::UnsupportedFeature)
     }

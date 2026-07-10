@@ -1,5 +1,7 @@
 //! Golden Tests suite for the compute facade.
 
+#[cfg(feature = "mock")]
+use bytemuck::Zeroable;
 #[cfg(any(feature = "cpu", feature = "mock"))]
 use compute::LifecycleState;
 use compute::{BackendPreference, ComputeError, ShardEngine};
@@ -524,4 +526,77 @@ fn test_cuda_native_backend_lifecycle_and_dispatch() {
     // Verify teardown
     engine.teardown().unwrap();
     assert_eq!(engine.state(), LifecycleState::TornDown);
+}
+
+#[test]
+#[cfg(feature = "mock")]
+fn test_maintenance_lifecycle() {
+    let mut engine = ShardEngine::new(BackendPreference::Mock).unwrap();
+    let spec = compute_api::ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 2,
+        total_ghosts: 0,
+        virtual_offset: 100,
+    };
+
+    engine.alloc_shard(spec).unwrap();
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = compute_api::expected_axons_blob_size(2).unwrap();
+
+    let state_blob = vec![0u8; state_size];
+    let axons_blob = vec![0u8; axons_size];
+
+    let variant_table = [layout::VariantParameters::zeroed(); layout::VARIANT_LUT_LEN];
+    let upload = compute_api::ShardUpload {
+        state_blob: &state_blob,
+        axons_blob: &axons_blob,
+        variant_table: &variant_table,
+    };
+    engine.upload_shard(upload).unwrap();
+    assert_eq!(engine.state(), LifecycleState::Running);
+
+    // 1. Enter maintenance
+    engine.enter_maintenance().unwrap();
+    assert_eq!(engine.state(), LifecycleState::Maintenance);
+
+    // 2. Reject Day Batch in maintenance
+    let mut out_counts = [0u32; 1];
+    let mut out_spikes = [0u32; 10];
+    let cmd = compute_api::DayBatchCmd {
+        tick_base: 0,
+        sync_batch_ticks: 1,
+        v_seg: 1,
+        dopamine: 0,
+        input_words_per_tick: 0,
+        max_spikes_per_tick: 10,
+        num_outputs: 0,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_bitmask: None,
+        incoming_spikes: None,
+        incoming_spike_counts: &[0],
+        mapped_soma_ids: &[],
+        output_spikes: &mut out_spikes,
+        output_spike_counts: &mut out_counts,
+    };
+    assert!(engine.run_day_batch(cmd).is_err());
+
+    // 3. Export / Import in maintenance
+    let mut state_exp = vec![0u8; state_size];
+    let mut axons_exp = vec![0u8; axons_size];
+    let maint_export = compute_api::BackendMaintenanceMut {
+        state_blob: &mut state_exp,
+        axons_blob: &mut axons_exp,
+    };
+    engine.export_maintenance_state(maint_export).unwrap();
+
+    let maint_import = compute_api::BackendMaintenanceRef {
+        state_blob: &state_exp,
+        axons_blob: &axons_exp,
+    };
+    engine.import_maintenance_state(maint_import).unwrap();
+
+    // 4. Exit maintenance
+    engine.exit_maintenance().unwrap();
+    assert_eq!(engine.state(), LifecycleState::Running);
 }

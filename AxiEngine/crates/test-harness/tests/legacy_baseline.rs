@@ -1,3 +1,5 @@
+#![cfg(feature = "legacy-baseline")]
+
 use baker::{bake_local_shard, pack_local_shard_artifacts, LocalShardBakeInput};
 use boot::{bootstrap_local_shard_engine, LocalShardComputeInput};
 use config::{LayerConfig, NeuronTypeDistribution, ShardConfig, ShardDimensions, ShardSettings};

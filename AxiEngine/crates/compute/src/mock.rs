@@ -2,9 +2,10 @@
 
 use compute_api::{
     expected_axons_blob_size, validate_alloc_spec, validate_day_batch_cmd,
-    validate_snapshot_buffers, validate_upload, BackendCapabilities, BackendKind, BatchResult,
-    ComputeApiError, ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload,
-    VramHandle,
+    validate_maintenance_export, validate_maintenance_import, validate_snapshot_buffers,
+    validate_upload, BackendCapabilities, BackendKind, BackendMaintenanceMut,
+    BackendMaintenanceRef, BatchResult, ComputeApiError, ComputeBackend, DayBatchCmd,
+    ShardAllocSpec, ShardSnapshotMut, ShardUpload, VramHandle,
 };
 use std::num::NonZeroU64;
 
@@ -257,6 +258,92 @@ impl ComputeBackend for MockBackend {
                 validate_snapshot_buffers(spec, &snapshot)?;
                 snapshot.state_blob.copy_from_slice(state_blob);
                 snapshot.axons_blob.copy_from_slice(axons_blob);
+                Ok(())
+            }
+            ResourceSlot::Freed { generation } => {
+                if *generation == handle.generation() {
+                    Err(ComputeApiError::AlreadyFreed)
+                } else {
+                    Err(ComputeApiError::InvalidHandle)
+                }
+            }
+            ResourceSlot::Empty => Err(ComputeApiError::InvalidHandle),
+        }
+    }
+
+    fn export_maintenance_state(
+        &mut self,
+        handle: VramHandle,
+        maintenance: BackendMaintenanceMut<'_>,
+    ) -> Result<(), ComputeApiError> {
+        if self.is_teardown {
+            return Err(ComputeApiError::BackendNotInitialized);
+        }
+        if handle.kind() != BackendKind::Mock {
+            return Err(ComputeApiError::ForeignHandle);
+        }
+
+        let slot_idx = (handle.id().get() - 1) as usize;
+        if slot_idx >= self.slots.len() {
+            return Err(ComputeApiError::InvalidHandle);
+        }
+
+        match &self.slots[slot_idx] {
+            ResourceSlot::Occupied {
+                generation,
+                spec,
+                state_blob,
+                axons_blob,
+            } => {
+                if *generation != handle.generation() {
+                    return Err(ComputeApiError::InvalidHandle);
+                }
+                validate_maintenance_export(spec, &maintenance)?;
+                maintenance.state_blob.copy_from_slice(state_blob);
+                maintenance.axons_blob.copy_from_slice(axons_blob);
+                Ok(())
+            }
+            ResourceSlot::Freed { generation } => {
+                if *generation == handle.generation() {
+                    Err(ComputeApiError::AlreadyFreed)
+                } else {
+                    Err(ComputeApiError::InvalidHandle)
+                }
+            }
+            ResourceSlot::Empty => Err(ComputeApiError::InvalidHandle),
+        }
+    }
+
+    fn import_maintenance_state(
+        &mut self,
+        handle: VramHandle,
+        maintenance: BackendMaintenanceRef<'_>,
+    ) -> Result<(), ComputeApiError> {
+        if self.is_teardown {
+            return Err(ComputeApiError::BackendNotInitialized);
+        }
+        if handle.kind() != BackendKind::Mock {
+            return Err(ComputeApiError::ForeignHandle);
+        }
+
+        let slot_idx = (handle.id().get() - 1) as usize;
+        if slot_idx >= self.slots.len() {
+            return Err(ComputeApiError::InvalidHandle);
+        }
+
+        match &mut self.slots[slot_idx] {
+            ResourceSlot::Occupied {
+                generation,
+                spec,
+                state_blob,
+                axons_blob,
+            } => {
+                if *generation != handle.generation() {
+                    return Err(ComputeApiError::InvalidHandle);
+                }
+                validate_maintenance_import(spec, &maintenance)?;
+                state_blob.copy_from_slice(maintenance.state_blob);
+                axons_blob.copy_from_slice(maintenance.axons_blob);
                 Ok(())
             }
             ResourceSlot::Freed { generation } => {
