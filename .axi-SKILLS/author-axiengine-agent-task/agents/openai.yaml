@@ -1,0 +1,4 @@
+interface:
+  display_name: "AxiEngine Task Authoring"
+  short_description: "Turn project intent into executable agent tasks"
+  default_prompt: "Use $author-axiengine-agent-task to turn this AxiEngine objective into a bounded, evidence-backed, and verifiable agent task."

@@ -91,6 +91,12 @@ Record exact commands, revisions when available, random seeds, feature flags, in
 
 If an execution defect invalidates the experiment, label the run invalid rather than negative. Correct the experiment and rerun the same preregistered gate without rewriting its original expectation.
 
+For parity, transfer, replay, and legacy-comparison probes, compare the complete semantic path required by the claim, not only the arithmetic extracted from an inner function body. Read and map preconditions, early exits, state gates, sentinel handling, conversions, clamping, and postconditions on both sides. Before running, record an input-equivalence table with one row per relevant state or parameter and classify it as mapped, held fixed, intentionally different, or omitted. Use `identical inputs` only when every claim-relevant input and control-flow gate is mapped.
+
+Treat a green research runner as execution evidence only. Add sanity assertions or independent output validation for fixture construction, branch selection, row count, and known reference cases. The scientific verdict comes from the preserved measurements and preregistered rule, not from the cargo exit code.
+
+When correcting an invalid runner, preserve the invalid result or a compact correction record, state why inference was impossible, identify the semantic change, and rerun the unchanged gate. Do not silently replace the original table with a clean history.
+
 ## Analyze and diagnose
 
 Separate three layers:
@@ -100,6 +106,8 @@ Separate three layers:
 3. **Decided**: the gate verdict and the resulting project action.
 
 Compare every primary condition with its baseline and controls. Report effect sizes and units, not only PASS/FAIL. Apply the evidence vocabulary from `RULES.md` conservatively.
+
+Keep each verdict inside its gate's decision boundary. A component-level mismatch may identify a candidate mechanism, but it does not establish a downstream behavioral, biological, performance, or architectural consequence reserved for a later gate. Phrase that bridge as a hypothesis and route it to the next discriminating experiment.
 
 Classify the next bottleneck as one of:
 

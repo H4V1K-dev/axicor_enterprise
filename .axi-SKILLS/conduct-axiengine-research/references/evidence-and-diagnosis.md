@@ -36,6 +36,20 @@ Maintain a compact cumulative table for gates or runs:
 
 Link each row to exact commands and durable evidence. Keep repeated seeds and conditions together instead of creating version folders.
 
+## Parity and transfer evidence
+
+Before calling two executions comparable, map the complete claim-relevant path:
+
+| Semantic input | System A | System B | Relation | Evidence |
+|---|---|---|---|---|
+| Value or state | Exact source | Exact source | mapped / fixed / different / omitted | path and line/function |
+
+Include outer control flow as input semantics: lifecycle state, enable flags, timer or refractory gates, early `continue`/`return`, sentinels, invalid-input handling, unit conversion, clamping, and mutation timing. If a helper ports only inner arithmetic, name it as such and do not claim whole-path parity.
+
+Require at least one sanity check that proves each intended branch was actually entered. A successful runner with no assertions or independent output validation proves only that execution completed.
+
+If the first probe is invalid, retain an evidence-ledger row or correction note with the original result, defect, and rerun identity. Never make the corrected result appear to have been the original observation.
+
 ## Verdict discipline
 
 - Use `observed` for a direct single-run fact.
@@ -48,6 +62,8 @@ Link each row to exact commands and durable evidence. Keep repeated seeds and co
 - Use `invalid` when execution or design prevents inference.
 
 State conditions and scope with every strong verdict.
+
+Do not promote a local mechanism into its downstream consequence. For example, a slot-update mismatch can support `the rules differ` and motivate a task-like counter audit; it cannot by itself support `this mismatch caused behavioral failure`.
 
 ## Bottleneck routing
 
@@ -80,4 +96,3 @@ Before promotion, record:
 - unresolved limitations.
 
 After an authorized production change, rerun the research gate against the production path and update the narrative with the result.
-

@@ -58,6 +58,15 @@ foreach ($file in $files) {
         Select-String -LiteralPath $file -Pattern '(?i)\b(?:stage\s+[A-Z0-9]|LP-\d+|PR-[A-Z0-9-]+|T\d{3,})\b' | ForEach-Object {
             Write-Warning "${file}:$($_.LineNumber): possible task or stage label in production source"
         }
+        Select-String -LiteralPath $file -Pattern '["''][A-Za-z]:[\\/]|file:///' | ForEach-Object {
+            Write-Warning "${file}:$($_.LineNumber): machine-specific absolute path in Rust source"
+        }
+        Select-String -LiteralPath $file -Pattern '(?i)^\s*//.*\bagent\b' | ForEach-Object {
+            Write-Warning "${file}:$($_.LineNumber): agent-oriented comment; describe the technical purpose instead"
+        }
+        if ($file -match '(?i)[\\/]tests[\\/]' -and (Select-String -LiteralPath $file -Pattern '\b(?:std::fs::write|File::create|OpenOptions::new)\s*\(' -Quiet)) {
+            Write-Warning "${file}: test source writes files; verify hermetic behavior, portable paths, and whether this belongs in an explicit research runner"
+        }
     }
     elseif ((Split-Path -Leaf $file) -eq 'Cargo.toml') {
         Write-Warning "${file}: manifest changed; inspect dependency, feature, pinning, and downstream feature-forwarding impact"

@@ -736,3 +736,424 @@ fn test_stdp_golden_matrix_comprehensive() {
     );
     assert_eq!(w_burst_3, 1180);
 }
+
+#[allow(clippy::too_many_arguments)]
+fn legacy_apply_gsop_slot_math(
+    w: i32,
+    heads: &[u32; 8],
+    seg_idx: u32,
+    prop: u32,
+    dopamine: i16,
+    gsop_potentiation: i32,
+    gsop_depression: i32,
+    d1_affinity: i32,
+    d2_affinity: i32,
+    burst_count: u32,
+    inertia_curve: &[i32; 8],
+    timer: u8,
+) -> i32 {
+    if timer > 0 {
+        return w;
+    }
+
+    let is_active = ((heads[0].wrapping_sub(seg_idx) <= prop) as i32)
+        | ((heads[1].wrapping_sub(seg_idx) <= prop) as i32)
+        | ((heads[2].wrapping_sub(seg_idx) <= prop) as i32)
+        | ((heads[3].wrapping_sub(seg_idx) <= prop) as i32)
+        | ((heads[4].wrapping_sub(seg_idx) <= prop) as i32)
+        | ((heads[5].wrapping_sub(seg_idx) <= prop) as i32)
+        | ((heads[6].wrapping_sub(seg_idx) <= prop) as i32)
+        | ((heads[7].wrapping_sub(seg_idx) <= prop) as i32);
+
+    let sign = if w >= 0 { 1 } else { -1 };
+    let abs_w = w.abs();
+
+    let mut rank = (abs_w >> 28) as usize;
+    if rank > 7 {
+        rank = 7;
+    }
+    let inertia = inertia_curve[rank];
+
+    let pot_mod = ((dopamine as i32) * d1_affinity) >> 7;
+    let dep_mod = ((dopamine as i32) * d2_affinity) >> 7;
+
+    let raw_pot = gsop_potentiation + pot_mod;
+    let raw_dep = gsop_depression - dep_mod;
+
+    let final_pot = raw_pot & !(raw_pot >> 31);
+    let final_dep = raw_dep & !(raw_dep >> 31);
+
+    let burst_mult = if burst_count > 0 {
+        burst_count as i32
+    } else {
+        1
+    };
+
+    let delta_pot = (final_pot * inertia * burst_mult) >> 7;
+    let delta_dep = (final_dep * inertia * burst_mult) >> 7;
+
+    let mut delta = if is_active != 0 {
+        delta_pot
+    } else {
+        -delta_dep
+    };
+
+    delta = (delta * 128) >> 7;
+
+    let mut new_abs = abs_w + delta;
+    new_abs &= !(new_abs >> 31);
+    if new_abs > 2_140_000_000 {
+        new_abs = 2_140_000_000;
+    }
+
+    new_abs * sign
+}
+
+#[test]
+fn test_gsop_parity_probe() {
+    let w_init = 3500 << 16;
+    let gsop_pot = 240;
+    let gsop_dep = 68;
+    let d1_aff = 192;
+    let d2_aff = 128;
+    let inertia_curve = [128, 121, 116, 110, 105, 100, 95, 91];
+    let burst_count = 1;
+    let prop = 20;
+    let seg_idx = 100;
+
+    let head_cases = [
+        (
+            "Case A (Causal Only)",
+            [
+                110,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+            ],
+        ),
+        (
+            "Case B (Anti-Causal Only)",
+            [
+                90,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+            ],
+        ),
+        (
+            "Case C (Both)",
+            [
+                110,
+                90,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+                AXON_SENTINEL,
+            ],
+        ),
+        ("Case D (Inactive)", [AXON_SENTINEL; 8]),
+    ];
+
+    let dopamine_cases = [0, 50];
+    let fatigue_cases = [(0, 18), (18, 18)];
+
+    let mut markdown = String::new();
+    markdown.push_str("| Case | Dopamine | Fatigue/Cap | Legacy Delta | Axi Delta | Equal? |\n");
+    markdown.push_str("|---|---|---|---|---|---|\n");
+
+    for (case_name, heads) in &head_cases {
+        for &da in &dopamine_cases {
+            for &(fat, cap) in &fatigue_cases {
+                let w_legacy_final = legacy_apply_gsop_slot_math(
+                    w_init,
+                    heads,
+                    seg_idx,
+                    prop,
+                    da as i16,
+                    gsop_pot,
+                    gsop_dep,
+                    d1_aff,
+                    d2_aff,
+                    burst_count,
+                    &inertia_curve,
+                    fat,
+                );
+
+                let w_axi_final = apply_gsop_plasticity(
+                    w_init,
+                    heads,
+                    seg_idx,
+                    prop,
+                    fat,
+                    cap,
+                    gsop_pot,
+                    gsop_dep,
+                    da,
+                    d1_aff,
+                    d2_aff,
+                    burst_count,
+                    &inertia_curve,
+                );
+
+                let delta_legacy = w_legacy_final - w_init;
+                let delta_axi = w_axi_final - w_init;
+                let equal = w_legacy_final == w_axi_final;
+
+                markdown.push_str(&format!(
+                    "| {} | {} | {}/{} | {} | {} | {} |\n",
+                    case_name,
+                    da,
+                    fat,
+                    cap,
+                    delta_legacy,
+                    delta_axi,
+                    if equal { "YES" } else { "NO" }
+                ));
+            }
+        }
+    }
+
+    // Optional durable table: repo-relative artifacts/ when present (never host-absolute).
+    println!("{markdown}");
+    let mut artifacts_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // crates/physics -> crates -> AxiEngine -> workspace root
+    artifacts_dir.pop();
+    artifacts_dir.pop();
+    artifacts_dir.pop();
+    artifacts_dir.push("artifacts");
+    if artifacts_dir.is_dir() {
+        let file_path = artifacts_dir.join("gsop_da_transfer_audit_table.md");
+        std::fs::write(&file_path, &markdown).expect("write H1 parity table");
+        println!("Wrote results to {}", file_path.display());
+    }
+}
+
+#[test]
+fn test_gsop_h2_event_counters_wash() {
+    struct SimpleRng {
+        state: u64,
+    }
+    impl SimpleRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+        fn next_u32(&mut self) -> u32 {
+            self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (self.state >> 32) as u32
+        }
+        fn next_f32(&mut self) -> f32 {
+            (self.next_u32() & 0xffffff) as f32 / 16777216.0
+        }
+    }
+
+    let w_init = 3500 << 16;
+    let gsop_pot = 240;
+    let gsop_dep = 68;
+    let fatigue_capacity = 18;
+    let d1_aff = 192;
+    let d2_aff = 128;
+    let inertia_curve = [128, 121, 116, 110, 105, 100, 95, 91];
+    let burst_count = 1;
+    let prop = 20;
+    let seg_idx = 10;
+
+    let postsynaptic_spikes = [40, 120, 200];
+
+    let conditions = [
+        ("Normal", 50, true),
+        ("DA-off", 0, true),
+        ("Plasticity-off", 50, false),
+    ];
+
+    let mut markdown = String::new();
+    markdown.push_str("| Condition | Synapse Class | LTP Count | LTD Count | Sum LTP | Sum LTD | Net Change | Wash Index | Mean Net Change |\n");
+    markdown.push_str("|---|---|---|---|---|---|---|---|---|\n");
+
+    for (cond_name, dopamine, plasticity_enabled) in &conditions {
+        let mut rng = SimpleRng::new(42);
+
+        let mut m_ltp_count = 0;
+        let mut m_ltd_count = 0;
+        let mut m_ltp_mass = 0i64;
+        let mut m_ltd_mass = 0i64;
+        let mut matched_net_mass = 0i64;
+
+        let mut u_ltp_count = 0;
+        let mut u_ltd_count = 0;
+        let mut u_ltp_mass = 0i64;
+        let mut u_ltd_mass = 0i64;
+        let mut unmatched_net_mass = 0i64;
+
+        let num_trials = 100;
+
+        for _trial in 0..num_trials {
+            let mut weights = vec![w_init; 12];
+            let mut fatigue = vec![0u8; 12];
+            let mut heads = vec![[AXON_SENTINEL; 8]; 12];
+
+            for t in 0..330 {
+                // 1. Recover fatigue
+                for fat in fatigue.iter_mut() {
+                    *fat = fat.saturating_sub(1);
+                }
+
+                // 2. Propagate heads
+                for h_arr in heads.iter_mut() {
+                    for h in h_arr.iter_mut() {
+                        if *h != AXON_SENTINEL {
+                            *h = h.wrapping_add(1);
+                        }
+                    }
+                }
+
+                // 3. Generate presynaptic spikes (during 0..20 for matched)
+                if t <= 20 {
+                    for syn_idx in 0..12 {
+                        let is_matched = syn_idx < 7;
+                        if is_matched {
+                            if rng.next_f32() < 0.1100 {
+                                let h_arr = &mut heads[syn_idx];
+                                h_arr[7] = h_arr[6];
+                                h_arr[6] = h_arr[5];
+                                h_arr[5] = h_arr[4];
+                                h_arr[4] = h_arr[3];
+                                h_arr[3] = h_arr[2];
+                                h_arr[2] = h_arr[1];
+                                h_arr[1] = h_arr[0];
+                                h_arr[0] = 0;
+
+                                fatigue[syn_idx] = fatigue[syn_idx]
+                                    .saturating_add(50)
+                                    .min(fatigue_capacity);
+                            }
+                        }
+                    }
+                }
+
+                // 4. Apply plasticity at postsynaptic spikes
+                if postsynaptic_spikes.contains(&t) {
+                    for syn_idx in 0..12 {
+                        let old_w = weights[syn_idx];
+                        let is_matched = syn_idx < 7;
+
+                        let new_w = if *plasticity_enabled {
+                            apply_gsop_plasticity(
+                                old_w,
+                                &heads[syn_idx],
+                                seg_idx,
+                                prop,
+                                fatigue[syn_idx],
+                                fatigue_capacity,
+                                gsop_pot,
+                                gsop_dep,
+                                *dopamine,
+                                d1_aff,
+                                d2_aff,
+                                burst_count,
+                                &inertia_curve,
+                            )
+                        } else {
+                            old_w
+                        };
+
+                        weights[syn_idx] = new_w;
+                        let delta = (new_w - old_w) as i64;
+
+                        if is_matched {
+                            if delta > 0 {
+                                m_ltp_count += 1;
+                                m_ltp_mass += delta;
+                            } else if delta < 0 {
+                                m_ltd_count += 1;
+                                m_ltd_mass += delta;
+                            }
+                            matched_net_mass += delta;
+                        } else {
+                            if delta > 0 {
+                                u_ltp_count += 1;
+                                u_ltp_mass += delta;
+                            } else if delta < 0 {
+                                u_ltd_count += 1;
+                                u_ltd_mass += delta;
+                            }
+                            unmatched_net_mass += delta;
+                        }
+                    }
+                }
+            }
+        }
+
+        let m_denom = m_ltp_mass + m_ltd_mass.abs();
+        let m_wash = if m_denom > 0 {
+            1.0 - (matched_net_mass.abs() as f64 / m_denom as f64)
+        } else {
+            0.0
+        };
+        let m_mean_net = matched_net_mass as f64 / (num_trials * 7) as f64;
+
+        let u_denom = u_ltp_mass + u_ltd_mass.abs();
+        let u_wash = if u_denom > 0 {
+            1.0 - (unmatched_net_mass.abs() as f64 / u_denom as f64)
+        } else {
+            0.0
+        };
+        let u_mean_net = unmatched_net_mass as f64 / (num_trials * 5) as f64;
+
+        // Sanity: control and delayed-post branch selection (execution proof beyond cargo exit).
+        if !*plasticity_enabled {
+            assert_eq!(m_ltp_count, 0);
+            assert_eq!(m_ltd_count, 0);
+            assert_eq!(m_ltp_mass, 0);
+            assert_eq!(m_ltd_mass, 0);
+            assert_eq!(matched_net_mass, 0);
+            assert_eq!(u_ltp_count, 0);
+            assert_eq!(u_ltd_count, 0);
+            assert_eq!(u_ltp_mass, 0);
+            assert_eq!(u_ltd_mass, 0);
+            assert_eq!(unmatched_net_mass, 0);
+        } else if *cond_name == "Normal" {
+            assert!(m_ltp_count > 0, "Normal must enter matched LTP under delayed-post schedule");
+            assert_eq!(m_ltd_count, 0, "delayed-post schedule must not produce matched LTD");
+            assert_eq!(unmatched_net_mass, 0, "unmatched slots stay flat without competitive LTD");
+            assert!(m_wash < 0.50, "wash index must reject true-wash under this fixture");
+            assert!(
+                matched_net_mass - unmatched_net_mass >= 500,
+                "matched vs unmatched net mass must separate under prereg threshold"
+            );
+        }
+
+        markdown.push_str(&format!(
+            "| {} | Matched | {} | {} | {} | {} | {} | {:.4} | {:.2} |\n",
+            cond_name, m_ltp_count, m_ltd_count, m_ltp_mass, m_ltd_mass, matched_net_mass, m_wash, m_mean_net
+        ));
+        markdown.push_str(&format!(
+            "| {} | Unmatched | {} | {} | {} | {} | {} | {:.4} | {:.2} |\n",
+            cond_name, u_ltp_count, u_ltd_count, u_ltp_mass, u_ltd_mass, unmatched_net_mass, u_wash, u_mean_net
+        ));
+    }
+
+    // Six result rows: 3 conditions × matched/unmatched.
+    assert_eq!(markdown.lines().count(), 2 + 6, "header + six data rows");
+    println!("{markdown}");
+    let mut artifacts_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    artifacts_dir.pop();
+    artifacts_dir.pop();
+    artifacts_dir.pop();
+    artifacts_dir.push("artifacts");
+    if artifacts_dir.is_dir() {
+        let file_path = artifacts_dir.join("gsop_h2_wash_audit_table.md");
+        std::fs::write(&file_path, &markdown).expect("write H2 wash table");
+        println!("Wrote results to {}", file_path.display());
+    }
+}
+

@@ -124,6 +124,8 @@ Preserve error semantics and validation order when observable. Avoid `unwrap`, `
 
 For ABI, wire, raw memory, or `unsafe` work, read [references/safety-and-abi.md](references/safety-and-abi.md) before editing. Never introduce handwritten `unsafe` without explicit authority.
 
+Keep tests hermetic by default. Do not embed machine-specific absolute paths or write fixed repository artifacts from an ordinary regression test. A research runner that intentionally emits artifacts must resolve repository-relative paths portably, document the side effect and output contract, and normally remain isolated or ignored so routine package tests do not rewrite evidence.
+
 ## Prove the changed contract
 
 Read [references/verification-matrix.md](references/verification-matrix.md) when the change crosses modules, crates, features, targets, ABI, backends, or lifecycle states.
@@ -138,6 +140,8 @@ Choose the cheapest sufficient proof:
 - feature/target matrix only for affected conditional paths.
 
 Test invariants and failure behavior, not implementation trivia. Cover boundary values, checked overflow, invalid state, buffer sizes, sentinel values, determinism, and cleanup when the changed contract depends on them.
+
+For comparison or research runners, verify fixture construction and branch selection with assertions or independent output validation. A `#[test]` that only prints or writes a table is a runner, not proof that the comparison was constructed correctly.
 
 Run the advisory source audit from the repository root:
 

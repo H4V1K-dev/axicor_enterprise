@@ -17,6 +17,7 @@ Select rows that match the semantic impact. Exact commands depend on package fea
 | Backend behavior | Shared contract tests and targeted backend tests | CPU/CUDA/mock parity, capabilities, unsupported behavior |
 | Cross-crate pipeline | Targeted integration/E2E at the owning boundary | DTO conversion, error propagation, ordering, determinism, artifacts |
 | CLI/service behavior | Library tests plus targeted process test when observable | Exit codes, diagnostics, shutdown, protocol compatibility |
+| Research or parity runner | Sanity assertions plus durable result validation; explicit side effects | Full preconditions, early exits, fixture mapping, output path portability |
 
 ## Command discipline
 
@@ -44,3 +45,4 @@ State the narrowest valid conclusion:
 - deterministic replay for selected seeds does not prove all inputs;
 - a benchmark observation is not a performance guarantee;
 - green research assertions do not automatically prove a production or biological claim.
+- a runner that only writes or prints results proves neither branch selection nor fixture equivalence.

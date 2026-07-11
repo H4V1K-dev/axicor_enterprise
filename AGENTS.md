@@ -19,3 +19,9 @@ Before planning or implementing production Rust changes under `AxiEngine/crates/
 `.axi-SKILLS/implement-axiengine-rust-change/SKILL.md`
 
 Use that skill proportionally: keep local changes lightweight, expand the impact audit for contract changes, and use the full crate-profile and architecture workflow only when boundaries actually move. For research-only runners in `AxiEngine/crates/test-harness/`, the research skill governs the experiment while this skill governs authorized Rust implementation quality.
+
+Before creating, splitting, updating, synchronizing, or reviewing executable task contracts under `artifacts/agent-tasks/inbox/`, or changing the active handoff in `artifacts/agent-tasks/QUEUE.md` and `artifacts/agent-tasks/README.md`, read and follow the complete skill at:
+
+`.axi-SKILLS/author-axiengine-agent-task/SKILL.md`
+
+Use that skill to turn project intent into one bounded decision contract, name authoritative sources and applicable skills, distinguish requirements from preferences, define protected stop conditions, derive acceptance from semantic risk, and keep task routing synchronized. Research tasks must agree with the research lifecycle; implementation tasks must agree with crate ownership and proportional Rust verification.
