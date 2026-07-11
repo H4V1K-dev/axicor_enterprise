@@ -57,6 +57,10 @@ required-features = ["full-chain-probe"]
 name = "lp0_controllability_tests"
 required-features = ["full-chain-probe"]
 
+[[test]]
+name = "lp1_causality_tests"
+required-features = ["full-chain-probe"]
+
 [[example]]
 name = "heatmap_experiment"
 required-features = ["mvp-cpu-replay"]
