@@ -462,3 +462,21 @@ fn test_runtime_run_batch_with_ticks() {
 
     let _ = remove_file(path);
 }
+
+#[test]
+fn test_runtime_prune_threshold_validation() {
+    use runtime::local::prune_threshold_for_night;
+
+    // -1 err
+    let err_res = prune_threshold_for_night(-1);
+    assert!(err_res.is_err());
+
+    // 0 ok
+    let ok_res = prune_threshold_for_night(0);
+    assert_eq!(ok_res.unwrap(), 0);
+
+    // 10 ok
+    let ok_res2 = prune_threshold_for_night(10);
+    assert_eq!(ok_res2.unwrap(), 10);
+}
+

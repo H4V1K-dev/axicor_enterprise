@@ -52,6 +52,10 @@ pub enum RuntimeError {
         actual: usize,
     },
 
+    /// Invalid prune threshold parameter (must be non-negative).
+    #[error("Invalid prune threshold: must be non-negative, found {0}")]
+    InvalidPruneThreshold(i32),
+
     /// General night phase execution error.
     #[error("General error: {0}")]
     General(String),

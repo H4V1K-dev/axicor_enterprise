@@ -1,8 +1,8 @@
 //! Implement local day loop runtime coordinator.
 
 use crate::dto::{
-    HostWorkingState, LocalRuntimeConfig, RuntimeBatchInput, RuntimeBatchReport, RuntimeState,
-    RuntimeStats,
+    HostWorkingState, LocalRuntimeConfig, NightJobParams, RuntimeBatchInput, RuntimeBatchReport,
+    RuntimeState, RuntimeStats,
 };
 use crate::error::RuntimeError;
 
@@ -299,16 +299,37 @@ impl LocalRuntime {
     pub fn engine_state(&self) -> compute::LifecycleState {
         self.engine.state()
     }
+}
 
+/// Helper to validate and convert prune_threshold from i32 to u32.
+/// Returns an error if the threshold is negative.
+pub fn prune_threshold_for_night(threshold: i32) -> Result<u32, RuntimeError> {
+    if threshold < 0 {
+        Err(RuntimeError::InvalidPruneThreshold(threshold))
+    } else {
+        Ok(threshold as u32)
+    }
+}
+
+impl LocalRuntime {
     /// Executes the in-process Night Phase vertical slice.
     pub fn run_night_phase(
         &mut self,
-        job: &weaver_daemon::WeaverJobRequest,
+        params: &NightJobParams,
         context: Option<&weaver_daemon::WeaverGrowthContext>,
         padded_n: u32,
         total_axons: u32,
         total_ghosts: u32,
     ) -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+        // Validate prune_threshold (must be >= 0)
+        let u_prune_threshold = match prune_threshold_for_night(params.prune_threshold) {
+            Ok(val) => val,
+            Err(e) => {
+                self.state = RuntimeState::Faulted;
+                return Err(e);
+            }
+        };
+
         // Check presence of HostWorkingState before enter_maintenance
         if self.working.is_none() {
             return Err(RuntimeError::InvalidState {
@@ -369,8 +390,23 @@ impl LocalRuntime {
 
             let mut source = weaver_daemon::NightBufferSource::HostSlices(view);
 
+            // Construct WeaverJobRequest dynamically mapping verified prune_threshold
+            let job = weaver_daemon::WeaverJobRequest {
+                shard_id: params.shard_id,
+                zone_hash: params.zone_hash,
+                night_epoch: params.night_epoch,
+                master_seed: params.master_seed,
+                prune_threshold: u_prune_threshold,
+                max_sprouts: params.max_sprouts,
+                w_distance: params.w_distance,
+                w_power: params.w_power,
+                w_explore: params.w_explore,
+                initial_synapse_weight: params.initial_synapse_weight,
+                has_growth_context: context.is_some(),
+            };
+
             // Execute weaver daemon pipeline
-            let (report, _handovers) = weaver_daemon::run_night_pipeline(job, context, &mut source)
+            let (report, _handovers) = weaver_daemon::run_night_pipeline(&job, context, &mut source)
                 .map_err(|e| RuntimeError::General(e.to_string()))?;
 
             // Import maintenance state
@@ -388,18 +424,25 @@ impl LocalRuntime {
         })();
 
         match execute_result {
-            Ok(report) => {
-                // Exit maintenance mode
-                self.engine
-                    .exit_maintenance()
-                    .map_err(RuntimeError::Compute)?;
-                Ok(report)
-            }
+            Ok(report) => self.finish_night_ok(report),
             Err(e) => {
-                // On error, DO NOT exit maintenance (fail-closed)
-                // and transition runtime state to Faulted
+                // Fail-closed: do not exit_maintenance; always Faulted (OQ-2 / R3).
                 self.state = RuntimeState::Faulted;
                 Err(e)
+            }
+        }
+    }
+
+    /// After successful night body: exit maintenance. **Any** exit Err → Faulted (R3b).
+    fn finish_night_ok(
+        &mut self,
+        report: weaver_daemon::WeaverReport,
+    ) -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+        match self.engine.exit_maintenance() {
+            Ok(()) => Ok(report),
+            Err(err) => {
+                self.state = RuntimeState::Faulted;
+                Err(RuntimeError::Compute(err))
             }
         }
     }
@@ -558,6 +601,47 @@ mod tests {
                 sync: 2
             })
         ));
+
+        let _ = remove_file(path);
+    }
+
+    /// R3b: any `exit_maintenance` failure after a successful night body must Fault the runtime.
+    /// Uses engine still in Running (not Maintenance) so exit fails with InvalidLifecycleState.
+    #[test]
+    fn test_finish_night_ok_exit_maintenance_err_sets_faulted() {
+        let (engine, path) = create_test_engine_and_path();
+        let config = LocalRuntimeConfig {
+            sync_batch_ticks: 2,
+            v_seg: 1,
+            dopamine: 0,
+            max_spikes_per_tick: 4,
+            virtual_offset: 0,
+            num_virtual_axons: 0,
+            input_words_per_tick: 1,
+            mapped_soma_ids: vec![0, 1],
+        };
+        let mut runtime = LocalRuntime::new(engine, config).unwrap();
+        assert_eq!(runtime.state(), RuntimeState::Running);
+        assert_eq!(runtime.engine_state(), compute::LifecycleState::Running);
+
+        let report = weaver_daemon::WeaverReport {
+            shard_id: 0,
+            night_epoch: 1,
+            pruned_count: 0,
+            compacted_count: 0,
+            sprouted_count: 0,
+            ghost_handovers_count: 0,
+            duration_us: 0,
+        };
+        let res = runtime.finish_night_ok(report);
+        assert!(res.is_err(), "exit from Running must fail");
+        assert_eq!(
+            runtime.state(),
+            RuntimeState::Faulted,
+            "OQ-2: exit_maintenance Err must set Faulted, not leave Running"
+        );
+        // Day must refuse after Faulted
+        assert!(runtime.run_empty_batch().is_err());
 
         let _ = remove_file(path);
     }

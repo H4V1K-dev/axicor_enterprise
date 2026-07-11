@@ -7,10 +7,9 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use baker::{bake_local_shard, pack_local_shard_artifacts, LocalShardBakeInput};
-use boot::{bootstrap_local_shard_engine, LocalShardComputeInput};
+use boot::{bootstrap_local_shard_engine, LocalRuntimeBootExt, LocalShardComputeInput};
 use runtime::{LocalRuntime, LocalRuntimeConfig};
 use types::MasterSeed;
-use weaver_daemon::WeaverJobRequest;
 
 fn create_test_engine_and_bundle() -> (compute::ShardEngine, boot::LocalShardBootBundle, PathBuf) {
     let neuron_types = vec![config::NeuronType {
@@ -160,7 +159,7 @@ fn test_in_proc_day_night_day_slice() {
     assert_eq!(runtime.engine_state(), compute::LifecycleState::Running);
 
     // 2. Execute Night Phase
-    let job = WeaverJobRequest {
+    let job = runtime::NightJobParams {
         shard_id: 0,
         zone_hash: 0x11223344,
         night_epoch: 1,
@@ -171,7 +170,6 @@ fn test_in_proc_day_night_day_slice() {
         w_power: 50,
         w_explore: 10,
         initial_synapse_weight: 100,
-        has_growth_context: false,
     };
 
     let report_night = runtime
@@ -226,7 +224,7 @@ fn test_night_without_working_state_fails() {
     // Construct via new (working is None)
     let mut runtime = LocalRuntime::new(engine, config).unwrap();
 
-    let job = WeaverJobRequest {
+    let job = runtime::NightJobParams {
         shard_id: 0,
         zone_hash: 0x11223344,
         night_epoch: 1,
@@ -237,7 +235,6 @@ fn test_night_without_working_state_fails() {
         w_power: 50,
         w_explore: 10,
         initial_synapse_weight: 100,
-        has_growth_context: false,
     };
 
     let err_res = runtime.run_night_phase(&job, None, 1600, 100, 10);
@@ -267,7 +264,6 @@ fn test_durability_and_attach_scenarios() {
     let total_axons = bundle.spec.total_axons;
     let total_ghosts = bundle.spec.total_ghosts;
 
-    use boot::LocalRuntimeBootExt;
     let mut runtime = LocalRuntime::from_boot_bundle(engine, config, bundle).unwrap();
 
     // 1. Paths non-empty from bake/boot
@@ -279,7 +275,7 @@ fn test_durability_and_attach_scenarios() {
     );
 
     // 2. After Night with growth_context: None: paths_blob is byte-identical (not wiped)
-    let job = WeaverJobRequest {
+    let job = runtime::NightJobParams {
         shard_id: 0,
         zone_hash: 0x11223344,
         night_epoch: 1,
@@ -290,7 +286,6 @@ fn test_durability_and_attach_scenarios() {
         w_power: 50,
         w_explore: 10,
         initial_synapse_weight: 100,
-        has_growth_context: false,
     };
 
     runtime
@@ -308,9 +303,8 @@ fn test_durability_and_attach_scenarios() {
         attraction_radius: 5,
     };
 
-    let job_with_growth = WeaverJobRequest {
-        has_growth_context: true,
-        ..job
+    let job_with_growth = runtime::NightJobParams {
+        ..job.clone()
     };
 
     runtime
@@ -330,3 +324,48 @@ fn test_durability_and_attach_scenarios() {
 
     let _ = remove_file(path);
 }
+
+#[test]
+fn test_runtime_stage_n_reject_negative_prune_threshold() {
+    let (engine, bundle, path) = create_test_engine_and_bundle();
+    let config = LocalRuntimeConfig {
+        sync_batch_ticks: 2,
+        v_seg: 1,
+        dopamine: 0,
+        max_spikes_per_tick: 4,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_words_per_tick: 1,
+        mapped_soma_ids: vec![0, 1],
+    };
+
+    let padded_n = bundle.spec.padded_n;
+    let total_axons = bundle.spec.total_axons;
+    let total_ghosts = bundle.spec.total_ghosts;
+
+    let mut runtime = LocalRuntime::from_boot_bundle(engine, config, bundle).unwrap();
+
+    let job = runtime::NightJobParams {
+        shard_id: 0,
+        zone_hash: 0x11223344,
+        night_epoch: 1,
+        master_seed: [0u8; 32],
+        prune_threshold: -5, // Negative threshold
+        max_sprouts: 8,
+        w_distance: 100,
+        w_power: 50,
+        w_explore: 10,
+        initial_synapse_weight: 100,
+    };
+
+    let err_res = runtime.run_night_phase(&job, None, padded_n, total_axons, total_ghosts);
+    assert!(err_res.is_err());
+    
+    // The runtime state must transition to Faulted
+    assert_eq!(runtime.state(), runtime::RuntimeState::Faulted);
+    // Engine must NOT be in Maintenance because the check happened BEFORE enter_maintenance
+    assert_eq!(runtime.engine_state(), compute::LifecycleState::Running);
+
+    let _ = remove_file(path);
+}
+

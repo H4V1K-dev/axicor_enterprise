@@ -95,3 +95,29 @@ pub struct HostWorkingState {
     /// Total count of ghost axons.
     pub total_ghosts: u32,
 }
+
+/// Night phase execution parameters.
+#[derive(Debug, Clone)]
+pub struct NightJobParams {
+    /// Unique shard identification index.
+    pub shard_id: u32,
+    /// Unique configuration/layout identifier hash.
+    pub zone_hash: u32,
+    /// Epoch identifier index for this night.
+    pub night_epoch: u64,
+    /// Seed bytes for stochastic operations.
+    pub master_seed: [u8; 32],
+    /// Pruning threshold (in Mass Domain, i32, checked >= 0 and converted to u32).
+    pub prune_threshold: i32,
+    /// Maximum sprout count permitted.
+    pub max_sprouts: u32,
+    /// Maximum synaptic growth distance.
+    pub w_distance: u32,
+    /// Scaling parameter for distance cost.
+    pub w_power: u32,
+    /// Scaling parameter for exploration noise.
+    pub w_explore: u32,
+    /// Initial synaptic weight value.
+    pub initial_synapse_weight: i32,
+}
+
