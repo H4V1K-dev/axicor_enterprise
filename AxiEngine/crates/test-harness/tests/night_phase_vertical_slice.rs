@@ -136,6 +136,7 @@ fn test_in_proc_day_night_day_slice() {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
     let padded_n = bundle.spec.padded_n;
     let total_axons = bundle.spec.total_axons;
@@ -219,6 +220,7 @@ fn test_night_without_working_state_fails() {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
 
     // Construct via new (working is None)
@@ -258,6 +260,7 @@ fn test_durability_and_attach_scenarios() {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
 
     let padded_n = bundle.spec.padded_n;
@@ -303,9 +306,7 @@ fn test_durability_and_attach_scenarios() {
         attraction_radius: 5,
     };
 
-    let job_with_growth = runtime::NightJobParams {
-        ..job.clone()
-    };
+    let job_with_growth = runtime::NightJobParams { ..job.clone() };
 
     runtime
         .run_night_phase(
@@ -337,6 +338,7 @@ fn test_runtime_stage_n_reject_negative_prune_threshold() {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
 
     let padded_n = bundle.spec.padded_n;
@@ -360,7 +362,7 @@ fn test_runtime_stage_n_reject_negative_prune_threshold() {
 
     let err_res = runtime.run_night_phase(&job, None, padded_n, total_axons, total_ghosts);
     assert!(err_res.is_err());
-    
+
     // The runtime state must transition to Faulted
     assert_eq!(runtime.state(), runtime::RuntimeState::Faulted);
     // Engine must NOT be in Maintenance because the check happened BEFORE enter_maintenance
@@ -382,6 +384,7 @@ fn test_gate_poison_fail_closed() {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
     let padded_n = bundle.spec.padded_n;
     let total_axons = bundle.spec.total_axons;
@@ -426,6 +429,7 @@ fn test_gate_ro_paths() {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
     let padded_n = bundle.spec.padded_n;
     let total_axons = bundle.spec.total_axons;
@@ -447,10 +451,15 @@ fn test_gate_ro_paths() {
         initial_synapse_weight: 100,
     };
 
-    runtime.run_night_phase(&job, None, padded_n, total_axons, total_ghosts).unwrap();
+    runtime
+        .run_night_phase(&job, None, padded_n, total_axons, total_ghosts)
+        .unwrap();
     let paths_after = runtime.working_state().unwrap().paths_blob.clone();
 
-    assert_eq!(paths_before, paths_after, "G-RO invariant: paths_blob must remain read-only/unmutated during Night Phase");
+    assert_eq!(
+        paths_before, paths_after,
+        "G-RO invariant: paths_blob must remain read-only/unmutated during Night Phase"
+    );
 
     let _ = remove_file(path);
 }
@@ -469,6 +478,7 @@ fn test_gate_determinism() {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
 
     let padded_n = bundle1.spec.padded_n;
@@ -491,15 +501,28 @@ fn test_gate_determinism() {
         initial_synapse_weight: 100,
     };
 
-    let report1 = runtime1.run_night_phase(&job1, None, padded_n, total_axons, total_ghosts).unwrap();
-    let report2 = runtime2.run_night_phase(&job1, None, padded_n, total_axons, total_ghosts).unwrap();
+    let report1 = runtime1
+        .run_night_phase(&job1, None, padded_n, total_axons, total_ghosts)
+        .unwrap();
+    let report2 = runtime2
+        .run_night_phase(&job1, None, padded_n, total_axons, total_ghosts)
+        .unwrap();
 
-    assert_eq!(report1.sprouted_count, report2.sprouted_count, "G-DET: sprouted_count must be identical for same seed");
-    assert_eq!(report1.pruned_count, report2.pruned_count, "G-DET: pruned_count must be identical for same seed");
+    assert_eq!(
+        report1.sprouted_count, report2.sprouted_count,
+        "G-DET: sprouted_count must be identical for same seed"
+    );
+    assert_eq!(
+        report1.pruned_count, report2.pruned_count,
+        "G-DET: pruned_count must be identical for same seed"
+    );
 
     let state1 = runtime1.working_state().unwrap().state_blob.clone();
     let state2 = runtime2.working_state().unwrap().state_blob.clone();
-    assert_eq!(state1, state2, "G-DET: state_blob must be identical for same seed");
+    assert_eq!(
+        state1, state2,
+        "G-DET: state_blob must be identical for same seed"
+    );
 
     let _ = remove_file(path1);
     let _ = remove_file(path2);
@@ -518,6 +541,7 @@ fn test_gate_density_and_slot_occupancy() {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
     let padded_n = bundle.spec.padded_n;
     let total_axons = bundle.spec.total_axons;
@@ -527,8 +551,9 @@ fn test_gate_density_and_slot_occupancy() {
     let state_before = runtime.working_state().unwrap();
     let offsets = layout::offsets::compute_state_offsets(padded_n as usize);
     let targets_slice_before = bytemuck::cast_slice::<u8, types::PackedTarget>(
-        &state_before.state_blob[offsets.off_targets..offsets.off_weights]
-    ).to_vec();
+        &state_before.state_blob[offsets.off_targets..offsets.off_weights],
+    )
+    .to_vec();
 
     let mut active_slots = Vec::new();
     for (idx, &target) in targets_slice_before.iter().enumerate() {
@@ -550,18 +575,22 @@ fn test_gate_density_and_slot_occupancy() {
         initial_synapse_weight: 100,
     };
 
-    let report = runtime.run_night_phase(&job, None, padded_n, total_axons, total_ghosts).unwrap();
-    assert!(report.sprouted_count <= 4, "G-DENSE: sprouted count exceeds max_sprouts");
+    let report = runtime
+        .run_night_phase(&job, None, padded_n, total_axons, total_ghosts)
+        .unwrap();
+    assert!(
+        report.sprouted_count <= 4,
+        "G-DENSE: sprouted count exceeds max_sprouts"
+    );
 
     let state_after = runtime.working_state().unwrap();
     let targets_slice_after = bytemuck::cast_slice::<u8, types::PackedTarget>(
-        &state_after.state_blob[offsets.off_targets..offsets.off_weights]
+        &state_after.state_blob[offsets.off_targets..offsets.off_weights],
     );
 
     for &idx in &active_slots {
         assert_eq!(
-            targets_slice_before[idx],
-            targets_slice_after[idx],
+            targets_slice_before[idx], targets_slice_after[idx],
             "G-DENSE: existing active synapse slot at index {} was overwritten during sprouting",
             idx
         );
@@ -579,5 +608,3 @@ fn test_gate_dale_law_validation_skip() {
     // is integrated directly into ShmHeader or NightWorkingView.
     println!("G-DALE: skipped because polarity flags are unavailable on host-side Night buffers");
 }
-
-

@@ -161,6 +161,7 @@ fn make_test_runtime_config() -> LocalRuntimeConfig {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     }
 }
 
@@ -406,6 +407,7 @@ fn test_runtime_stage_a_compute_error_to_faulted() {
         num_virtual_axons: 10,
         input_words_per_tick: 0,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
 
     let mut runtime = LocalRuntime::new(engine, config).unwrap();
@@ -479,4 +481,3 @@ fn test_runtime_prune_threshold_validation() {
     let ok_res2 = prune_threshold_for_night(10);
     assert_eq!(ok_res2.unwrap(), 10);
 }
-

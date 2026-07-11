@@ -321,6 +321,7 @@ fn run_one_combination(
         num_virtual_axons: 32,
         input_words_per_tick: 1,
         mapped_soma_ids: mapped_somas,
+        plasticity_enabled: true,
     };
     let mut runtime =
         LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");

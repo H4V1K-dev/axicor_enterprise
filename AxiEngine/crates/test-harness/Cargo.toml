@@ -51,6 +51,11 @@ required-features = ["legacy-baseline"]
 name = "night_phase_vertical_slice"
 required-features = ["full-chain-probe"]
 
+[[test]]
+name = "lp0_controllability_tests"
+required-features = ["full-chain-probe"]
+
+
 [[example]]
 name = "heatmap_experiment"
 required-features = ["mvp-cpu-replay"]

@@ -175,7 +175,8 @@ pub fn run_night_pipeline(
             let mut sprouted_count = 0;
             for conn in sprout_connections {
                 let idx = (conn.dendrite_slot as usize) * padded_n + (conn.target_soma_id as usize);
-                targets_slice[idx] = types::PackedTarget::pack(conn.axon_id, conn.segment_offset as u32);
+                targets_slice[idx] =
+                    types::PackedTarget::pack(conn.axon_id, conn.segment_offset as u32);
                 weights_slice[idx] = req.initial_synapse_weight;
                 timers_slice[idx] = 0;
                 sprouted_count += 1;

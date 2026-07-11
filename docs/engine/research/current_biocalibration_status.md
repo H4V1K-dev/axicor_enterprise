@@ -81,11 +81,52 @@ Status: active research index, not a final report.
 | 2.1 | **Static microcircuit scale-up** | completed | Оценена стабильность и CPU производительность при масштабировании до 1,000,000 нейронов. Выявлена Vm saturation (> -25mV) из-за избыточного homeostasis offset под Poisson-шумом. Физиология inconclusive. |
 | 2.2 | **Static microcircuit v1.1 Input Scale & E/I Ablation** | completed / partial | Мембранный потенциал стабилизирован, но L5 recruitment gate не закрыт; ablation показывает модулирующую роль L23 inhibition без формального runaway. |
 | 2.3 | **Static microcircuit L5 recruitment/topology** | completed / partial | L5 успешно рекрутирован в целевой диапазон (~10.1 Hz на N=512) за счет FF L4->L5 усиления (8000 uV) и разделения L23 торможения; L4 переторможен ниже gate (1.4-1.6 Hz). |
-| 2.4 | **Static microcircuit L4/L5 balance** | next | Нужно одновременно удержать L4 в 3..25 Hz и L5 в 1..15 Hz на N=256/N=512 без возврата Vm saturation. |
-| 3 | **Plastic microcircuit** | blocked on step 2.4 | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса должны оставаться bounded, коррелированные пути усиливаться. |
-| 4 | **Sensorimotor toy / CartPole** | blocked on step 3 | CartPole запускается только после microcircuit physiology + plasticity sanity. |
+| 2.4 | **Static microcircuit L4/L5 balance** | next (biology ladder) | Нужно одновременно удержать L4 в 3..25 Hz и L5 в 1..15 Hz на N=256/N=512 без возврата Vm saturation. |
+| 3 | **Plastic microcircuit** (full L4/L5 showcase) | blocked on step 2.4 | GSOP/STDP на **полноценной** микросети после статического balance. |
+| 4 | **Sensorimotor toy / CartPole** | blocked on step 3 **or** Learning Proof LP-3+ | CartPole не раньше reward-causality evidence. |
+
+### Parallel track: Learning Proof (kill-or-continue)
+
+Отдельная лестница C0…C5 / LP-0…LP-5. **Не** разблокирует silent claims про full-microcircuit plastic biology.
+
+| Порядок | Исследование | Статус | Gate |
+| :--- | :--- | :--- | :--- |
+| LP-entry | **Learning Proof L000 entry** | **ready** | Night in-proc frozen; dossier; 2.4 accepted as debt for minimal preset |
+| LP-0 | Frozen / plasticity controllability | **partial pass / running** | freeze/unfreeze works; multi-seed + charge-domain electrical parity still open |
+| LP-1…LP-4 | causality → retention → reward → task | blocked on honest LP-0 close or accepted caveats | monоспека gate matrix |
+| LP-5 | Night structural contribution | blocked on LP-1…4 | only after base weight learning |
 
 ## 8. Активные и следующие исследования
+
+### [Active / READY] Learning Proof Program (`archive/_active/learning_proof_program/`)
+
+- **Вопрос:** может ли AxiEngine обучаться и сохранять полезное изменение поведения (kill-or-continue для идеи проекта)?
+- **Why**: без evidence-first ответа дальнейшие runtime modes / process SM / CUDA — строительство вслепую.
+- **Expectation**: честный вердикт SUPPORTED / WEAKENED / REJECTED IN CURRENT SCOPE по лестнице C0…C4 (C5 structural optional).
+- **Confirm**: воспроизводимое улучшение + retention + reward causality на pre-registered metrics.
+- **Weaken/reject**: веса не контролируются; нет durable/task/reward win при fixed mechanisms.
+- **L000 verdict**: program **READY** (2026-07-11). Freeze commit `b904a9255ca715d974f6dde50311c4e02a655909`. Static L4/L5 2.4 **explicitly accepted as debt** for LP-0…LP-2 minimal harness preset.
+- **Planned outputs**: entry dossier (done); LP-0 README + runs; evidence package per monоспека.
+- **Commands (freeze baseline)**:
+  - `cargo test -p test-harness --features mock`
+  - `cargo test -p test-harness --features night-gates --test night_phase_vertical_slice`
+- **Program SoT**: `artifacts/agent-tasks/LEARNING_PROOF_MONOSPEC.md` rev 0.3
+- **Next**: close LP-0 honesty (optional multi-seed / charge-domain parity) **or** accept caveats → **LP-1 causality** (correlated vs control). Not Night sprout planner.
+
+### [Active / partial] LP-0: Frozen / Plasticity Controllability (`archive/_active/learning_proof_lp0/`)
+
+- **Вопрос:** Можем ли мы гарантированно включать и выключать изменение весов с помощью флага `plasticity_enabled`, не изменяя остальные условия и динамику прогона?
+- **Текущий вердикт (Partial Pass / C0 minimal)**:
+  - `plasticity_enabled = false` → FNV-1a weight checksum hold (**PASS**, 1 fixture).
+  - `plasticity_enabled = true` → weights change under stimulus (**PASS**).
+  - Electrical bit-parity claim is **weak**: fixture mass `50000` ⇒ charge `>>16 == 0`, so Vm parity does not stress synaptic current path.
+  - Multi-seed / 1000-tick preregistration **not executed**.
+- **API:** `LocalRuntimeConfig.plasticity_enabled` → process-global `physics::set_plasticity_enabled` → Stage 6 skip in `compute-cpu`.
+- **Outputs:** [README](archive/_active/learning_proof_lp0/README.md); `test-harness` test `lp0_controllability_tests`.
+- **Command:** `cargo test -p test-harness --test lp0_controllability_tests --features full-chain-probe`
+
+
+
 
 ### [Completed] Static Microcircuit v1.2 L5 Recruitment & Topology (`archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/`)
 

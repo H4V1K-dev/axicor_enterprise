@@ -209,7 +209,11 @@ pub fn plan_sprouts(
 ) -> Vec<SproutConnection> {
     let total_axons_usize = total_axons as usize;
     let is_empty_paths = paths_blob.len() < 16;
-    let matrix_offset = if is_empty_paths { 0 } else { layout::offsets::calculate_paths_matrix_offset(total_axons_usize) };
+    let matrix_offset = if is_empty_paths {
+        0
+    } else {
+        layout::offsets::calculate_paths_matrix_offset(total_axons_usize)
+    };
 
     let get_length = |axon_id: usize| -> u16 {
         if is_empty_paths {
@@ -236,7 +240,9 @@ pub fn plan_sprouts(
             let pos_idx = base_idx + segment_offset;
             let offset = matrix_offset + pos_idx * 4;
             if offset + 4 <= paths_blob.len() {
-                PackedPosition(u32::from_le_bytes(paths_blob[offset..offset + 4].try_into().unwrap()))
+                PackedPosition(u32::from_le_bytes(
+                    paths_blob[offset..offset + 4].try_into().unwrap(),
+                ))
             } else {
                 PackedPosition(0)
             }
@@ -305,7 +311,9 @@ pub fn plan_sprouts(
                 let dy = sy - ty;
                 let dz = sz - tz;
 
-                let dist_sq = (dx as i64) * (dx as i64) + (dy as i64) * (dy as i64) + (dz as i64) * (dz as i64);
+                let dist_sq = (dx as i64) * (dx as i64)
+                    + (dy as i64) * (dy as i64)
+                    + (dz as i64) * (dz as i64);
 
                 if let Some(r_um) = attraction_radius {
                     if dist_sq > (r_um as i64) * (r_um as i64) {
@@ -329,7 +337,9 @@ pub fn plan_sprouts(
 
             if let Some(dist_sq) = min_dist_sq {
                 // Compute score
-                if let Some(score_fixed) = compute_sprout_score(params, jitter_unit, dist_sq as u32, power_fixed) {
+                if let Some(score_fixed) =
+                    compute_sprout_score(params, jitter_unit, dist_sq as u32, power_fixed)
+                {
                     candidates.push((
                         SproutRankKey {
                             score_fixed,
@@ -359,11 +369,13 @@ pub fn plan_sprouts(
 
         let mut soma_targets = [PackedTarget::NONE; 128];
         for d in 0..128 {
-            soma_targets[d] = current_targets[d * (padded_n as usize) + (rank_key.target_soma_id as usize)];
+            soma_targets[d] =
+                current_targets[d * (padded_n as usize) + (rank_key.target_soma_id as usize)];
         }
         if let Some(slot) = choose_dendrite_slot(&soma_targets) {
             rank_key.dendrite_slot = slot;
-            let slot_idx = (slot as usize) * (padded_n as usize) + (rank_key.target_soma_id as usize);
+            let slot_idx =
+                (slot as usize) * (padded_n as usize) + (rank_key.target_soma_id as usize);
             current_targets[slot_idx] = PackedTarget::pack(axon_id, segment_offset as u32);
 
             sprouted.push(SproutConnection {
@@ -378,4 +390,3 @@ pub fn plan_sprouts(
 
     sprouted
 }
-

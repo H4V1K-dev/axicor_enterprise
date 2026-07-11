@@ -514,6 +514,7 @@ dependencies = [
  "compute-api",
  "config",
  "layout",
+ "physics",
  "thiserror",
  "types",
  "weaver-daemon",

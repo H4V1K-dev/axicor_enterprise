@@ -205,6 +205,9 @@ impl LocalRuntime {
             output_spike_counts: &mut self.cached_output_spike_counts,
         };
 
+        // Set global physics plasticity state for Day run execution
+        physics::set_plasticity_enabled(self.config.plasticity_enabled);
+
         match self.engine.run_day_batch(cmd) {
             Ok(result) => {
                 let ticks_executed = result.ticks_executed;
@@ -406,8 +409,9 @@ impl LocalRuntime {
             };
 
             // Execute weaver daemon pipeline
-            let (report, _handovers) = weaver_daemon::run_night_pipeline(&job, context, &mut source)
-                .map_err(|e| RuntimeError::General(e.to_string()))?;
+            let (report, _handovers) =
+                weaver_daemon::run_night_pipeline(&job, context, &mut source)
+                    .map_err(|e| RuntimeError::General(e.to_string()))?;
 
             // Import maintenance state
             {
@@ -450,6 +454,16 @@ impl LocalRuntime {
     /// Returns a reference to the durable HostWorkingState, if initialized.
     pub fn working_state(&self) -> Option<&HostWorkingState> {
         self.working.as_ref()
+    }
+
+    /// Returns a mutable reference to the durable HostWorkingState, if initialized.
+    pub fn working_state_mut(&mut self) -> Option<&mut HostWorkingState> {
+        self.working.as_mut()
+    }
+
+    /// Exposes a mutable reference to the underlying compute engine for testing/harness control.
+    pub fn engine_mut(&mut self) -> &mut compute::ShardEngine {
+        &mut self.engine
     }
 }
 
@@ -587,6 +601,7 @@ mod tests {
             num_virtual_axons: 0,
             input_words_per_tick: 1,
             mapped_soma_ids: vec![0, 1],
+            plasticity_enabled: true,
         };
         let mut runtime = LocalRuntime::new(engine, config).unwrap();
 
@@ -619,6 +634,7 @@ mod tests {
             num_virtual_axons: 0,
             input_words_per_tick: 1,
             mapped_soma_ids: vec![0, 1],
+            plasticity_enabled: true,
         };
         let mut runtime = LocalRuntime::new(engine, config).unwrap();
         assert_eq!(runtime.state(), RuntimeState::Running);

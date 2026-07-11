@@ -19,6 +19,8 @@ pub struct LocalRuntimeConfig {
     pub input_words_per_tick: u32,
     /// Soma indices mapped to output monitoring targets.
     pub mapped_soma_ids: Vec<u32>,
+    /// Whether synaptic plasticity is enabled.
+    pub plasticity_enabled: bool,
 }
 
 /// Lifecycle states of the local runtime orchestrator.
@@ -120,4 +122,3 @@ pub struct NightJobParams {
     /// Initial synaptic weight value.
     pub initial_synapse_weight: i32,
 }
-

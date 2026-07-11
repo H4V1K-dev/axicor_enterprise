@@ -2076,7 +2076,10 @@ fn test_plan_sprouts_goldens() {
         None,
         None,
     );
-    assert_eq!(plan1, plan2, "Sprout plan must be deterministic for same seed");
+    assert_eq!(
+        plan1, plan2,
+        "Sprout plan must be deterministic for same seed"
+    );
 
     // 3. Run with different seed -> should produce different plan or ordering
     let plan3 = plan_sprouts(
@@ -2094,5 +2097,8 @@ fn test_plan_sprouts_goldens() {
         None,
     );
     // (Note: with random explore factor w_explore=100, different seeds give different ranks)
-    assert_ne!(plan1, plan3, "Sprout plan must vary under different MasterSeed");
+    assert_ne!(
+        plan1, plan3,
+        "Sprout plan must vary under different MasterSeed"
+    );
 }

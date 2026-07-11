@@ -172,4 +172,4 @@ graph LR
 ```bash
 cargo test -p test-harness --features local-engine-e2e-smoke --test local_engine_e2e_smoke -- --ignored --nocapture
 ```
-Результаты прогона экспортируются в [artifacts/local_engine_e2e/](file:///w:/Workspace/AxiEngine/artifacts/local_engine_e2e/).
+Результаты прогона экспортируются в [artifacts/local_engine_e2e/](../../artifacts/local_engine_e2e/).

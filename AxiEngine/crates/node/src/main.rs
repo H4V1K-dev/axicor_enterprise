@@ -163,6 +163,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 num_virtual_axons: 0,
                 input_words_per_tick: 0,
                 mapped_soma_ids: mapped_somas,
+                plasticity_enabled: true,
             };
 
             let mut runtime = LocalRuntime::new(engine, rt_config)
