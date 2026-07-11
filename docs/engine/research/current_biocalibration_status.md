@@ -40,7 +40,7 @@ Status: active research index, not a final report.
 | [2026-07-05 plastic microcircuit v1.3 control-preserving potentiation](archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/README.md) | archived | Сохранена unmatched-control группа и доказан relative matched bias (+2.7180 uV vs +1.4708 uV), но N=256 L4 activity gate не закрыт, а positive-ratio gate дает tie 100%/100%. |
 | [2026-07-05 plastic microcircuit v1.4 controlled + baker shadow](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/README.md) | archived | Manual selectivity gate закрыт (0.4318), baker shadow сохраняет положительный matched-bias trend (0.0648), но финальный 100k-tick manual learning L4=2.31 Hz ниже hard gate 3.0 Hz. |
 | [2026-07-05 plastic microcircuit v1.5 sparse activity gate](archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/README.md) | archived | Жесткий L4 >= 3 Hz заменен sparse-activity gate. Manual audit L4=1.91 Hz признан sparse-functional при active fraction 100%, max silence 0.060s, selectivity 0.4357; Baker audit сохраняет trend (L4=6.44 Hz, selectivity 0.0648). |
-| [2026-07-11 learning proof lp4 task learning](archive/_active/learning_proof/README.md) | archived / rejected | Проведено тестирование обучения 2AFC Cue Association на масштабе микросети N=256. Установлено, что при замороженных параметрах калибровки изменения весов крайне малы (~0.05 uV), из-за чего поведенческая точность остается на уровне случайного угадывания (66.67%), не опережая абляции. Гейт C4 официально отклонен. |
+| [2026-07-11 learning proof](archive/2026-07-11_learning_proof/README.md) | archived / rejected | Проведено тестирование обучения 2AFC Cue Association на масштабе микросети N=256. Установлено, что при замороженных параметрах калибровки изменения весов крайне малы, из-за чего точность Normal группы не улучшилась относительно baseline и не превзошла ablations. Гейт C4 официально отклонен как COMPLETE — C4 REJECTED IN CURRENT SCOPE. Программа перенесена в архив. |
 
 ## 3. Что сейчас известно
 
@@ -121,53 +121,15 @@ Status: active research index, not a final report.
 
 | Порядок | Исследование | Статус | Gate |
 | :--- | :--- | :--- | :--- |
-| LP-entry | **Learning Proof L000 entry** | **ready** | Night in-proc frozen; dossier |
-| LP-0 | Frozen / plasticity controllability | **partial / accepted caveats** | freeze/unfreeze mass writes |
-| LP-1 | Plasticity causality (correlated vs control) | **completed w/ caveats** | relative $\Delta w$ bias on toy fixture; see LP-1 README |
-| LP-2 | Retention after freeze | **completed** | evaluation weight delta = 0 and corr > ctrl |
-| LP-3…LP-4 | reward → task | blocked on prior LP | monоспека gate matrix |
-| LP-5 | Night structural contribution | blocked on LP-1…4 | only after base weight learning |
+| LP-entry | **Learning Proof L000 entry** | **completed** | Night in-proc frozen; dossier |
+| LP-0 | Frozen / plasticity controllability | **supported w/ caveats** | freeze/unfreeze mass writes |
+| LP-1 | Plasticity causality (correlated vs control) | **supported w/ caveats** | relative $\Delta w$ bias on toy fixture; see LP-1 README |
+| LP-2 | Retention after freeze | **supported** | evaluation weight delta = 0 and corr > ctrl |
+| LP-3 | Dopamine causality (reward) | **supported** | zero delta under dopamine ablation on toy fixture |
+| LP-4 | External task (behavioral learning) | **COMPLETE — C4 REJECTED IN CURRENT SCOPE** | Normal did not improve relative to baseline and did not beat ablations |
+| LP-5 | Night structural contribution | **not entered** | prerequisite C4 not satisfied |
 
 ## 8. Активные и следующие исследования
-
-### [Active / READY] Learning Proof Program (`archive/_active/learning_proof_program/`)
-
-- **Вопрос:** может ли AxiEngine обучаться и сохранять полезное изменение поведения (kill-or-continue для идеи проекта)?
-- **Why**: без evidence-first ответа дальнейшие runtime modes / process SM / CUDA — строительство вслепую.
-- **L000 verdict**: program **READY** (2026-07-11). Freeze commit `b904a9255ca715d974f6dde50311c4e02a655909`.
-- **Program SoT**: `artifacts/agent-tasks/LEARNING_PROOF_MONOSPEC.md` rev 0.3
-- **Next**: LP-3 reward.
-
-### [Active / partial] LP-0: Frozen / Plasticity Controllability (`archive/_active/learning_proof_lp0/`)
-
-- **Вопрос:** Можем ли мы гарантированно включать и выключать изменение весов с помощью флага `plasticity_enabled`?
-- **Текущий вердикт (Partial Pass / C0 minimal)**:
-  - `plasticity_enabled = false` → FNV-1a weight checksum hold (**PASS**, 1 fixture).
-  - `plasticity_enabled = true` → weights change under stimulus (**PASS**).
-  - Electrical bit-parity claim is **weak**: fixture mass `50000` ⇒ charge `>>16 == 0`.
-  - Multi-seed / 1000-tick preregistration **not executed**.
-- **API:** `LocalRuntimeConfig.plasticity_enabled` → process-global `physics::set_plasticity_enabled` → Stage 6 skip in `compute-cpu`.
-- **Outputs:** [README](archive/_active/learning_proof_lp0/README.md); `test-harness` test `lp0_controllability_tests`.
-- **Command:** `cargo test -p test-harness --test lp0_controllability_tests --features full-chain-probe`
-
-### [Completed w/ caveats] LP-1: Plasticity Causality (`archive/_active/learning_proof_lp1/`)
-
-- **Вопрос:** Усиливает ли production GSOP/STDP коррелированный eligible-путь сильнее сопоставимого control-пути при фиксированной topology?
-- **Итоговый вердикт (SUPPORTED C1 toy / caveats):** relative mass $\Delta w_{\text{corr}}=+1663 > \Delta w_{\text{ctrl}}=+592$ on seeds 42/100/2026; Dale/bounds green. Orchestrator caveats: identical seed numerics (pseudo multi-seed); control still potencies (+592); toy N; mass-domain only.
-- **Outputs:** [README](archive/_active/learning_proof_lp1/README.md); `test-harness` test `lp1_causality_tests`.
-- **Command:** `cargo test -p test-harness --test lp1_causality_tests --features full-chain-probe`
-- **Next:** LP-2 retention.
-
-### [Completed] LP-2: Retention after freeze (`archive/_active/learning_proof_lp2/`)
-
-- **Вопрос:** Сохраняется ли приобретённое изменение весов (и относительный corr>ctrl bias) после отключения пластичности?
-- **Итоговый вердикт (Pass / C2 Retention Verified):**
-  - При `plasticity_enabled = false` веса синапсов во время фазы тестирования не меняются побитово ($\Delta w_{\text{eval}} = 0$, `checksum_eval == checksum_trained` на всех семенах 42/100/2026).
-  - Относительный bias полностью сохранен ($w_{\text{correlated}} > w_{\text{control}}$).
-- **Outputs:** [README](archive/_active/learning_proof_lp2/README.md); `test-harness` test `lp2_retention_tests`.
-- **Command:** `cargo test -p test-harness --test lp2_retention_tests --features full-chain-probe`
-- **Next:** LP-3 reward.
-
 
 
 ### [Next Gate] Night phase activity counters review package v0.4

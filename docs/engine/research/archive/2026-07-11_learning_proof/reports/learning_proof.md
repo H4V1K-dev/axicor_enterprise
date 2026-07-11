@@ -1,6 +1,6 @@
 # Learning Proof Program — Cumulative Report
 
-Status: **FROZEN** (C0-C3 completed historically; C4 planned)
+Status: **COMPLETE — REJECTED IN CURRENT SCOPE** (C0-C3 completed historically; C4 completed and rejected)
 Slug: `learning_proof`
 Parent Program: `LEARNING_PROOF_MONOSPEC.md`
 
@@ -155,10 +155,16 @@ cargo test -p test-harness --test lp4_task_learning_tests --features "full-chain
 ### 4.2 Verdict & Analysis
 
 > [!WARNING]
-> **LP-4 (C4) Gate Verdict: REJECTED**
-> The SNN behavioral learning gate fails under the frozen biocalibration parameters:
-> 1. **No behavioral learning:** The average Normal Trained evaluation accuracy (`66.67%`) fails to reach the $\ge 70\%$ threshold.
-> 2. **No ablation difference:** The Normal condition does not beat the DA-off (`67.33%`) and Plasticity-off (`67.33%`) controls.
-> 3. **Scale mismatch:** Under the frozen winner parameters (`gsop_potentiation = 240`, `gsop_depression = 68`, `dopamine = 50`), each causal STDP event changes a synapse's weight in the Mass Domain by at most `240` units, which equates to a change of only `0.0036` in the Charge Domain ($2^{16}$ scale).
-> 4. **Insufficient updates:** Due to sparse postsynaptic spiking (~1.5 Hz) and homeostasis, matched weights only changed by an average of `-0.04` in the Charge Domain (from `3500.00` to `3499.96`). This tiny change is physically insufficient to bias the membrane potential integration. The SNN choice accuracy is entirely dominated by the initial `7 matched / 5 unmatched` topological bias, and the evaluation fluctuations are purely stochastic noise.
-
+> **LP-4 (C4) Gate Verdict: COMPLETE — REJECTED IN CURRENT SCOPE**
+> The SNN behavioral learning gate fails under the frozen biocalibration parameters.
+>
+> **Empirical Observations:**
+> 1. **No behavioral learning:** The average Normal Trained evaluation accuracy (`66.67%`) did not improve relative to the baseline (`67.33%`), failing to reach the $\ge 70\%$ success threshold.
+> 2. **No ablation separation:** The Normal condition did not beat the DA-off (`67.33%`) and Plasticity-off (`67.33%`) controls.
+> 3. **Tiny weight effect:** Due to sparse postsynaptic spiking (~1.5 Hz) and homeostasis, matched weights only changed by an average of `-0.04` in the Charge Domain (from `3500.00` to `3499.96`).
+> 4. **Topology dominance:** The SNN choice accuracy is entirely dominated by the initial `7 matched / 5 unmatched` topological bias, and the evaluation fluctuations are within stochastic variations.
+>
+> **Competing Explanations (Hypothetical Causes):**
+> * **Plasticity Scale Mismatch:** Under the frozen parameters (`gsop_potentiation = 240`, `gsop_depression = 68`), each causal STDP event changes a synapse's weight in the Mass Domain by at most `240` units, which equates to a change of only `0.0036` in the Charge Domain ($2^{-16}$ scale), which may be physically insufficient to bias the membrane potential integration.
+> * **Encoder / Readout Mapping:** The 2AFC choice mapping, which reads simple spike counts of A/B groups, might be too coarse to register small sub-microvolt weight updates.
+> * **Reward Delivery Timing:** The dopamine magnitude (`50`) and reward delivery might not deliver a sufficient reinforcement signal to drive pathway divergence on a short 500-trial horizon.

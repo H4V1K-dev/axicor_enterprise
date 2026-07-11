@@ -1,7 +1,8 @@
 # Learning Proof
 
-Status: active  
-Started: 2026-07-11
+Status: archived (COMPLETE — C4 REJECTED IN CURRENT SCOPE)  
+Started: 2026-07-11  
+Completed: 2026-07-11  
 
 ## Question
 
@@ -15,8 +16,8 @@ Started: 2026-07-11
 | C1 — local causality | supported on toy | corr Δ > control Δ |
 | C2 — retention | supported (weights) | frozen eval checksum hold |
 | C3 — dopamine | supported on toy | DA modulates bias |
-| C4 — external task | **REJECTED** | failed behavioral learning |
-| C5 — structural | deferred | after C4 |
+| C4 — external task | COMPLETE — REJECTED IN CURRENT SCOPE | Normal did not improve relative to baseline and did not beat ablations |
+| C5 — structural | not entered | prerequisite C4 not satisfied |
 
 ## Current Conclusion
 
@@ -26,5 +27,6 @@ C0–C3 supported plastic knobs on toy. C4 (external task learning) was rejected
 ## Outputs
 
 - [Cumulative report](reports/learning_proof.md)
+- [Research narrative](narrative.md)
 - Harness: `lp0_controllability_tests`, `lp1_causality_tests`, `lp2_retention_tests`, `lp3_reward_ablations_tests`
 - Generated outputs: gitignored `artifacts/`

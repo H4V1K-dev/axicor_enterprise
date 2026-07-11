@@ -1,0 +1,4 @@
+interface:
+  display_name: "AxiEngine Research"
+  short_description: "Conduct cumulative evidence-driven AxiEngine research"
+  default_prompt: "Use $conduct-axiengine-research to plan, execute, interpret, and narrate an AxiEngine research program."

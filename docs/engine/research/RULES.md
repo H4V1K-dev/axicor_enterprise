@@ -4,7 +4,7 @@ Status: active rules for AxiEngine biological calibration research.
 
 These rules exist to keep experiments reproducible after a year, not to produce paperwork.
 
-**Parameter provenance:** see §0. Project skill: `.grok/skills/axi-research/`.
+**Parameter provenance:** see §0. Project skill: `.axi-SKILLS/conduct-axiengine-research/`.
 
 ## 0. Parameter provenance (hard rule)
 
@@ -95,6 +95,12 @@ The active `README.md` is the living lab note. It should contain:
 - expected result;
 - observed result;
 - final conclusion once finished.
+
+### narrative.md
+
+For a multi-gate research program, `narrative.md` is the cumulative research story: the prior model, why each gate was chosen, what the evidence changed, where the current bottleneck moved, and why the next action follows. Preserve failed expectations and code detours instead of rewriting the path as inevitable.
+
+Short single-gate research may keep this narrative in README while it remains readable. Do not create `narrative.md` merely to satisfy a template.
 
 ### scripts/
 
