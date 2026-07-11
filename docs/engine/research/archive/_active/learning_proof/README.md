@@ -15,12 +15,13 @@ Started: 2026-07-11
 | C1 — local causality | supported on toy | corr Δ > control Δ |
 | C2 — retention | supported (weights) | frozen eval checksum hold |
 | C3 — dopamine | supported on toy | DA modulates bias |
-| C4 — external task | **preregistration review** | see report |
+| C4 — external task | **REJECTED** | failed behavioral learning |
 | C5 — structural | deferred | after C4 |
 
 ## Current Conclusion
 
-C0–C3 = plastic knobs on toy, not task learning. Program verdict open until C4.
+C0–C3 supported plastic knobs on toy. C4 (external task learning) was rejected because weight updates under frozen biocalibration parameters are too small to shift SNN choice behavior within 500 trials.
+
 
 ## Outputs
 

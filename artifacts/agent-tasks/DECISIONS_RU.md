@@ -6,8 +6,7 @@
 
 - Provenance table for every non-default knob.
 - Mass/charge encoding must match production.
-- Skills: project `.grok/skills/axi-research/` (orchestrator + agent research work).
-- Normative text also in `GEMINI.md` §13.0 and `docs/engine/research/RULES.md` §0.
+- Skills: project `.axi-SKILLS/` (e.g. `write-axiengine-crate-spec`); also `GEMINI.md` §13.0 and `docs/engine/research/RULES.md` §0.
 
 ## Active program
 

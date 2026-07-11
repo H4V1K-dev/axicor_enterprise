@@ -1,6 +1,6 @@
 # Learning Proof Program — Cumulative Report
 
-Status: **PREREGISTRATION REVIEW** (C0-C3 completed historically; C4 planned)
+Status: **FROZEN** (C0-C3 completed historically; C4 planned)
 Slug: `learning_proof`
 Parent Program: `LEARNING_PROOF_MONOSPEC.md`
 
@@ -89,21 +89,26 @@ Loaded TOML profiles:
 ## 3. LP-4 (C4) Preregistration Protocol
 
 ### 3.1 External Task & Readout Mapping
-* **Task:** 2AFC (Two-Alternative Forced Choice) Cue Association.
+* **Task:** 2AFC (Two-Alternative Forced Choice) Cue Association Learning.
 * **Cues:**
   * **Cue Left:** Activates Virtual inputs `256..320`.
   * **Cue Right:** Activates Virtual inputs `320..384`.
-* **Readout Mapping:** We read the spike counts of L4 (or L5) preferred groups:
+* **Readout Mapping:** We read the spike counts of L4 preferred groups:
   * **Group A preferred** (somas `0..64`, preferred to Group A inputs).
   * **Group B preferred** (somas `64..128`, preferred to Group B inputs).
-  * Choice is determined by:
+  * Trial Choice is determined by:
     $$\text{Choice} = \begin{cases} \text{Left} & \text{if } \text{Spikes}(A) > \text{Spikes}(B) \\ \text{Right} & \text{if } \text{Spikes}(B) > \text{Spikes}(A) \\ \text{None} & \text{if } \text{Spikes}(A) = \text{Spikes}(B) \end{cases}$$
+* **Correct Action Mapping:**
+  * For **Cue Left**, the correct choice is **Left**.
+  * For **Cue Right**, the correct choice is **Right**.
+  * To enable learning within 500 trials, the topology is initialized with a correct bias of **7 matched** and **5 unmatched** synapses per L4 spiny neuron (total fan-in = 12, preserving the calibrated fan-in regime). All initial Virtual->L4 weights are set to `3500` (Mass domain `3500 << 16`). This sets the initial untrained baseline choice accuracy to a moderate level (around 65-70%), allowing dopamine-mediated STDP to amplify the matched pathways and achieve high accuracy.
 
 ### 3.2 Training & Evaluation Horizons
-* **Trial Length:** 40 ticks.
-* **Cue Duration:** 20 ticks (ticks 0..20 active cue, ticks 20..40 silent decay).
-* **Training Phase:** 50 trials (alternate Cue Left and Cue Right).
-* **Evaluation Phase:** 20 trials (frozen state, alternate Cue Left and Cue Right).
+* **Trial Length:** 330 ticks (30 ticks active + 300 ticks Inter-Trial Interval silence).
+* **Cue Duration:** 25 ticks (active cue for ticks 0..25, silent decay for ticks 25..30, ITI silence for ticks 30..330).
+* **Training Trials:** 500 trials (each with closed-loop dopamine feedback depending on condition).
+* **Frozen Evaluation Trials:** 100 trials (plasticity disabled, dopamine = 0).
+* **Total Ticks per Condition:** (500 + 100) * 330 = 198,000 ticks.
 
 ### 3.3 Experimental Conditions & Ablation Matrix
 We run 3 seeds (`42, 100, 2026`) across 3 conditions:
@@ -123,5 +128,37 @@ We run 3 seeds (`42, 100, 2026`) across 3 conditions:
 
 ### 3.5 Execution Command
 ```bash
-cargo test -p test-harness --test lp4_task_learning_tests --features full-chain-probe -- --nocapture
+cargo test -p test-harness --test lp4_task_learning_tests --features "full-chain-probe mvp-cpu-replay" --release -- --nocapture
 ```
+
+---
+
+## 4. LP-4 (C4) Empirical Evidence & Evaluation
+
+### 4.1 Empirical Results Table
+
+| Seed | Condition | Baseline Accuracy | Evaluation Accuracy | Post-Train Matched Weight | Post-Train Unmatched Weight |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **42** | Normal | 68.00% | 66.00% | 3499.98 | 3499.91 |
+| **42** | DA-off | 68.00% | 69.00% | 3499.90 | 3499.84 |
+| **42** | Plast-off | 68.00% | 67.00% | 3500.00 | 3500.00 |
+| **100** | Normal | 67.00% | 70.00% | 3499.95 | 3499.92 |
+| **100** | DA-off | 67.00% | 70.00% | 3499.90 | 3499.85 |
+| **100** | Plast-off | 67.00% | 70.00% | 3500.00 | 3500.00 |
+| **2026** | Normal | 67.00% | 64.00% | 3499.96 | 3499.90 |
+| **2026** | DA-off | 67.00% | 63.00% | 3499.90 | 3499.84 |
+| **2026** | Plast-off | 67.00% | 65.00% | 3500.00 | 3500.00 |
+| **Average** | **Normal** | **67.33%** | **66.67%** | **3499.96** | **3499.91** |
+| **Average** | **DA-off** | **67.33%** | **67.33%** | **3499.90** | **3499.84** |
+| **Average** | **Plast-off**| **67.33%** | **67.33%** | **3500.00** | **3500.00** |
+
+### 4.2 Verdict & Analysis
+
+> [!WARNING]
+> **LP-4 (C4) Gate Verdict: REJECTED**
+> The SNN behavioral learning gate fails under the frozen biocalibration parameters:
+> 1. **No behavioral learning:** The average Normal Trained evaluation accuracy (`66.67%`) fails to reach the $\ge 70\%$ threshold.
+> 2. **No ablation difference:** The Normal condition does not beat the DA-off (`67.33%`) and Plasticity-off (`67.33%`) controls.
+> 3. **Scale mismatch:** Under the frozen winner parameters (`gsop_potentiation = 240`, `gsop_depression = 68`, `dopamine = 50`), each causal STDP event changes a synapse's weight in the Mass Domain by at most `240` units, which equates to a change of only `0.0036` in the Charge Domain ($2^{16}$ scale).
+> 4. **Insufficient updates:** Due to sparse postsynaptic spiking (~1.5 Hz) and homeostasis, matched weights only changed by an average of `-0.04` in the Charge Domain (from `3500.00` to `3499.96`). This tiny change is physically insufficient to bias the membrane potential integration. The SNN choice accuracy is entirely dominated by the initial `7 matched / 5 unmatched` topological bias, and the evaluation fluctuations are purely stochastic noise.
+

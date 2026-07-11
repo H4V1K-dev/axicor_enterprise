@@ -65,6 +65,10 @@ required-features = ["full-chain-probe"]
 name = "lp2_retention_tests"
 required-features = ["full-chain-probe"]
 
+[[test]]
+name = "lp4_task_learning_tests"
+required-features = ["full-chain-probe", "mvp-cpu-replay"]
+
 [[example]]
 name = "heatmap_experiment"
 required-features = ["mvp-cpu-replay"]

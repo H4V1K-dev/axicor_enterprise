@@ -1,0 +1,4 @@
+interface:
+  display_name: "AxiEngine Crate Specifications"
+  short_description: "Create and verify AxiEngine crate specifications"
+  default_prompt: "Use $write-axiengine-crate-spec to create or synchronize an AxiEngine crate specification from project evidence."
