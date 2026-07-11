@@ -461,6 +461,14 @@ impl LocalRuntime {
         self.working.as_mut()
     }
 
+    /// Exposes a mutable reference to the runtime config.
+    ///
+    /// Useful for modifying runtime parameters (such as `plasticity_enabled`) dynamically
+    /// between simulation phases in testing.
+    pub fn config_mut(&mut self) -> &mut LocalRuntimeConfig {
+        &mut self.config
+    }
+
     /// Exposes a mutable reference to the underlying compute engine for testing/harness control.
     pub fn engine_mut(&mut self) -> &mut compute::ShardEngine {
         &mut self.engine

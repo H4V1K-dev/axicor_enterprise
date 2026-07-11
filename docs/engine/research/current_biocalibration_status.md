@@ -123,7 +123,8 @@ Status: active research index, not a final report.
 | LP-entry | **Learning Proof L000 entry** | **ready** | Night in-proc frozen; dossier |
 | LP-0 | Frozen / plasticity controllability | **partial / accepted caveats** | freeze/unfreeze mass writes |
 | LP-1 | Plasticity causality (correlated vs control) | **completed w/ caveats** | relative $\Delta w$ bias on toy fixture; see LP-1 README |
-| LP-2…LP-4 | retention → reward → task | next: **LP-2** | monоспека gate matrix |
+| LP-2 | Retention after freeze | **completed** | evaluation weight delta = 0 and corr > ctrl |
+| LP-3…LP-4 | reward → task | blocked on prior LP | monоспека gate matrix |
 | LP-5 | Night structural contribution | blocked on LP-1…4 | only after base weight learning |
 
 ## 8. Активные и следующие исследования
@@ -134,7 +135,7 @@ Status: active research index, not a final report.
 - **Why**: без evidence-first ответа дальнейшие runtime modes / process SM / CUDA — строительство вслепую.
 - **L000 verdict**: program **READY** (2026-07-11). Freeze commit `b904a9255ca715d974f6dde50311c4e02a655909`.
 - **Program SoT**: `artifacts/agent-tasks/LEARNING_PROOF_MONOSPEC.md` rev 0.3
-- **Next**: LP-2 retention.
+- **Next**: LP-3 reward.
 
 ### [Active / partial] LP-0: Frozen / Plasticity Controllability (`archive/_active/learning_proof_lp0/`)
 
@@ -155,6 +156,16 @@ Status: active research index, not a final report.
 - **Outputs:** [README](archive/_active/learning_proof_lp1/README.md); `test-harness` test `lp1_causality_tests`.
 - **Command:** `cargo test -p test-harness --test lp1_causality_tests --features full-chain-probe`
 - **Next:** LP-2 retention.
+
+### [Completed] LP-2: Retention after freeze (`archive/_active/learning_proof_lp2/`)
+
+- **Вопрос:** Сохраняется ли приобретённое изменение весов (и относительный corr>ctrl bias) после отключения пластичности?
+- **Итоговый вердикт (Pass / C2 Retention Verified):**
+  - При `plasticity_enabled = false` веса синапсов во время фазы тестирования не меняются побитово ($\Delta w_{\text{eval}} = 0$, `checksum_eval == checksum_trained` на всех семенах 42/100/2026).
+  - Относительный bias полностью сохранен ($w_{\text{correlated}} > w_{\text{control}}$).
+- **Outputs:** [README](archive/_active/learning_proof_lp2/README.md); `test-harness` test `lp2_retention_tests`.
+- **Command:** `cargo test -p test-harness --test lp2_retention_tests --features full-chain-probe`
+- **Next:** LP-3 reward.
 
 
 
