@@ -369,3 +369,215 @@ fn test_runtime_stage_n_reject_negative_prune_threshold() {
     let _ = remove_file(path);
 }
 
+#[cfg(feature = "night-gates")]
+#[test]
+fn test_gate_poison_fail_closed() {
+    let (engine, bundle, path) = create_test_engine_and_bundle();
+    let config = LocalRuntimeConfig {
+        sync_batch_ticks: 2,
+        v_seg: 1,
+        dopamine: 0,
+        max_spikes_per_tick: 4,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_words_per_tick: 1,
+        mapped_soma_ids: vec![0, 1],
+    };
+    let padded_n = bundle.spec.padded_n;
+    let total_axons = bundle.spec.total_axons;
+    let total_ghosts = bundle.spec.total_ghosts;
+    let mut runtime = LocalRuntime::from_boot_bundle(engine, config, bundle).unwrap();
+
+    let job = runtime::NightJobParams {
+        shard_id: 0,
+        zone_hash: 0x11223344,
+        night_epoch: 1,
+        master_seed: [0u8; 32],
+        prune_threshold: 5,
+        max_sprouts: 8,
+        w_distance: 100,
+        w_power: 50,
+        w_explore: 10,
+        initial_synapse_weight: 100,
+    };
+    // Trigger failure by passing invalid dimensions -> enters Faulted, engine in Maintenance
+    let err_res = runtime.run_night_phase(&job, None, padded_n + 1, total_axons, total_ghosts);
+    assert!(err_res.is_err());
+    assert_eq!(runtime.state(), runtime::RuntimeState::Faulted);
+    assert_eq!(runtime.engine_state(), compute::LifecycleState::Maintenance);
+
+    // Attempt day batch -> refuses to run
+    let day_res = runtime.run_empty_batch();
+    assert!(day_res.is_err());
+
+    let _ = remove_file(path);
+}
+
+#[cfg(feature = "night-gates")]
+#[test]
+fn test_gate_ro_paths() {
+    let (engine, bundle, path) = create_test_engine_and_bundle();
+    let config = LocalRuntimeConfig {
+        sync_batch_ticks: 2,
+        v_seg: 1,
+        dopamine: 0,
+        max_spikes_per_tick: 4,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_words_per_tick: 1,
+        mapped_soma_ids: vec![0, 1],
+    };
+    let padded_n = bundle.spec.padded_n;
+    let total_axons = bundle.spec.total_axons;
+    let total_ghosts = bundle.spec.total_ghosts;
+    let mut runtime = LocalRuntime::from_boot_bundle(engine, config, bundle).unwrap();
+
+    let paths_before = runtime.working_state().unwrap().paths_blob.clone();
+
+    let job = runtime::NightJobParams {
+        shard_id: 0,
+        zone_hash: 0x11223344,
+        night_epoch: 1,
+        master_seed: [1u8; 32],
+        prune_threshold: 0,
+        max_sprouts: 5,
+        w_distance: 100,
+        w_power: 50,
+        w_explore: 10,
+        initial_synapse_weight: 100,
+    };
+
+    runtime.run_night_phase(&job, None, padded_n, total_axons, total_ghosts).unwrap();
+    let paths_after = runtime.working_state().unwrap().paths_blob.clone();
+
+    assert_eq!(paths_before, paths_after, "G-RO invariant: paths_blob must remain read-only/unmutated during Night Phase");
+
+    let _ = remove_file(path);
+}
+
+#[cfg(feature = "night-gates")]
+#[test]
+fn test_gate_determinism() {
+    let (engine1, bundle1, path1) = create_test_engine_and_bundle();
+    let (engine2, bundle2, path2) = create_test_engine_and_bundle();
+    let config = LocalRuntimeConfig {
+        sync_batch_ticks: 2,
+        v_seg: 1,
+        dopamine: 0,
+        max_spikes_per_tick: 4,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_words_per_tick: 1,
+        mapped_soma_ids: vec![0, 1],
+    };
+
+    let padded_n = bundle1.spec.padded_n;
+    let total_axons = bundle1.spec.total_axons;
+    let total_ghosts = bundle1.spec.total_ghosts;
+
+    let mut runtime1 = LocalRuntime::from_boot_bundle(engine1, config.clone(), bundle1).unwrap();
+    let mut runtime2 = LocalRuntime::from_boot_bundle(engine2, config, bundle2).unwrap();
+
+    let job1 = runtime::NightJobParams {
+        shard_id: 0,
+        zone_hash: 0x11223344,
+        night_epoch: 1,
+        master_seed: [7u8; 32],
+        prune_threshold: 2,
+        max_sprouts: 8,
+        w_distance: 100,
+        w_power: 50,
+        w_explore: 10,
+        initial_synapse_weight: 100,
+    };
+
+    let report1 = runtime1.run_night_phase(&job1, None, padded_n, total_axons, total_ghosts).unwrap();
+    let report2 = runtime2.run_night_phase(&job1, None, padded_n, total_axons, total_ghosts).unwrap();
+
+    assert_eq!(report1.sprouted_count, report2.sprouted_count, "G-DET: sprouted_count must be identical for same seed");
+    assert_eq!(report1.pruned_count, report2.pruned_count, "G-DET: pruned_count must be identical for same seed");
+
+    let state1 = runtime1.working_state().unwrap().state_blob.clone();
+    let state2 = runtime2.working_state().unwrap().state_blob.clone();
+    assert_eq!(state1, state2, "G-DET: state_blob must be identical for same seed");
+
+    let _ = remove_file(path1);
+    let _ = remove_file(path2);
+}
+
+#[cfg(feature = "night-gates")]
+#[test]
+fn test_gate_density_and_slot_occupancy() {
+    let (engine, bundle, path) = create_test_engine_and_bundle();
+    let config = LocalRuntimeConfig {
+        sync_batch_ticks: 2,
+        v_seg: 1,
+        dopamine: 0,
+        max_spikes_per_tick: 4,
+        virtual_offset: 0,
+        num_virtual_axons: 0,
+        input_words_per_tick: 1,
+        mapped_soma_ids: vec![0, 1],
+    };
+    let padded_n = bundle.spec.padded_n;
+    let total_axons = bundle.spec.total_axons;
+    let total_ghosts = bundle.spec.total_ghosts;
+    let mut runtime = LocalRuntime::from_boot_bundle(engine, config, bundle).unwrap();
+
+    let state_before = runtime.working_state().unwrap();
+    let offsets = layout::offsets::compute_state_offsets(padded_n as usize);
+    let targets_slice_before = bytemuck::cast_slice::<u8, types::PackedTarget>(
+        &state_before.state_blob[offsets.off_targets..offsets.off_weights]
+    ).to_vec();
+
+    let mut active_slots = Vec::new();
+    for (idx, &target) in targets_slice_before.iter().enumerate() {
+        if !target.is_inactive() {
+            active_slots.push(idx);
+        }
+    }
+
+    let job = runtime::NightJobParams {
+        shard_id: 0,
+        zone_hash: 0x11223344,
+        night_epoch: 1,
+        master_seed: [9u8; 32],
+        prune_threshold: 0,
+        max_sprouts: 4,
+        w_distance: 100,
+        w_power: 50,
+        w_explore: 10,
+        initial_synapse_weight: 100,
+    };
+
+    let report = runtime.run_night_phase(&job, None, padded_n, total_axons, total_ghosts).unwrap();
+    assert!(report.sprouted_count <= 4, "G-DENSE: sprouted count exceeds max_sprouts");
+
+    let state_after = runtime.working_state().unwrap();
+    let targets_slice_after = bytemuck::cast_slice::<u8, types::PackedTarget>(
+        &state_after.state_blob[offsets.off_targets..offsets.off_weights]
+    );
+
+    for &idx in &active_slots {
+        assert_eq!(
+            targets_slice_before[idx],
+            targets_slice_after[idx],
+            "G-DENSE: existing active synapse slot at index {} was overwritten during sprouting",
+            idx
+        );
+    }
+
+    let _ = remove_file(path);
+}
+
+#[cfg(feature = "night-gates")]
+#[test]
+fn test_gate_dale_law_validation_skip() {
+    // TODO T014: G-DALE validation is currently skipped because VariantParameters / Dale polarity flags
+    // are not accessible in the isolated host-side weaver-daemon or NightWorkingViewMut.
+    // Real implementation of Dale's Law check should be added once type metadata table
+    // is integrated directly into ShmHeader or NightWorkingView.
+    println!("G-DALE: skipped because polarity flags are unavailable on host-side Night buffers");
+}
+
+

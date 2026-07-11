@@ -41,6 +41,7 @@ cuda = []
 hip = []
 facade = ["dep:compute", "compute/cpu"]
 cuda-native = ["facade", "compute/cuda-native"]
+night-gates = ["full-chain-probe"]
 
 [[test]]
 name = "legacy_baseline"
