@@ -1,0 +1,4 @@
+interface:
+  display_name: "AxiEngine Rust Implementation"
+  short_description: "Implement AxiEngine Rust changes consistently"
+  default_prompt: "Use $implement-axiengine-rust-change to implement this AxiEngine Rust change with the correct crate structure, rustdoc, tests, and verification."

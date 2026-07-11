@@ -14,3 +14,8 @@ Before planning, conducting, continuing, analyzing, narrating, auditing, or arch
 
 Use that skill to preserve parameter provenance and preregistration, accumulate gates inside durable programs, maintain the continuous research narrative, distinguish invalid experiments from rejected hypotheses, route code and specification blockers explicitly, and synchronize research status and evidence links.
 
+Before planning or implementing production Rust changes under `AxiEngine/crates/`, including creating crates, changing public APIs, module structure, manifests, features, backends, lifecycle behavior, validation, errors, rustdoc, or tests, read and follow the complete skill at:
+
+`.axi-SKILLS/implement-axiengine-rust-change/SKILL.md`
+
+Use that skill proportionally: keep local changes lightweight, expand the impact audit for contract changes, and use the full crate-profile and architecture workflow only when boundaries actually move. For research-only runners in `AxiEngine/crates/test-harness/`, the research skill governs the experiment while this skill governs authorized Rust implementation quality.
