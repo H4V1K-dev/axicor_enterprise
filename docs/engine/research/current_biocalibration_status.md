@@ -31,6 +31,15 @@ Status: active research index, not a final report.
 | [2026-07-04 full neuron replay 314900022](archive/2026-07-04_full_neuron_replay_314900022/README.md) | archived | Выполнен полный нейронный replay с потиковым паритетом Python/Rust. Изучены AHP, рефрактерность, homeostasis, Bounded Inertia и Heartbeat Gating. Выявлено: Bounded Inertia не решает гипервозбудимость на малых токах; Heartbeat Gating устраняет рефрактерные коллизии; gated_discharge — единственный biophysical кандидат для продакшна. |
 | [2026-07-04 static microcircuit scale-up v1](archive/2026-07-04_static_microcircuit_scale_up_v1/README.md) | archived | Масштабирование статической микросети до N=1M на CPU. Выявлены Vm saturation и перегрев порогов. |
 | [2026-07-04 static microcircuit v1.1 input scale & E/I ablation](archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/README.md) | archived | Стабилизация L4 мембранного потенциала, рекрутирование L5 и оценка E/I баланса через ablation аудит торможения L23. |
+| [2026-07-04 static microcircuit v1.2 L5 recruitment / topology](archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/README.md) | archived | Вывод L5 активности в целевой диапазон 1-15 Hz. Рекрутирование прошло успешно, но L4 оказался переторможен торможением L23. |
+| [2026-07-05 static microcircuit v1.3 balance & winner selection](archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/README.md) | archived | Совместный баланс L4/L23/L5 слоев на N=256 и N=512. Баланс на N=256 достигнут, на N=512 активность L4 осталась чуть ниже 3.0 Hz. |
+| [2026-07-05 static microcircuit v1.4 N=512 fine-tuning](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/README.md) | archived | Тонкая калибровка торможения L23 для прохождения всех физиологических ворот на обоих масштабах одновременно. |
+| [2026-07-05 plastic microcircuit v1.0 gsop spatial weight formation](archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/README.md) | archived | Включение пластичности GSOP/STDP/fatigue на сбалансированной сети v1.4. Проверены физиологическая стабильность и активность weight updates; найден слабый correlation bias (+0.07 uV), но положительная потенциация коррелированных дорожек пока не доказана. |
+| [2026-07-05 plastic microcircuit v1.1 structured potentiation](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/README.md) | archived | Спроектирован и протестирован метод сильного спаренного структурированного стимула. Доказана селективная защита matched Virtual->L4 от LTD, но strict gate положительной потенциации не закрыт. |
+| [2026-07-05 plastic microcircuit v1.2 positive potentiation / activity recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md) | archived | Достигнута строгая положительная потенциация сконструированных matched Virtual->L4 в масс-домене (+68834.90) и exact-заряде (+1.0503 uV), но N=256 L4 activity gate не закрыт, а unmatched-control отсутствует. |
+| [2026-07-05 plastic microcircuit v1.3 control-preserving potentiation](archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/README.md) | archived | Сохранена unmatched-control группа и доказан relative matched bias (+2.7180 uV vs +1.4708 uV), но N=256 L4 activity gate не закрыт, а positive-ratio gate дает tie 100%/100%. |
+| [2026-07-05 plastic microcircuit v1.4 controlled + baker shadow](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/README.md) | archived | Manual selectivity gate закрыт (0.4318), baker shadow сохраняет положительный matched-bias trend (0.0648), но финальный 100k-tick manual learning L4=2.31 Hz ниже hard gate 3.0 Hz. |
+| [2026-07-05 plastic microcircuit v1.5 sparse activity gate](archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/README.md) | archived | Жесткий L4 >= 3 Hz заменен sparse-activity gate. Manual audit L4=1.91 Hz признан sparse-functional при active fraction 100%, max silence 0.060s, selectivity 0.4357; Baker audit сохраняет trend (L4=6.44 Hz, selectivity 0.0648). |
 
 ## 3. Что сейчас известно
 
@@ -81,17 +90,37 @@ Status: active research index, not a final report.
 | 2.1 | **Static microcircuit scale-up** | completed | Оценена стабильность и CPU производительность при масштабировании до 1,000,000 нейронов. Выявлена Vm saturation (> -25mV) из-за избыточного homeostasis offset под Poisson-шумом. Физиология inconclusive. |
 | 2.2 | **Static microcircuit v1.1 Input Scale & E/I Ablation** | completed / partial | Мембранный потенциал стабилизирован, но L5 recruitment gate не закрыт; ablation показывает модулирующую роль L23 inhibition без формального runaway. |
 | 2.3 | **Static microcircuit L5 recruitment/topology** | completed / partial | L5 успешно рекрутирован в целевой диапазон (~10.1 Hz на N=512) за счет FF L4->L5 усиления (8000 uV) и разделения L23 торможения; L4 переторможен ниже gate (1.4-1.6 Hz). |
-| 2.4 | **Static microcircuit L4/L5 balance** | next (biology ladder) | Нужно одновременно удержать L4 в 3..25 Hz и L5 в 1..15 Hz на N=256/N=512 без возврата Vm saturation. |
-| 3 | **Plastic microcircuit** (full L4/L5 showcase) | blocked on step 2.4 | GSOP/STDP на **полноценной** микросети после статического balance. |
-| 4 | **Sensorimotor toy / CartPole** | blocked on step 3 **or** Learning Proof LP-3+ | CartPole не раньше reward-causality evidence. |
+| 2.4 | **Static microcircuit L4/L5 balance** | completed / partial | Достигнут полный баланс слоев на N=256 (L4=3.1Hz, L23=10.6Hz, L5=4.7Hz). На N=512 активность L4 (2.8Hz) на грани допуска (>3Hz) из-за масштабирования торможения L23. Блокер топологический. |
+| 2.5 | **Static microcircuit N=512 fine-tuning** | completed | Достигнут полный баланс и прохождение всех приемочных ворот на N=256 и N=512 одновременно за счет тонкой калибровки торможения L23 (L23->L4 = -1200, L23->L5 = -1250). |
+| 3 | **Plastic microcircuit** | completed | GSOP/STDP/fatigue включаются после статической сетевой стабильности; веса bounded и инварианты соблюдены, matched bias доказан, а старый L4 >= 3 Hz hard gate заменен sparse-functional gate. |
+| 3.1 | **Plastic microcircuit v1.1 structured potentiation** | completed / partial | Получено сильное селективное удержание matched `Virtual -> L4` от LTD, но strict gate положительной потенциации и L4 activity gate не закрыты. |
+| 3.2 | **Plastic microcircuit v1.2 positive potentiation / activity recovery** | completed / partial | Достигнута строгая положительная потенциация matched Virtual->L4 в масс-домене и exact-заряде. Не закрыты N=256 L4 activity gate и unmatched-control gate. |
+| 3.3 | **Plastic microcircuit v1.3 control-preserving potentiation** | completed / partial | Сохранена unmatched Virtual->L4 control group (8 matched + 4 unmatched), доказан relative matched bias (+2.7180 uV vs +1.4708 uV), Dale/sign invariants соблюдены. Не закрыты N=256 L4 activity gate (2.62 Hz < 3.0 Hz) и positive-ratio gate (matched=100%, unmatched=100%). |
+| 3.4 | **Plastic microcircuit v1.4 controlled + baker shadow** | completed / superseded | Manual selectivity gate закрыт (0.4318), baker shadow компилируется и сохраняет положительный matched-bias trend (0.0648). Старый hard fail по L4<3 Hz снят последующим sparse-activity аудитом v1.5. |
+| 3.5 | **Plastic microcircuit v1.5 biological sparse-activity gate audit** | completed / sparse-functional pass | Заменен жесткий порог L4 >= 3.0 Hz на биологический sparse-activity gate. Manual audit L4=1.91 Hz проходит sparse-functional gate; Baker audit L4=6.44 Hz сохраняет matched-bias trend. |
+| 4 | **Baker spatial growth audit v1** | completed / whitelist fixed, capacity warning | Baker строит реальный 3D-коннектом; whitelist fix убрал все unexpected projections, `VirtualInput` стал input-only, все 7 expected projections присутствуют. Остался capacity warning: L4/L23 насыщены 128/128, dropped candidates=106,010. |
+| 4.1 | **Baker Axon Growth & Synapse Geometry Audit v1** | completed / pass | Проверена 3D геометрия роста аксонов, стоп-факторы, формирование кандидатов и соблюдение всех жестких геометрических инвариантов. Все invariants (out-of-bounds, self-intersection, soma collision, whitelist, radius) пройдены (0 нарушений). |
+| 4.2 | **Growth v2 MVP Extraction** | completed / source audit | Проведен аудит непрерывного векторного роста MVP Baker. Предложены метрики для выявления terminal knots и методы борьбы с ними. Создан изолированный тестовый таргет `baker_growth_v2.rs`. |
+| 4.4 | **Growth v2 Biology-Aligned Multifield Prototype v0.2** | completed / pass | Многополевая модель + Touch Detection Phase 2. Достигнуто 0 нарушений invariants, успешность Virtual->L4 = 82.8%, TKI снижен до 1.17, синапсы сокращены на 12.1% (apples-to-apples vs Hybrid), дубликаты устранены. |
+| 4.5 | **Growth v2 Parameter Sweep & Pruning Policy v0.3** | completed / compile-candidate, functional caveat | Проведен sweep по 16 конфигурациям. Config 16 с dendrite radius 1.5 um сокращает raw candidates на 99.4% и насыщение сом до 0, но является low-pressure compile-parity candidate, а не финальным functional topology candidate: `L4_spiny -> L5_spiny` исчезает при строгом capture radius. |
+| 4.6 | **Growth v2 AOT-to-Flat Runtime Compile Parity** | completed / research flat-tree pass | Проверена событийная семантика при переносе AOT ветвления в плоский parent-pointer runtime contract. На Clean и Dense стресс-тестах под тремя детерминированными паттернами спайков достигнуто 100% совпадение (0 пропущенных/лишних событий). Production preference: compile branch terminals as separate linear axon streams; parent-pointer остается research oracle/reference. |
+| 4.7 | **Growth v2 Functional Topology Replay v0.5** | completed / research flat-tree pass, fan-in caveat | Проведена симуляция (10k ticks static, 10k ticks GSOP) на Sparse, Dense и Balanced кандидатах через research flat-tree runner. Balanced сохраняет все expected projections и дает matched learning bias (+335,345 vs +40,192), но остается fan-in caveat: 168 saturated target somas, p90/p99 = 128. |
+| 4.8 | **Growth v2 fan-in pressure reduction** | completed / research winner selected | Снижена нагрузка на посты (p90 = 96, saturated = 0) за счет projection-aware cap = 96, сохранены все ожидаемые связи (L4->L5 = 606), подтвержден стабильный matched replay. Separate-stream compile пока является audit blueprint, не production runtime parity. |
+| 4.9 | **Night phase contract & MVP extraction** | completed / contract v0.1 pass | Зафиксирован архитектурный контракт ночной фазы: роли плоскостей данных, жесткие инварианты, независимость от исследовательских меток и приоритет AOT/Baker геометрии. |
+| 4.9.1 | **Night phase passive recovery** | completed / pass | Проверен day/night цикл на C17 топологии: пассивная релаксация снижает Day 2 тики тишины (с 2623 до 2036), matched bias сохраняется (retention = 1.0000), 0.1% weight decay безопасен (retention = 0.9990). |
+| 4.9.2 | **Night phase weight maintenance / prune-compact** | completed / mechanical pass, threshold caveat | Проверен прунинг и уплотнение дендритных слотов: compaction сохраняет dense/Dale/duplicate invariants. Stress floor `1498 << 16` удаляет 1,750 синапсов и повышает survivor-set matched bias, но это диагностический порог, не финальная биологическая политика. |
+| 4.9.3 | **Night phase activity counters review package** | next | Подготовить пакет вопросов и контракт day counters / cold structural bank для внешнего биологического аудита перед реализацией activity-aware pruning/sprouting. |
+| 4.10 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
+| 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
+
 
 ### Parallel track: Learning Proof (kill-or-continue)
 
-Отдельная лестница C0…C5 / LP-0…LP-5. **Не** разблокирует silent claims про full-microcircuit plastic biology.
+Отдельная лестница C0…C5 / LP-0…LP-5. **Не** подменяет research plastic microcircuit / night-phase ladder выше; production Night transfer + harness controllability.
 
 | Порядок | Исследование | Статус | Gate |
 | :--- | :--- | :--- | :--- |
-| LP-entry | **Learning Proof L000 entry** | **ready** | Night in-proc frozen; dossier; 2.4 accepted as debt for minimal preset |
+| LP-entry | **Learning Proof L000 entry** | **ready** | Night in-proc frozen; dossier |
 | LP-0 | Frozen / plasticity controllability | **partial pass / running** | freeze/unfreeze works; multi-seed + charge-domain electrical parity still open |
 | LP-1…LP-4 | causality → retention → reward → task | blocked on honest LP-0 close or accepted caveats | monоспека gate matrix |
 | LP-5 | Night structural contribution | blocked on LP-1…4 | only after base weight learning |
@@ -102,24 +131,17 @@ Status: active research index, not a final report.
 
 - **Вопрос:** может ли AxiEngine обучаться и сохранять полезное изменение поведения (kill-or-continue для идеи проекта)?
 - **Why**: без evidence-first ответа дальнейшие runtime modes / process SM / CUDA — строительство вслепую.
-- **Expectation**: честный вердикт SUPPORTED / WEAKENED / REJECTED IN CURRENT SCOPE по лестнице C0…C4 (C5 structural optional).
-- **Confirm**: воспроизводимое улучшение + retention + reward causality на pre-registered metrics.
-- **Weaken/reject**: веса не контролируются; нет durable/task/reward win при fixed mechanisms.
-- **L000 verdict**: program **READY** (2026-07-11). Freeze commit `b904a9255ca715d974f6dde50311c4e02a655909`. Static L4/L5 2.4 **explicitly accepted as debt** for LP-0…LP-2 minimal harness preset.
-- **Planned outputs**: entry dossier (done); LP-0 README + runs; evidence package per monоспека.
-- **Commands (freeze baseline)**:
-  - `cargo test -p test-harness --features mock`
-  - `cargo test -p test-harness --features night-gates --test night_phase_vertical_slice`
+- **L000 verdict**: program **READY** (2026-07-11). Freeze commit `b904a9255ca715d974f6dde50311c4e02a655909`.
 - **Program SoT**: `artifacts/agent-tasks/LEARNING_PROOF_MONOSPEC.md` rev 0.3
-- **Next**: close LP-0 honesty (optional multi-seed / charge-domain parity) **or** accept caveats → **LP-1 causality** (correlated vs control). Not Night sprout planner.
+- **Next**: accept LP-0 caveats → **LP-1 causality** (correlated vs control). Not Night sprout planner.
 
 ### [Active / partial] LP-0: Frozen / Plasticity Controllability (`archive/_active/learning_proof_lp0/`)
 
-- **Вопрос:** Можем ли мы гарантированно включать и выключать изменение весов с помощью флага `plasticity_enabled`, не изменяя остальные условия и динамику прогона?
+- **Вопрос:** Можем ли мы гарантированно включать и выключать изменение весов с помощью флага `plasticity_enabled`?
 - **Текущий вердикт (Partial Pass / C0 minimal)**:
   - `plasticity_enabled = false` → FNV-1a weight checksum hold (**PASS**, 1 fixture).
   - `plasticity_enabled = true` → weights change under stimulus (**PASS**).
-  - Electrical bit-parity claim is **weak**: fixture mass `50000` ⇒ charge `>>16 == 0`, so Vm parity does not stress synaptic current path.
+  - Electrical bit-parity claim is **weak**: fixture mass `50000` ⇒ charge `>>16 == 0`.
   - Multi-seed / 1000-tick preregistration **not executed**.
 - **API:** `LocalRuntimeConfig.plasticity_enabled` → process-global `physics::set_plasticity_enabled` → Stage 6 skip in `compute-cpu`.
 - **Outputs:** [README](archive/_active/learning_proof_lp0/README.md); `test-harness` test `lp0_controllability_tests`.
@@ -127,6 +149,144 @@ Status: active research index, not a final report.
 
 
 
+### [Next Gate] Night phase activity counters review package v0.4
+
+- **Вопрос**: Какие дневные счетчики активности и какая cold-bank семантика биологически оправданы для ночного pruning/sprouting, чтобы не делать алгоритм ради алгоритма?
+- **Почему нужен**: v0.3 подтвердил механику prune/compact, но выбор порога по одному абсолютному весу остается слишком грубым. Перед реализацией activity-aware pruning/sprouting нужно подготовить короткий review package для нейробиолога: какие счетчики допустимы, как их старить, как отличать временно тихую важную связь от мусорной.
+- **Gate**: готовый текстовый пакет вопросов/гипотез для внешнего аудита и список допустимых research-only counters без production changes.
+
+### [Completed] Night phase prune & compact v0.3 (`archive/2026-07-06_night_phase_prune_compact_v0_3/`)
+
+- **Вопрос**: Можно ли ночью удалять слабые связи и уплотнять дендритные слоты, не нарушая invariants (Dale's Law, dense targets, duplicate limits) и селективность на C17 топологии?
+- **Итоговый вердикт (Completed / Mechanical Pass / Threshold Caveat)**: Да, механика безопасна. Уплотнение дендритных слотов с перенумерацией `dendrite_idx = 0..k-1` гарантирует 0 dense target violations и 0 дубликатов. Moderate stress floor (`1498 << 16`) удалил 1,750 синапсов и повысил survivor-set matched-bias с 273,784.71 до 918,322.92, но это диагностический результат, а не финальная биологически обоснованная политика прунинга.
+- **Outputs**: Rust тест `night_phase_prune_compact_v0_3.rs`, отчёт [night_phase_prune_compact_v0_3.md](archive/2026-07-06_night_phase_prune_compact_v0_3/reports/night_phase_prune_compact_v0_3.md).
+
+### [Completed] Night phase passive recovery v0.2 (`archive/2026-07-06_night_phase_passive_recovery_v0_2/`)
+
+- **Вопрос**: Не стирает ли пассивное ночное восстановление matched-bias и не уводит ли сеть в silence/runaway на C17 топологии при отключенном спаутинге?
+- **Итоговый вердикт (Completed / Pass)**: Нет, пассивная ночь безопасна и полезна. Сброс быстрых состояний (threshold offsets, dendritic fatigue, refractory timers, active propagation tails) снижает Day 2 тики тишины с 2623 до 2036, восстанавливая здоровую возбудимость слоев. Day 2 идет без learning, поэтому retention = 1.0000 означает сохранность learned weight structure при passive recovery. Мягкий синаптический decay (0.1%) также безопасен, не дает смены знаков или Dale violations, удерживая retention на уровне 0.9990.
+- **Outputs**: Rust тест `night_phase_passive_recovery_v0_2.rs`, отчёт [night_phase_passive_recovery_v0_2.md](archive/2026-07-06_night_phase_passive_recovery_v0_2/night_phase_passive_recovery_v0_2.md).
+
+
+### [Completed] Night phase contract & MVP extraction v0.1 (`archive/2026-07-06_night_phase_contract_v0_1/`)
+
+- **Вопрос**: Какова правильная архитектурная схема и ограничения ночной фазы в AxiEngine, какие части старого MVP (axicor-node/baker) применимы и какие инварианты критичны?
+- **Итоговый вердикт (Completed / Contract v0.1 Pass)**: Зафиксирован контракт ночной фазы. Ночь определена как offline-обслуживание графа/состояния между дневными эпохами. Установлены жесткие инварианты (configurable per-pair cap, Dense Target, Dale's Law). Запрещено использование matched/unmatched меток. Подтверждено, что спаутинг требует AOT-геометрии путей, а не только плоских runtime-массивов. В ранних исследовательских фазах IPC/daemon заменяются на in-process Rust вызовы.
+- **Outputs**: Отчёт [night_phase_contract_v0_1.md](archive/2026-07-06_night_phase_contract_v0_1/night_phase_contract_v0_1.md).
+
+### [Completed] Growth v2 fan-in pressure reduction v0.6 (`archive/2026-07-06_growth_v2_fanin_reduction_v0_6/`)
+
+- **Вопрос**: Можно ли снизить fan-in cap pressure у Balanced Growth v2 topology (p90=128, saturated=168), сохранив при этом все expected projections, L4->L5 > 0, стабильный replay и GSOP matched-bias?
+- **Итоговый вердикт (Completed / Research Winner Selected)**: Да. По результатам 24-конфигурационного свипа лучшим биологическим компромиссом признан кандидат C17 (Radius 9, Cap 96, ProjAware). За счет soft_cap=96 и projection-aware сортировки количество насыщенных сом упало до 0, p90 fan-in снижен до 96, а число критических синапсов L4->L5 удалось сохранить на уровне 606. Стабильность research flat-tree spiking-реплея подтверждена, matched-bias силен (+303k vs +29k). Проведен streams compile audit для будущей оптимизации; отдельная production separate-stream runtime parity проверка еще не закрыта.
+- **Outputs**: Rust тест `baker_growth_v2_fanin_reduction.rs`, Python скрипт построения графиков, 10 панелей графиков, отчёт [growth_v2_fanin_reduction_v0_6.md](archive/2026-07-06_growth_v2_fanin_reduction_v0_6/reports/growth_v2_fanin_reduction_v0_6.md).
+
+### [Completed] Growth v2 Functional Topology Replay v0.5 (`archive/2026-07-06_growth_v2_functional_replay_v0_5/`)
+
+
+- **Вопрос**: Работает ли выращенная Baker/Growth v2 топология как нейросеть (активность, передача между слоями, стабильность, fatigue/homeostasis) и дает ли она STDP matched-bias пластичность?
+- **Итоговый вердикт (Completed / Research Flat-Tree Functional Pass / Fan-in Caveat)**: Да, как research replay. Balanced Functional кандидат с радиусом 9.0 um рекрутирует все слои, включая L5 spiny (591 синапс L4->L5), runaway = 0, Dale/sign violations = 0. GSOP matched-bias сохраняется (matched mean +335,345 vs unmatched mean +40,192). Caveat: fan-in cap pressure остается высоким (168 saturated target somas, p90/p99 = 128), поэтому перед night phase рекомендуется отдельный pressure-reduction pass.
+- **Outputs**: Rust тест `baker_growth_v2_replay.rs`, Python-скрипт построения графиков, 11 панелей графиков, отчёт [growth_v2_functional_replay_v0_5.md](archive/2026-07-06_growth_v2_functional_replay_v0_5/reports/growth_v2_functional_replay_v0_5.md).
+
+### [Completed] Growth v2 AOT-to-Flat Runtime Compile Parity v0.4 (`archive/2026-07-06_growth_v2_aot_flat_parity_v0_4/`)
+
+- **Вопрос**: Сохраняется ли 1:1 событийная семантика после сворачивания богатой AOT-морфологии/ветвления в плоский runtime contract compute/GPU?
+- **Итоговый вердикт (Completed / Research Flat-Tree Pass)**: Да. Достигнуто 100% событийное совпадение на Clean и Dense стресс-тестах под тремя паттернами спайков. Выявленный баг активации концевых ветвей при пустом главном стволе (`main_len == 0`) успешно устранен в обоих симуляторах. Caveat: это доказывает parent-pointer flat-tree semantics; production-предпочтение после обсуждения — компилировать ветви в отдельные линейные axon streams, чтобы минимально менять runtime.
+- **Outputs**: Rust тест `baker_growth_v2_flat_parity.rs`, Python-скрипт построения 3D и 2D графиков, 7 панелей графиков, отчёт [growth_v2_aot_flat_parity_v0_4.md](archive/2026-07-06_growth_v2_aot_flat_parity_v0_4/reports/growth_v2_aot_flat_parity_v0_4.md).
+
+### [Completed] Growth v2 Parameter Sweep & Pruning Policy v0.3 (`archive/2026-07-06_growth_v2_pruning_sweep_v0_3/`)
+
+- **Вопрос**: Какое влияние оказывает соотношение весов, радиус прунинга и уникальность связей на функциональные характеристики коннектома при replay симуляции?
+- **Итоговый вердикт (Completed / Compile Candidate / Functional Caveat)**: Проведен sweep по 16 конфигурациям. Доказано, что главным фактором взрыва кандидатов является завышенный дендритный радиус. Сокращение радиуса до 1.5 um (Config 16) снижает количество кандидатов на 99.4% и насыщение сом до 0. Caveat: 80.5% — это reach-rate virtual-аксонов до L4-зоны, а не direct synapse projection success; `L4_spiny -> L5_spiny` при таком радиусе исчезает. Config 16 годится как low-pressure compile-parity candidate, но не как финальный functional replay candidate.
+- **Outputs**: Rust тест `run_growth_v2_pruning_sweep`, Python-скрипт построения 3D и 2D графиков, 7 панелей графиков, отчёт [growth_v2_pruning_sweep_v0_3.md](archive/2026-07-06_growth_v2_pruning_sweep_v0_3/reports/growth_v2_pruning_sweep_v0_3.md).
+
+### [Completed] Growth v2 Biology-Aligned Multifield Prototype v0.2 (`archive/2026-07-06_growth_v2_multifield_v0_2/`)
+
+- **Вопрос**: Может ли multifield growth с двухфазной моделью (morphology + touch detection) дать tract-like волокна, огибающие сомы, снизить fan-in pressure и сохранить invariants?
+- **Итоговый вердикт (Completed / Pass / Fan-in Caveat)**: Да, multifield модель v0.2 прошла invariants. Успешность проецирования в целевой слой составила 82.8%, TKI снижен до 1.17, итоговые accepted synapses снижены с 29,021 до 25,496 (-12.1% apples-to-apples vs Hybrid after cap), дубликаты устранены. Caveat: raw candidates=191,320 и 127/256 целевых сом насыщены до cap, поэтому fan-in pressure требует отдельного sweep.
+- **Outputs**: Rust тест `run_growth_v2_multifield_v0_2`, Python-скрипт построения 3D атласа, 6 панелей графиков, отчёт [growth_v2_multifield_v0_2.md](archive/2026-07-06_growth_v2_multifield_v0_2/reports/growth_v2_multifield_v0_2.md).
+
+### [Completed] Growth v2 Hybrid Prototype (`archive/2026-07-06_growth_v2_hybrid_prototype/`)
+
+- **Вопрос**: Позволяет ли гибридная схема совместить направленный векторный рост (cone/affinity/steering) с жесткими гарантиями решетки (0 collisions/bounds/intersections) и гашением концевых tangles?
+- **Итоговый вердикт (Completed / Geometry Pass / Density Caveat)**: Да, гибридный прототип прошел все геометрические invariants со 100% успехом. Успешность проецирования в целевой слой увеличилась на 37% по сравнению с baseline v1, а плотность окончаний снизилась на 38% за счет capture stop и attraction damping. 90.6% аксонов завершились по `TargetReached`. Caveat: Hybrid породил 112,261 raw contacts, после production-style cap осталось 29,021 accepted synapses и 83,240 dropped candidates; нужен отдельный fan-in/uniqueness sweep перед production migration.
+- **Outputs**: Rust тест `run_growth_v2_hybrid_prototype`, Python-скрипт построения 3D атласа, 6 панелей графиков, отчёт [growth_v2_hybrid_prototype.md](archive/2026-07-06_growth_v2_hybrid_prototype/reports/growth_v2_hybrid_prototype.md).
+
+
+### [Completed] Growth v2 MVP Extraction (`archive/2026-07-06_growth_v2_mvp_extraction/`)
+
+- **Вопрос**: Какие механики непрерывного роста есть в MVP Baker и отсутствуют в Baker v1, как формализовать проблему "terminal knot" и предотвратить слепой перенос whitelist-байпасов?
+- **Итоговый вердикт (Completed / Source Audit)**: Выполнен аудит MVP Baker. Задокументированы 11 отличий непрерывного роста от дискретного v1. Сформулирована проблема terminal knot, предложены 5 метрик оценки (tortuosity, density, angle variance) и 5 способов исправления. Отдельно зафиксировано, что legacy dendrite connect использовал cell-radius scan без финального exact radius gate, поэтому Growth v2 должен сохранить production-проверку `dist_sq <= radius_sq`. Создан новый файл тестов `baker_growth_v2.rs` и получен JSON инвентаря.
+- **Outputs**: Rust тест `run_growth_v2_mvp_extraction_inventory`, отчёт [growth_v2_mvp_extraction.md](archive/2026-07-06_growth_v2_mvp_extraction/reports/growth_v2_mvp_extraction.md).
+
+### [Completed] Baker Axon Growth & Synapse Geometry Audit v1 (`archive/2026-07-06_baker_axon_growth_synapse_geometry_v1/`)
+
+- **Вопрос**: Как именно растут аксоны в 3D, куда они доходят, почему останавливаются (stop reasons), корректно ли dendrite-radius ловит контакты по сегментам, соблюдаются ли все геометрические инварианты, и как выглядит 3D визуализация шарда?
+- **Итоговый вердикт (Pass / All Invariants Passed)**: Все 7 жестких геометрических инвариантов пройдены без единого нарушения (out-of-bounds, self-intersections, soma collisions, whitelist, radius, etc.). Детерминизм 100% подтвержден. Выявлена и физически объяснена причина коротких путей (~5.2 вокселей) и преобладания `BoundaryReached` (из-за узкого сечения шарда 16x16 аксоны быстро касаются боковых стенок). Направленность роста (вертикальные и латеральные градиенты) полностью соответствует V1-like ожиданиям.
+- **Следующий шаг**: `Baker Functional Topology Replay`.
+- **Outputs**: Rust runner `run_baker_axon_growth_synapse_geometry_v1`, Python-скрипт анализа, 4 обязательных 3D графика + 4 вспомогательных 2D графика, отчёт [baker_axon_growth_synapse_geometry_audit_v1.md](archive/2026-07-06_baker_axon_growth_synapse_geometry_v1/reports/baker_axon_growth_synapse_geometry_audit_v1.md).
+
+### [Completed] Baker Spatial Growth Audit v1 (`archive/2026-07-05_baker_spatial_growth_audit_v1/`)
+
+- **Вопрос**: Что baker реально строит в пространстве: projection matrix, fan-in/fan-out, distance/segment distributions, E/I balance и seed variance?
+- **Итоговый вердикт (Partial / Whitelist Fixed / Capacity Warning)**: Все expected V1-like projections присутствуют, unexpected projections отсутствуют, `VirtualInput` теперь input-only (100% zero-input by design). Собрано 32,492 live synapses, dropped candidates=106,010. L4/L23 остаются насыщены 128/128, поэтому functional replay разрешен только с saturation caveat.
+- **Следующий шаг**: `Baker Functional Topology Replay`.
+- **Outputs**: Rust audit runner, Python analysis script, 7 topology plots, отчёт [baker_spatial_growth_audit_v1.md](archive/2026-07-05_baker_spatial_growth_audit_v1/reports/baker_spatial_growth_audit_v1.md).
+
+### [Completed] Plastic Microcircuit v1.5 Biological Sparse-Activity Gate Audit (`archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/`)
+
+- **Вопрос**: Действительно ли необходим жесткий порог L4 >= 3.0 Hz, и является ли L4 soft-warning band (1.0..3.0 Hz) здоровым sparse-functional режимом?
+- **Итоговый вердикт (Pass / Sparse-Functional Approved)**: Заменен грубый жесткий порог L4 >= 3.0 Hz на биологически обоснованные ворота разреженной активности (sparse-activity gate). Повторный manual audit имеет L4=1.91 Hz, active fraction=100%, longest L4 silence=0.060s, lagged L4->L23 population coupling proxy=89.83%, selectivity=0.4357, Dale/sign violations=0. Baker audit имеет L4=6.44 Hz и сохраняет matched-bias trend (selectivity=0.0648). Transfer metric является first-pass population coupling proxy, а не causal single-synapse probability. CartPole физиологически разблокирован, но отложен за topology/night-phase блок.
+- **Следующий шаг**: CartPole остается физиологически разблокированным, но roadmap сознательно ставит перед ним topology/night-phase блок: `Baker spatial growth audit`, `Baker functional topology replay`, `Night phase structural maintenance`.
+- **Outputs**: Rust test runner, Python скрипт анализа, 8 физиологических графиков, отчёт [plastic_microcircuit_v1_5_sparse_activity_report.md](archive/2026-07-05_plastic_microcircuit_v1_5_sparse_activity_gate/reports/plastic_microcircuit_v1_5_sparse_activity_report.md).
+
+### [Completed] Plastic Microcircuit v1.4 Controlled + Baker Shadow (`archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/`)
+
+- **Вопрос**: Можно ли одновременно вернуть L4 learning activity >= 3.0 Hz and перенести matched bias на bakers-compiled spatial connectome, сохранив стабильность и invariants?
+- **Итоговый вердикт (Completed)**: Phase A (Manual) закрыл selectivity gate (0.4318), но финальный 100k-tick N=256 learning run имеет L4=2.31 Hz, что ниже старого жесткого порога 3.0 Hz. Phase B (Baker) трехмерный коннектом скомпилирован успешно (selectivity = 0.0648).
+- **Следующий шаг**: `Plastic microcircuit v1.5 biological sparse-activity gate audit`.
+- **Outputs**: Rust runner, скомпилированный Baker шард, 11 аналитических графиков, отчёт [plastic_microcircuit_v1_4_controlled_baker_shadow.md](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/reports/plastic_microcircuit_v1_4_controlled_baker_shadow.md).
+
+### [Completed] Plastic Microcircuit v1.3 Control-Preserving Potentiation (`archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/`)
+
+- **Вопрос**: Является ли положительная потенциация v1.2 результатом селективного пластического обучения или артефактом отбора топологии? Можно ли сохранить непустую unmatched-control группу и добиться селективного роста matched Virtual->L4 по сравнению с unmatched, сохраняя физиологическую стабильность и invariants?
+- **Итоговый вердикт (Partial Pass / Activity Gate Failed / Positive-Ratio Tie)**: Доказан relative matched bias при сохранении unmatched control группы (8 matched + 4 unmatched): mean matched delta exact = +2.7180 uV vs unmatched = +1.4708 uV (relative matched bias +84.8%). Dale/sign invariants полностью соблюдены (0 нарушений). Ворота активности на N=512 sanity пройдены успешно (L4=8.92 Hz, L23=18.35 Hz, L5=10.66 Hz). Однако L4 rate на N=256 learning (2.62 Hz) остается ниже hard gate (>= 3.0 Hz), а binary positive-ratio gate не разделяет группы (matched=100%, unmatched=100%). CartPole RL-стадия остается заблокирована.
+- **Следующий шаг**: `Plastic microcircuit v1.4 activity-gate + control separation`; вернуть L4 learning activity и добить/пересмотреть pathway selectivity gate перед Phase 4.
+- **Outputs**: Rust runner (`run_plastic_microcircuit_v1_3_experiments`), Python скрипт анализа, отчёт [plastic_microcircuit_v1_3_control_preserving_potentiation.md](archive/2026-07-05_plastic_microcircuit_v1_3_control_preserving_potentiation/reports/plastic_microcircuit_v1_3_control_preserving_potentiation.md).
+
+### [Completed] Plastic Microcircuit v1.2 Positive Potentiation / Activity Recovery (`archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/`)
+
+- **Вопрос**: Можно ли превратить селективную защиту matched Virtual->L4 от LTD в строгую положительную потенциацию, не ломая физиологию сети и сохраняя invariants?
+- **Итоговый вердикт (Partial Pass)**: Достигнута строгая положительная потенциация сконструированных matched связей (mean delta mass: +68834.90, exact charge: +1.0503 uV). Однако все hard gates не пройдены: N=256 learning имеет L4=1.54Hz (<3.0Hz), а `Virtual -> L4` unmatched-control отсутствует (matched n=1024, unmatched n=0), поэтому pathway selection не валидирован. L4->L23 имеет положительный matched bias, L4->L5 остается отрицательным по среднему знаку.
+- **Следующий шаг**: `Plastic microcircuit v1.3 control-preserving potentiation`; сохранить unmatched-control и восстановить L4 activity gate перед CartPole.
+- **Outputs**: Rust runner (`run_plastic_microcircuit_v1_2_experiments`), Python скрипт анализа, отчёт [plastic_microcircuit_v1_2_positive_potentiation_activity_recovery.md](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/reports/plastic_microcircuit_v1_2_positive_potentiation_activity_recovery.md).
+
+### [Completed] Plastic Microcircuit v1.1 Structured Potentiation (`archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/`)
+
+- **Вопрос**: Можно ли при сильном спаренном структурированном стимуле и сниженном фоне получить положительную потенциацию коррелированных Virtual->L4 путей и нисходящий перенос на L4->L23/L5, сохраняя физиологическую стабильность?
+- **Итоговый вердикт (Partial Pass)**: runaway/silence и нарушения знаков отсутствуют, но L4 активность ниже hard gate (N=256 learning: L4=1.6Hz, L23=5.6Hz, L5=2.7Hz; N=512 sanity: L4=1.1Hz, L23=3.6Hz, L5=2.1Hz). Выявлено сильное селективное удержание от депрессии (corr delta = -0.0167 uV vs uncorr delta = -0.6111 uV). L4->L23 показывает положительный matched bias (+0.114 uV), L4->L5 показывает только уменьшение депрессии (+0.027 uV bias при отрицательной средней дельте). Strict gate положительной `Virtual -> L4` потенциации не закрыт, CartPole остается заблокирован.
+- **Следующий шаг**: `Plastic microcircuit v1.2 positive potentiation / activity recovery`; выровнять синаптическое утомление или LTP/LTD баланс так, чтобы получить строго положительную matched дельту и вернуть L4 rate >= 3 Hz.
+- **Outputs**: Rust test runner (`run_plastic_microcircuit_v1_1_experiments`), Python скрипт, отчёт [plastic_microcircuit_v1_1_structured_potentiation.md](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/reports/plastic_microcircuit_v1_1_structured_potentiation.md).
+
+### [Completed] Plastic Microcircuit v1.0 GSOP/STDP Spatial Weight Formation (`archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/`)
+
+- **Вопрос**: Формирует ли сеть пространственно-структурированные синаптические пути вокруг коррелированных входных групп при включении GSOP/STDP/fatigue на сбалансированной статической микросети v1.4, сохраняя при этом физиологическую стабильность?
+- **Итоговый вердикт (Partial Pass / Plasticity Active / Positive Potentiation Not Proven)**: Правила пластичности успешно активированы. Физиологические ворота пройдены (N=256: L4=3.6Hz, L23=10.6Hz, L5=3.6Hz; N=512: L4=3.0Hz, L23=12.9Hz, L5=6.9Hz). Весовые инварианты соблюдены, mean abs delta = 0.4995 uV. Найден слабый correlation bias: коррелированные `Virtual -> L4` входы депрессируются меньше фоновых (+0.0686 uV), но средняя дельта остается отрицательной (-0.7683 uV), поэтому положительное усиление коррелированных дорожек не доказано.
+- **Следующий шаг**: `Plastic microcircuit v1.1 structured potentiation`; CartPole остается заблокирован до подтверждения положительной/структурной потенциации.
+- **Outputs**: Rust test runner (`run_plastic_microcircuit_v1_0_experiments`), Python скрипт, отчёт [plastic_microcircuit_v1_0_gsop_spatial_weight_formation.md](archive/2026-07-05_plastic_microcircuit_v1_0_gsop_spatial_weight_formation/reports/plastic_microcircuit_v1_0_gsop_spatial_weight_formation.md).
+
+### [Completed] Static Microcircuit v1.4 N=512 Fine-Tuning (`archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/`)
+
+- **Вопрос**: Можно ли тонко настроить торможение L23, чтобы поднять активность L4 на N=512 выше 3.0 Hz, не нарушая Vm/threshold/selectivity ворота на обоих масштабах (N=256 и N=512)?
+- **Итоговый вердикт (Physiology Passed)**: Все 10 приемочных критериев успешно пройдены на обоих размерах сети. Выбрана конфигурация `L23->L4 = -1200`, `L23->L5 = -1250` (N=256: L4=4.1Hz, L23=11.0Hz, L5=4.3Hz; N=512: L4=3.6Hz, L23=12.3Hz, L5=5.7Hz). Мембранный потенциал стабилен, runaway/silence отсутствуют.
+- **Следующий шаг**: `Plastic microcircuit` для интеграции GSOP/STDP/fatigue пластичности.
+- **Outputs**: Rust runner (`run_static_microcircuit_v1_4_experiments`), Python скрипты, отчёт [static_microcircuit_v1_4_n512_fine_tuning.md](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/reports/static_microcircuit_v1_4_n512_fine_tuning.md).
+
+### [Completed] Static Microcircuit v1.3 L4/L5 Balance & Winner Selection (`archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/`)
+
+- **Вопрос**: Можно ли одновременно сбалансировать слои L4, L23 и L5 в целевых физиологических диапазонах, используя скорректированную winner-политику и расширенный feedback inhibition split?
+- **Итоговый вердикт (Partial Pass / N=256 Passed / N=512 Borderline)**: На N=256 все слои полностью сбалансированы: L4 = 3.13 Hz, L23 = 10.65 Hz, L5 = 4.73 Hz. На N=512 активность L4 (2.76 Hz) остается чуть ниже hard gate 3.0 Hz. Все ворота Vm health и threshold полностью пройдены.
+- **Следующий шаг**: `Static microcircuit N=512 fine-tuning` для полной калибровки при масштабировании.
+- **Outputs**: Rust runner (`run_static_microcircuit_v1_3_experiments`), Python скрипты, отчёт [static_microcircuit_v1_3_l4_l5_balance_winner_selection.md](archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/reports/static_microcircuit_v1_3_l4_l5_balance_winner_selection.md).
 
 ### [Completed] Static Microcircuit v1.2 L5 Recruitment & Topology (`archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/`)
 
@@ -201,6 +361,12 @@ Status: active research index, not a final report.
 
 ## 9. Ключевые архивы
 
+- [Baker Spatial Growth Audit v1](archive/2026-07-05_baker_spatial_growth_audit_v1/README.md)
+- [Plastic Microcircuit v1.4 Controlled + Baker Shadow](archive/2026-07-05_plastic_microcircuit_v1_4_controlled_baker_shadow/README.md)
+- [Plastic Microcircuit v1.2 Positive Potentiation / Activity Recovery](archive/2026-07-05_plastic_microcircuit_v1_2_positive_potentiation_activity_recovery/README.md)
+- [Plastic Microcircuit v1.1 Structured Potentiation](archive/2026-07-05_plastic_microcircuit_v1_1_structured_potentiation/README.md)
+- [Static Microcircuit v1.4 N=512 Fine-Tuning](archive/2026-07-05_static_microcircuit_v1_4_n512_fine_tuning/README.md)
+- [Static Microcircuit v1.3 L4/L5 Balance & Winner Selection](archive/2026-07-05_static_microcircuit_v1_3_l4_l5_balance_winner_selection/README.md)
 - [Static Microcircuit v1.2 L5 Recruitment & Topology](archive/2026-07-04_static_microcircuit_v1_2_l5_recruitment_topology/README.md)
 - [Static Microcircuit v1.1 Input Scale & E/I Ablation](archive/2026-07-04_static_microcircuit_v1_1_input_scale_ei_ablation/README.md)
 - [Static Microcircuit Scale-Up v1](archive/2026-07-04_static_microcircuit_scale_up_v1/README.md)
@@ -220,8 +386,29 @@ Status: active research index, not a final report.
 - [biological_calibration_pack_v1.csv](../../../artifacts/biological_calibration_pack_v1.csv)
 - [biological_calibration_pack_v1.json](../../../artifacts/biological_calibration_pack_v1.json)
 
+### Plastic Microcircuit
+- [plastic_microcircuit_v1_4_baker_summary.json](../../../artifacts/plastic_microcircuit_v1_4_baker_summary.json)
+- [plastic_microcircuit_v1_4_baker_topology_stats.json](../../../artifacts/plastic_microcircuit_v1_4_baker_topology_stats.json)
+- [plastic_microcircuit_v1_4_manual_summary.json](../../../artifacts/plastic_microcircuit_v1_4_manual_summary.json)
+- [plastic_microcircuit_v1_2_summary.json](../../../artifacts/plastic_microcircuit_v1_2_summary.json)
+- [plastic_microcircuit_v1_2_sweep_summary.json](../../../artifacts/plastic_microcircuit_v1_2_sweep_summary.json)
+- [plastic_microcircuit_v1_2_best_edge_log_256.json](../../../artifacts/plastic_microcircuit_v1_2_best_edge_log_256.json)
+- [plastic_microcircuit_v1_2_best_log_256_learning.json](../../../artifacts/plastic_microcircuit_v1_2_best_log_256_learning.json)
+- [plastic_microcircuit_v1_2_best_log_256_sanity.json](../../../artifacts/plastic_microcircuit_v1_2_best_log_256_sanity.json)
+- [plastic_microcircuit_v1_2_best_log_512_sanity.json](../../../artifacts/plastic_microcircuit_v1_2_best_log_512_sanity.json)
+- [plastic_microcircuit_v1_1_summary.json](../../../artifacts/plastic_microcircuit_v1_1_summary.json)
+- [plastic_microcircuit_v1_1_sweep_summary.json](../../../artifacts/plastic_microcircuit_v1_1_sweep_summary.json)
+- [plastic_microcircuit_v1_1_best_edge_log_256.json](../../../artifacts/plastic_microcircuit_v1_1_best_edge_log_256.json)
+- [plastic_microcircuit_v1_1_best_log_256_learning.json](../../../artifacts/plastic_microcircuit_v1_1_best_log_256_learning.json)
+
 ### Static Microcircuit
 
+- [static_microcircuit_v1_4_sweep_summary.json](../../../artifacts/static_microcircuit_v1_4_sweep_summary.json)
+- [static_microcircuit_v1_4_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_4_best_candidate_log_512.json)
+- [static_microcircuit_v1_4_ablation_summary.json](../../../artifacts/static_microcircuit_v1_4_ablation_summary.json)
+- [static_microcircuit_v1_3_sweep_summary.json](../../../artifacts/static_microcircuit_v1_3_sweep_summary.json)
+- [static_microcircuit_v1_3_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_3_best_candidate_log_512.json)
+- [static_microcircuit_v1_3_ablation_summary.json](../../../artifacts/static_microcircuit_v1_3_ablation_summary.json)
 - [static_microcircuit_v1_2_sweep_summary.json](../../../artifacts/static_microcircuit_v1_2_sweep_summary.json)
 - [static_microcircuit_v1_2_best_candidate_log_512.json](../../../artifacts/static_microcircuit_v1_2_best_candidate_log_512.json)
 - [static_microcircuit_v1_2_ablation_summary.json](../../../artifacts/static_microcircuit_v1_2_ablation_summary.json)

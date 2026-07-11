@@ -1,0 +1,2 @@
+# Ignore large raw JSON data files
+artifacts/*_plot_data.json

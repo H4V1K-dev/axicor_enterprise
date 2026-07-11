@@ -15,6 +15,7 @@ compute-cpu = { path = "../compute-cpu", optional = true }
 compute = { path = "../compute", optional = true, default-features = false }
 baker = { path = "../baker", optional = true }
 config = { path = "../config", optional = true }
+topology = { path = "../topology", optional = true }
 boot = { path = "../boot", optional = true }
 runtime = { path = "../runtime", optional = true }
 bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"], optional = true }
@@ -23,12 +24,13 @@ serde_json = "=1.0.117"
 toml = { version = "=0.8.23" }
 physics = { path = "../physics" }
 weaver-daemon = { path = "../weaver-daemon" }
+glam = "=0.25.0"
 
 [features]
 default = ["cpu", "mock", "abi"]
 cpu = ["dep:compute-cpu"]
-baker-probe = ["dep:baker", "dep:config", "dep:bytemuck", "cpu"]
-full-chain-probe = ["dep:baker", "dep:config", "dep:bytemuck", "cpu", "facade", "dep:boot", "dep:runtime"]
+baker-probe = ["dep:baker", "dep:config", "dep:bytemuck", "cpu", "dep:topology"]
+full-chain-probe = ["dep:baker", "dep:config", "dep:bytemuck", "cpu", "facade", "dep:boot", "dep:runtime", "dep:topology"]
 local-engine-e2e-smoke = ["full-chain-probe"]
 stimulus-sweep = ["full-chain-probe"]
 response-map = ["full-chain-probe"]
@@ -55,9 +57,6 @@ required-features = ["full-chain-probe"]
 name = "lp0_controllability_tests"
 required-features = ["full-chain-probe"]
 
-
 [[example]]
 name = "heatmap_experiment"
 required-features = ["mvp-cpu-replay"]
-
-
