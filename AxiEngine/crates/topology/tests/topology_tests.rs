@@ -2015,3 +2015,84 @@ fn test_pruning_plan_construction() {
     let prune_plan = plan_pruning(&weights, 6);
     assert_eq!(prune_plan, vec![1, 3, 4]);
 }
+
+#[test]
+fn test_plan_sprouts_goldens() {
+    use topology::night_planning::{plan_sprouts, SproutWeightParams};
+    use types::{MasterSeed, PackedTarget};
+
+    let padded_n = 4;
+    let total_axons = 4;
+    let max_sprouts = 2;
+
+    // Initialize mock targets and weights
+    let mut targets = vec![PackedTarget::NONE; 128 * padded_n as usize];
+    let mut weights = vec![0i32; 128 * padded_n as usize];
+
+    // Some weights to calculate power_fixed
+    weights[0] = 1000;
+    weights[128] = 500;
+
+    let params = SproutWeightParams {
+        w_distance: 10,
+        w_power: 5,
+        w_explore: 100,
+    };
+
+    // empty paths_blob, so it uses our modulo mock coordinate emulation
+    let paths_blob = vec![0u8; 0];
+
+    // 1. Run with seed 42
+    let plan1 = plan_sprouts(
+        &paths_blob,
+        &weights,
+        &targets,
+        padded_n,
+        total_axons,
+        &params,
+        MasterSeed(42),
+        1, // epoch
+        0, // shard_id
+        max_sprouts,
+        None,
+        None,
+    );
+
+    // Assert max_sprouts cap is respected
+    assert!(plan1.len() <= max_sprouts as usize);
+
+    // 2. Run with same parameters & seed -> must be identical
+    let plan2 = plan_sprouts(
+        &paths_blob,
+        &weights,
+        &targets,
+        padded_n,
+        total_axons,
+        &params,
+        MasterSeed(42),
+        1, // epoch
+        0, // shard_id
+        max_sprouts,
+        None,
+        None,
+    );
+    assert_eq!(plan1, plan2, "Sprout plan must be deterministic for same seed");
+
+    // 3. Run with different seed -> should produce different plan or ordering
+    let plan3 = plan_sprouts(
+        &paths_blob,
+        &weights,
+        &targets,
+        padded_n,
+        total_axons,
+        &params,
+        MasterSeed(999),
+        1, // epoch
+        0, // shard_id
+        max_sprouts,
+        None,
+        None,
+    );
+    // (Note: with random explore factor w_explore=100, different seeds give different ranks)
+    assert_ne!(plan1, plan3, "Sprout plan must vary under different MasterSeed");
+}

@@ -15,6 +15,6 @@ pub use dto::{
 pub use error::TopologyError;
 pub use night_planning::{
     build_compaction_plan, choose_dendrite_slot, cmp_rank, compute_power_fixed,
-    compute_sprout_score, generate_jitter_unit, plan_pruning, CompactionPlan, GhostHandoverDraft,
-    SproutRankKey, SproutWeightParams,
+    compute_sprout_score, generate_jitter_unit, plan_pruning, plan_sprouts, CompactionPlan,
+    GhostHandoverDraft, SproutConnection, SproutRankKey, SproutWeightParams,
 };

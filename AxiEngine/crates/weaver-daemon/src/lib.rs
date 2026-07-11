@@ -44,7 +44,7 @@ pub enum WeaverError {
 /// Returns the generated report along with a list of cross-shard handover events.
 pub fn run_night_pipeline(
     req: &WeaverJobRequest,
-    _context: Option<&WeaverGrowthContext>,
+    context: Option<&WeaverGrowthContext>,
     source: &mut NightBufferSource<'_>,
 ) -> Result<(WeaverReport, Vec<wire::AxonHandoverEvent>), WeaverError> {
     tracing::info!("Starting T006 Night Phase pipeline skeleton");
@@ -147,25 +147,38 @@ pub fn run_night_pipeline(
 
             // Phase 7: Sprout
             tracing::info!("Phase 7: Executing synapse sprouting plans");
+            let params = topology::SproutWeightParams {
+                w_distance: req.w_distance,
+                w_power: req.w_power,
+                w_explore: req.w_explore,
+            };
+
+            let attraction_radius = context.as_ref().map(|ctx| ctx.attraction_radius);
+            let target_somas = context.as_ref().map(|ctx| ctx.target_somas.as_slice());
+
+            let seed_val = u64::from_le_bytes(req.master_seed[0..8].try_into().unwrap());
+            let sprout_connections = topology::plan_sprouts(
+                view.paths_blob.as_deref().unwrap_or(&[]),
+                weights_slice,
+                targets_slice,
+                padded_n as u32,
+                view.total_axons,
+                &params,
+                types::MasterSeed(seed_val),
+                req.night_epoch,
+                req.shard_id,
+                req.max_sprouts,
+                attraction_radius,
+                target_somas,
+            );
+
             let mut sprouted_count = 0;
-            'sprout_loop: for i in 0..padded_n {
-                if sprouted_count >= req.max_sprouts {
-                    break 'sprout_loop;
-                }
-
-                let mut targets_row = [types::PackedTarget::NONE; layout::MAX_DENDRITES];
-                for (d, val) in targets_row.iter_mut().enumerate() {
-                    let idx = d * padded_n + i;
-                    *val = targets_slice[idx];
-                }
-
-                if let Some(d) = topology::choose_dendrite_slot(&targets_row) {
-                    let idx = (d as usize) * padded_n + i;
-                    targets_slice[idx] = types::PackedTarget::pack(10, 1);
-                    weights_slice[idx] = req.initial_synapse_weight;
-                    timers_slice[idx] = 0;
-                    sprouted_count += 1;
-                }
+            for conn in sprout_connections {
+                let idx = (conn.dendrite_slot as usize) * padded_n + (conn.target_soma_id as usize);
+                targets_slice[idx] = types::PackedTarget::pack(conn.axon_id, conn.segment_offset as u32);
+                weights_slice[idx] = req.initial_synapse_weight;
+                timers_slice[idx] = 0;
+                sprouted_count += 1;
             }
 
             // Phase 8: Compact

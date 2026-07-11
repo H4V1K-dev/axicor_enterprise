@@ -11,13 +11,35 @@ fn test_host_slices_pipeline_run() {
         .expect("Failed to create mock SHM segment");
 
     {
-        let view = segment.as_working_view_mut();
+        let mut view = segment.as_working_view_mut();
         let off_targets = view.offsets.off_targets;
         let off_weights = view.offsets.off_weights;
         let targets_slice =
             bytemuck::cast_slice_mut::<u8, u32>(&mut view.state_blob[off_targets..off_weights]);
         for target in targets_slice.iter_mut() {
             *target = types::EMPTY_PIXEL;
+        }
+
+        // Initialize paths_blob with valid mock trace data
+        if let Some(ref mut paths) = view.paths_blob {
+            let header = layout::PathsFileHeader::new(total_axons, layout::MAX_SEGMENTS_PER_AXON as u32);
+            paths[0..16].copy_from_slice(bytemuck::bytes_of(&header));
+
+            let lengths = vec![2u16; total_axons as usize];
+            let lengths_bytes = bytemuck::cast_slice::<u16, u8>(&lengths);
+            paths[16..16 + lengths_bytes.len()].copy_from_slice(lengths_bytes);
+
+            let matrix_offset = layout::offsets::calculate_paths_matrix_offset(total_axons as usize);
+            let mut matrix_pos = vec![types::PackedPosition(0); (total_axons as usize) * layout::MAX_SEGMENTS_PER_AXON];
+            for i in 0..total_axons as usize {
+                let base = i * layout::MAX_SEGMENTS_PER_AXON;
+                // Soma position at slot 0
+                matrix_pos[base] = types::PackedPosition::new((i * 5) as u32, 0, 0, 0);
+                // Segment 1 position at slot 1
+                matrix_pos[base + 1] = types::PackedPosition::new((i * 5 + 1) as u32, 0, 0, 0);
+            }
+            let pos_bytes = bytemuck::cast_slice::<types::PackedPosition, u8>(&matrix_pos);
+            paths[matrix_offset..matrix_offset + pos_bytes.len()].copy_from_slice(pos_bytes);
         }
     }
 
