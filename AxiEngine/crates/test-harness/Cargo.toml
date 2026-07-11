@@ -23,8 +23,8 @@ serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.117"
 toml = { version = "=0.8.23" }
 physics = { path = "../physics" }
+weaver-daemon = { path = "../weaver-daemon" }
 glam = "=0.25.0"
-
 
 [features]
 default = ["cpu", "mock", "abi"]
@@ -43,4 +43,20 @@ cuda = []
 hip = []
 facade = ["dep:compute", "compute/cpu"]
 cuda-native = ["facade", "compute/cuda-native"]
+night-gates = ["full-chain-probe"]
 
+[[test]]
+name = "legacy_baseline"
+required-features = ["legacy-baseline"]
+
+[[test]]
+name = "night_phase_vertical_slice"
+required-features = ["full-chain-probe"]
+
+[[test]]
+name = "lp0_controllability_tests"
+required-features = ["full-chain-probe"]
+
+[[example]]
+name = "heatmap_experiment"
+required-features = ["mvp-cpu-replay"]

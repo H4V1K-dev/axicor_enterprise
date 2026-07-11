@@ -1,7 +1,8 @@
 //! Implement local day loop runtime coordinator.
 
 use crate::dto::{
-    LocalRuntimeConfig, RuntimeBatchInput, RuntimeBatchReport, RuntimeState, RuntimeStats,
+    HostWorkingState, LocalRuntimeConfig, NightJobParams, RuntimeBatchInput, RuntimeBatchReport,
+    RuntimeState, RuntimeStats,
 };
 use crate::error::RuntimeError;
 
@@ -14,6 +15,7 @@ pub struct LocalRuntime {
     current_tick: u64,
     cached_output_spikes: Vec<u32>,
     cached_output_spike_counts: Vec<u32>,
+    working: Option<HostWorkingState>,
 }
 
 impl LocalRuntime {
@@ -37,6 +39,32 @@ impl LocalRuntime {
             current_tick: 0,
             cached_output_spikes: Vec::new(),
             cached_output_spike_counts: Vec::new(),
+            working: None,
+        })
+    }
+
+    /// Constructs a new runtime instance with pre-initialized durable working state.
+    pub fn new_with_state(
+        engine: compute::ShardEngine,
+        config: LocalRuntimeConfig,
+        working: HostWorkingState,
+    ) -> Result<Self, RuntimeError> {
+        let engine_state = engine.state();
+        if engine_state != compute::LifecycleState::Running {
+            return Err(RuntimeError::InvalidEngineLifecycle {
+                actual: engine_state,
+            });
+        }
+
+        Ok(Self {
+            engine,
+            config,
+            state: RuntimeState::Running,
+            stats: RuntimeStats::default(),
+            current_tick: 0,
+            cached_output_spikes: Vec::new(),
+            cached_output_spike_counts: Vec::new(),
+            working: Some(working),
         })
     }
 
@@ -59,6 +87,13 @@ impl LocalRuntime {
             return Err(RuntimeError::InvalidState {
                 from: self.state,
                 expected: "Running",
+            });
+        }
+
+        let engine_state = self.engine.state();
+        if engine_state == compute::LifecycleState::Maintenance {
+            return Err(RuntimeError::InvalidEngineLifecycle {
+                actual: engine_state,
             });
         }
 
@@ -170,6 +205,9 @@ impl LocalRuntime {
             output_spike_counts: &mut self.cached_output_spike_counts,
         };
 
+        // Set global physics plasticity state for Day run execution
+        physics::set_plasticity_enabled(self.config.plasticity_enabled);
+
         match self.engine.run_day_batch(cmd) {
             Ok(result) => {
                 let ticks_executed = result.ticks_executed;
@@ -258,6 +296,174 @@ impl LocalRuntime {
     /// Returns the current runtime lifecycle state.
     pub fn state(&self) -> RuntimeState {
         self.state
+    }
+
+    /// Returns the lifecycle state of the underlying compute engine.
+    pub fn engine_state(&self) -> compute::LifecycleState {
+        self.engine.state()
+    }
+}
+
+/// Helper to validate and convert prune_threshold from i32 to u32.
+/// Returns an error if the threshold is negative.
+pub fn prune_threshold_for_night(threshold: i32) -> Result<u32, RuntimeError> {
+    if threshold < 0 {
+        Err(RuntimeError::InvalidPruneThreshold(threshold))
+    } else {
+        Ok(threshold as u32)
+    }
+}
+
+impl LocalRuntime {
+    /// Executes the in-process Night Phase vertical slice.
+    pub fn run_night_phase(
+        &mut self,
+        params: &NightJobParams,
+        context: Option<&weaver_daemon::WeaverGrowthContext>,
+        padded_n: u32,
+        total_axons: u32,
+        total_ghosts: u32,
+    ) -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+        // Validate prune_threshold (must be >= 0)
+        let u_prune_threshold = match prune_threshold_for_night(params.prune_threshold) {
+            Ok(val) => val,
+            Err(e) => {
+                self.state = RuntimeState::Faulted;
+                return Err(e);
+            }
+        };
+
+        // Check presence of HostWorkingState before enter_maintenance
+        if self.working.is_none() {
+            return Err(RuntimeError::InvalidState {
+                from: self.state,
+                expected: "HostWorkingState must be pre-initialized",
+            });
+        }
+
+        // 1. Enter maintenance mode
+        self.engine
+            .enter_maintenance()
+            .map_err(RuntimeError::Compute)?;
+
+        let working = self.working.as_mut().unwrap();
+
+        let execute_result = (|| -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+            // Validate args match working dims
+            if padded_n != working.padded_n
+                || total_axons != working.total_axons
+                || total_ghosts != working.total_ghosts
+            {
+                return Err(RuntimeError::InvalidInputDimensions {
+                    field: "Night Phase Dimensions",
+                    expected: working.padded_n as usize,
+                    actual: padded_n as usize,
+                });
+            }
+
+            {
+                let maintenance_mut = compute_api::BackendMaintenanceMut {
+                    state_blob: &mut working.state_blob,
+                    axons_blob: &mut working.axons_blob,
+                };
+                self.engine
+                    .export_maintenance_state(maintenance_mut)
+                    .map_err(RuntimeError::Compute)?;
+            }
+
+            // Construct NightWorkingViewMut
+            let offsets = layout::offsets::compute_state_offsets(working.padded_n as usize);
+
+            // OQ-6 attach policy: paths_blob is Some iff growth_context is Some
+            let paths_opt = if context.is_some() {
+                Some(working.paths_blob.as_mut_slice())
+            } else {
+                None
+            };
+
+            let view = layout::NightWorkingViewMut {
+                padded_n: working.padded_n,
+                total_axons: working.total_axons,
+                total_ghosts: working.total_ghosts,
+                state_blob: &mut working.state_blob,
+                axons_blob: &mut working.axons_blob,
+                paths_blob: paths_opt,
+                offsets,
+            };
+
+            let mut source = weaver_daemon::NightBufferSource::HostSlices(view);
+
+            // Construct WeaverJobRequest dynamically mapping verified prune_threshold
+            let job = weaver_daemon::WeaverJobRequest {
+                shard_id: params.shard_id,
+                zone_hash: params.zone_hash,
+                night_epoch: params.night_epoch,
+                master_seed: params.master_seed,
+                prune_threshold: u_prune_threshold,
+                max_sprouts: params.max_sprouts,
+                w_distance: params.w_distance,
+                w_power: params.w_power,
+                w_explore: params.w_explore,
+                initial_synapse_weight: params.initial_synapse_weight,
+                has_growth_context: context.is_some(),
+            };
+
+            // Execute weaver daemon pipeline
+            let (report, _handovers) =
+                weaver_daemon::run_night_pipeline(&job, context, &mut source)
+                    .map_err(|e| RuntimeError::General(e.to_string()))?;
+
+            // Import maintenance state
+            {
+                let maintenance_ref = compute_api::BackendMaintenanceRef {
+                    state_blob: &working.state_blob,
+                    axons_blob: &working.axons_blob,
+                };
+                self.engine
+                    .import_maintenance_state(maintenance_ref)
+                    .map_err(RuntimeError::Compute)?;
+            }
+
+            Ok(report)
+        })();
+
+        match execute_result {
+            Ok(report) => self.finish_night_ok(report),
+            Err(e) => {
+                // Fail-closed: do not exit_maintenance; always Faulted (OQ-2 / R3).
+                self.state = RuntimeState::Faulted;
+                Err(e)
+            }
+        }
+    }
+
+    /// After successful night body: exit maintenance. **Any** exit Err → Faulted (R3b).
+    fn finish_night_ok(
+        &mut self,
+        report: weaver_daemon::WeaverReport,
+    ) -> Result<weaver_daemon::WeaverReport, RuntimeError> {
+        match self.engine.exit_maintenance() {
+            Ok(()) => Ok(report),
+            Err(err) => {
+                self.state = RuntimeState::Faulted;
+                Err(RuntimeError::Compute(err))
+            }
+        }
+    }
+
+    /// Returns a reference to the durable HostWorkingState, if initialized.
+    pub fn working_state(&self) -> Option<&HostWorkingState> {
+        self.working.as_ref()
+    }
+
+    /// Returns a mutable reference to the durable HostWorkingState, if initialized.
+    pub fn working_state_mut(&mut self) -> Option<&mut HostWorkingState> {
+        self.working.as_mut()
+    }
+
+    /// Exposes a mutable reference to the underlying compute engine for testing/harness control.
+    pub fn engine_mut(&mut self) -> &mut compute::ShardEngine {
+        &mut self.engine
     }
 }
 
@@ -395,6 +601,7 @@ mod tests {
             num_virtual_axons: 0,
             input_words_per_tick: 1,
             mapped_soma_ids: vec![0, 1],
+            plasticity_enabled: true,
         };
         let mut runtime = LocalRuntime::new(engine, config).unwrap();
 
@@ -409,6 +616,48 @@ mod tests {
                 sync: 2
             })
         ));
+
+        let _ = remove_file(path);
+    }
+
+    /// R3b: any `exit_maintenance` failure after a successful night body must Fault the runtime.
+    /// Uses engine still in Running (not Maintenance) so exit fails with InvalidLifecycleState.
+    #[test]
+    fn test_finish_night_ok_exit_maintenance_err_sets_faulted() {
+        let (engine, path) = create_test_engine_and_path();
+        let config = LocalRuntimeConfig {
+            sync_batch_ticks: 2,
+            v_seg: 1,
+            dopamine: 0,
+            max_spikes_per_tick: 4,
+            virtual_offset: 0,
+            num_virtual_axons: 0,
+            input_words_per_tick: 1,
+            mapped_soma_ids: vec![0, 1],
+            plasticity_enabled: true,
+        };
+        let mut runtime = LocalRuntime::new(engine, config).unwrap();
+        assert_eq!(runtime.state(), RuntimeState::Running);
+        assert_eq!(runtime.engine_state(), compute::LifecycleState::Running);
+
+        let report = weaver_daemon::WeaverReport {
+            shard_id: 0,
+            night_epoch: 1,
+            pruned_count: 0,
+            compacted_count: 0,
+            sprouted_count: 0,
+            ghost_handovers_count: 0,
+            duration_us: 0,
+        };
+        let res = runtime.finish_night_ok(report);
+        assert!(res.is_err(), "exit from Running must fail");
+        assert_eq!(
+            runtime.state(),
+            RuntimeState::Faulted,
+            "OQ-2: exit_maintenance Err must set Faulted, not leave Running"
+        );
+        // Day must refuse after Faulted
+        assert!(runtime.run_empty_batch().is_err());
 
         let _ = remove_file(path);
     }

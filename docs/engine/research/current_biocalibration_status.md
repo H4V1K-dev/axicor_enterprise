@@ -113,7 +113,41 @@ Status: active research index, not a final report.
 | 4.10 | **Structural plasticity / growth loop** | planned | После topology и night-phase sanity тестировать рост/обрезку/перекоммутацию связей как управляемый цикл, а не как разовый bake. |
 | 5 | **Sensorimotor toy / CartPole** | deferred / physiologically unblocked | CartPole уже не заблокирован физиологическим sparse gate, но сознательно отложен до аудита baker topology, ночной фазы, encoder/decoder и нейромодуляторного контура. |
 
+
+### Parallel track: Learning Proof (kill-or-continue)
+
+Отдельная лестница C0…C5 / LP-0…LP-5. **Не** подменяет research plastic microcircuit / night-phase ladder выше; production Night transfer + harness controllability.
+
+| Порядок | Исследование | Статус | Gate |
+| :--- | :--- | :--- | :--- |
+| LP-entry | **Learning Proof L000 entry** | **ready** | Night in-proc frozen; dossier |
+| LP-0 | Frozen / plasticity controllability | **partial pass / running** | freeze/unfreeze works; multi-seed + charge-domain electrical parity still open |
+| LP-1…LP-4 | causality → retention → reward → task | blocked on honest LP-0 close or accepted caveats | monоспека gate matrix |
+| LP-5 | Night structural contribution | blocked on LP-1…4 | only after base weight learning |
+
 ## 8. Активные и следующие исследования
+
+### [Active / READY] Learning Proof Program (`archive/_active/learning_proof_program/`)
+
+- **Вопрос:** может ли AxiEngine обучаться и сохранять полезное изменение поведения (kill-or-continue для идеи проекта)?
+- **Why**: без evidence-first ответа дальнейшие runtime modes / process SM / CUDA — строительство вслепую.
+- **L000 verdict**: program **READY** (2026-07-11). Freeze commit `b904a9255ca715d974f6dde50311c4e02a655909`.
+- **Program SoT**: `artifacts/agent-tasks/LEARNING_PROOF_MONOSPEC.md` rev 0.3
+- **Next**: accept LP-0 caveats → **LP-1 causality** (correlated vs control). Not Night sprout planner.
+
+### [Active / partial] LP-0: Frozen / Plasticity Controllability (`archive/_active/learning_proof_lp0/`)
+
+- **Вопрос:** Можем ли мы гарантированно включать и выключать изменение весов с помощью флага `plasticity_enabled`?
+- **Текущий вердикт (Partial Pass / C0 minimal)**:
+  - `plasticity_enabled = false` → FNV-1a weight checksum hold (**PASS**, 1 fixture).
+  - `plasticity_enabled = true` → weights change under stimulus (**PASS**).
+  - Electrical bit-parity claim is **weak**: fixture mass `50000` ⇒ charge `>>16 == 0`.
+  - Multi-seed / 1000-tick preregistration **not executed**.
+- **API:** `LocalRuntimeConfig.plasticity_enabled` → process-global `physics::set_plasticity_enabled` → Stage 6 skip in `compute-cpu`.
+- **Outputs:** [README](archive/_active/learning_proof_lp0/README.md); `test-harness` test `lp0_controllability_tests`.
+- **Command:** `cargo test -p test-harness --test lp0_controllability_tests --features full-chain-probe`
+
+
 
 ### [Next Gate] Night phase activity counters review package v0.4
 

@@ -1,3 +1,5 @@
+#![cfg(feature = "mvp-cpu-replay")]
+
 use layout::{BurstHeads8, VariantParameters, VARIANT_LUT_LEN};
 use physics::{
     active_tail_hit, heartbeat_spike, homeostasis_decay, initial_axon_head, is_glif_spike,

@@ -132,3 +132,63 @@ fn test_vram_ptrs_layout() {
     assert_eq!(offset_of!(ShardVramPtrs, dendrite_timers), 7 * ptr_size);
     assert_eq!(offset_of!(ShardVramPtrs, axon_heads), 8 * ptr_size);
 }
+
+#[test]
+fn test_shm_header_abi_and_validation() {
+    const_assert_eq!(size_of::<ShmHeader>(), 64);
+    const_assert_eq!(align_of::<ShmHeader>(), 64);
+
+    assert_eq!(offset_of!(ShmHeader, magic), 0);
+    assert_eq!(offset_of!(ShmHeader, version), 4);
+    assert_eq!(offset_of!(ShmHeader, state), 8);
+    assert_eq!(offset_of!(ShmHeader, padded_n), 12);
+    assert_eq!(offset_of!(ShmHeader, total_axons), 16);
+    assert_eq!(offset_of!(ShmHeader, total_ghosts), 20);
+    assert_eq!(offset_of!(ShmHeader, zone_hash), 24);
+    assert_eq!(offset_of!(ShmHeader, _pad0), 28);
+    assert_eq!(offset_of!(ShmHeader, off_state_blob), 32);
+    assert_eq!(offset_of!(ShmHeader, off_axons_blob), 40);
+    assert_eq!(offset_of!(ShmHeader, off_paths_blob), 48);
+    assert_eq!(offset_of!(ShmHeader, total_size), 56);
+
+    // Test axons size calculation
+    assert_eq!(calculate_axons_blob_size(0), Some(16));
+    assert_eq!(calculate_axons_blob_size(1), Some(48));
+    assert_eq!(calculate_axons_blob_size(100), Some(3216));
+
+    // Test validation
+    let state_len = calculate_state_blob_size(64);
+    let axons_len = calculate_axons_blob_size(100).unwrap();
+    let paths_len = calculate_paths_file_size(100);
+
+    // Valid case
+    assert!(validate_night_working_view(state_len, axons_len, Some(paths_len), 64, 100).is_ok());
+    assert!(validate_night_working_view(state_len, axons_len, None, 64, 100).is_ok());
+
+    // Invalid state size
+    assert_eq!(
+        validate_night_working_view(state_len + 1, axons_len, None, 64, 100),
+        Err(LayoutError::SizeMismatch {
+            expected: state_len,
+            actual: state_len + 1
+        })
+    );
+
+    // Invalid axons size
+    assert_eq!(
+        validate_night_working_view(state_len, axons_len - 1, None, 64, 100),
+        Err(LayoutError::SizeMismatch {
+            expected: axons_len,
+            actual: axons_len - 1
+        })
+    );
+
+    // Invalid paths size
+    assert_eq!(
+        validate_night_working_view(state_len, axons_len, Some(paths_len + 10), 64, 100),
+        Err(LayoutError::SizeMismatch {
+            expected: paths_len,
+            actual: paths_len + 10
+        })
+    );
+}

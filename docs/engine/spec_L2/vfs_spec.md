@@ -2,7 +2,6 @@
 
 > Версия спеки: 2.1  
 > Дата: 2026-07-01  
-> Статус: Approved v2.1 / Ready for Implementation (Stage A)
 
 ---
 

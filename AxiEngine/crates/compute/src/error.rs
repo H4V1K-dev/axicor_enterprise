@@ -28,6 +28,8 @@ pub enum ComputeError {
         /// Expected state or action constraint.
         expected: &'static str,
     },
+    /// Engine memory segment is poisoned, preventing exit from maintenance.
+    ImportPoisoned,
     /// Direct API error returned by the underlying compute backend.
     ApiError(ComputeApiError),
 }
@@ -53,6 +55,12 @@ impl fmt::Display for ComputeError {
                     f,
                     "invalid lifecycle state: current={:?}, expected={}",
                     current, expected
+                )
+            }
+            Self::ImportPoisoned => {
+                write!(
+                    f,
+                    "engine memory segment is poisoned, cannot exit maintenance"
                 )
             }
             Self::ApiError(err) => write!(f, "compute API error: {:?}", err),

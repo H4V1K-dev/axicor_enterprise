@@ -1,0 +1,13 @@
+[package]
+name = "wire"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "Layer 1 binary data contracts and network serialization formats for AxiEngine"
+
+[dependencies]
+types = { path = "../types" }
+bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"] }
+
+[dev-dependencies]
+static_assertions = "=1.1.0"

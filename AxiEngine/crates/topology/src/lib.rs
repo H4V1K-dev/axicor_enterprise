@@ -3,6 +3,7 @@
 pub mod dto;
 pub mod error;
 mod growth;
+pub mod night_planning;
 mod placement;
 mod synapses;
 
@@ -12,3 +13,8 @@ pub use dto::{
     SingleShardTopologyInput, SynapseFormationInput, TopologyEngine,
 };
 pub use error::TopologyError;
+pub use night_planning::{
+    build_compaction_plan, choose_dendrite_slot, cmp_rank, compute_power_fixed,
+    compute_sprout_score, generate_jitter_unit, plan_pruning, plan_sprouts, CompactionPlan,
+    GhostHandoverDraft, SproutConnection, SproutRankKey, SproutWeightParams,
+};

@@ -66,14 +66,51 @@
 
 ### REV-WEAVER-001: Отсутствие экспорта типов Weaver-сообщений для Runtime
 - **ID**: REV-WEAVER-001
-- **Status**: Open
+- **Status**: Resolved (specs updated)
 - **Priority**: P0
 - **Owner candidate**: `ipc`
 - **Source**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L276) (§11.4) vs [runtime_spec.md](./spec_L6/runtime_spec.md#L479) (§8)
 - **Question / Problem**: Крейт `weaver-daemon` собирается как исполняемый бинарный файл (`bin`) и не экспортирует библиотечную публичную API-часть. Однако `runtime` обязан формировать и отправлять структуры `WeaverJobRequest`, `WeaverReport` и `WeaverGrowthContext` по IPC.
 - **Why it matters**: `runtime` не может импортировать типы сообщений Weaver, что делает невозможным сборку L6 процесса.
 - **Affected specs**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [ipc_spec.md](./spec_L2/ipc_spec.md)
-- **Notes**: Перенести DTO-структуры сообщений в крейт `ipc` (Layer 2) или в новый интерфейсный крейт `weaver-api`.
+- **Notes**: **Resolved (2026-07-10)**: Пакет `weaver-daemon` зафиксирован как `lib + bin` (без выделения отдельного `weaver-core`). Все DTO-структуры сообщений управления (`WeaverJobRequest`, `WeaverReport`, `WeaverGrowthContext`) размещены в `ipc` и реэкспортируются библиотекой `weaver-daemon`. *Остаточный риск (residual)*: кодовая реализация в Rust отложена до PR-06.
+
+
+### REV-MAINT-001: Production maintenance export/import vs diagnostic `debug_snapshot`
+- **ID**: REV-MAINT-001
+- **Status**: Resolved (specs updated)
+- **Priority**: P0
+- **Owner candidate**: `compute-api` / `compute`
+- **Source**: [compute_api_spec.md](./spec_L3/compute_api_spec.md) (§5.1) vs Night production contract
+- **Question / Problem**: Единственный полный host dump сегодня — `debug_snapshot` (диагностика test-harness). Night Phase требует production-контракт: Day quiesce → export mutable working state → Night mutation → import → resume Day. Использование `debug_snapshot` как production API смешивает diagnostic & maintenance ownership.
+- **Why it matters**: Без отдельного HAL CUDA/HIP не смогут изоморфно участвовать в Night Phase; lifecycle фасада не выражает `Maintenance`.
+- **Affected specs**: [compute_api_spec.md](./spec_L3/compute_api_spec.md), [compute_spec.md](./spec_L3/compute_spec.md), [compute_cpu_spec.md](./spec_L3/compute_cpu_spec.md), [compute_cuda_spec.md](./spec_L3/compute_cuda_spec.md), [compute_hip_spec.md](./spec_L3/compute_hip_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
+- **Notes**: **Resolved (2026-07-10)**: Добавлены новые структуры `BackendMaintenanceMut`/`Ref` (без `paths_blob`), методы `export_maintenance_state`/`import_maintenance_state` и состояние жизненного цикла `Maintenance` в спецификации L3 (API, фасад, CPU, CUDA и HIP). Установлен явный запрет на выполнение Night policies внутри ускорителей. *Остаточный риск (residual)*: реализация кода в Rust отложена до PR-03+; структуры `layout::calculate_axons_blob_size` и `NightWorkingView` будут добавлены в рамках T002b; интеграция с runtime/weaver все еще вне рамок текущего этапа.
+
+
+
+### REV-NIGHT-001: Host/device ownership и mutable paths / ghost capacity для Night Phase
+- **ID**: REV-NIGHT-001
+- **Status**: Resolved (specs updated)
+- **Priority**: P0
+- **Owner candidate**: `layout` / `boot` / `runtime` / `ipc`
+- **Source**: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md) (§6, §11.2) vs [boot_spec.md](./spec_L6/boot_spec.md) vs [layout_spec.md](./spec_L1/layout_spec.md)
+- **Question / Problem**: Не зафиксированы: (1) host-side maintenance representation vs device memory; (2) где лежит mutable working copy `.paths`; (3) кто владеет ghost capacity planes; (4) poison recovery после mid-mutation failure.
+- **Why it matters**: Блокирует вертикальный slice Day/Night и корректный multi-backend parity.
+- **Affected specs**: [layout_spec.md](./spec_L1/layout_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [runtime_spec.md](./spec_L6/runtime_spec.md), [ipc_spec.md](./spec_L2/ipc_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md), [config_spec.md](./spec_L1/config_spec.md)
+- **Notes**: **Resolved (2026-07-10)**: Все вопросы (1) представления обслуживания на хосте, (2) мутабельной копии путей, (3) емкости призрачных нейронов и (4) fail-closed/poison recovery разрешены на уровне спецификаций L1-L6 (layout, ipc, weaver, topology, boot, runtime). *Остаточный риск (residual)*: реализация кода в Rust отложена до этапа PR-10.
+
+
+### REV-TEST-002: Feature matrix test-harness (baseline vs research vs GPU)
+- **ID**: REV-TEST-002
+- **Status**: Open (Code partially landed)
+- **Priority**: P0
+- **Owner candidate**: `test-harness`
+- **Source**: [test_harness_spec.md](./spec_L3/test_harness_spec.md) (§2.4) vs production CI contract
+- **Question / Problem**: Research/integration targets (`legacy_baseline`, heatmap example, full-chain, mvp replay) must not break default `cargo test --workspace --all-targets`. `--all-features` cannot be the sole CI gate.
+- **Why it matters**: Без gating Night/production CI неразличим от research/CUDA toolchain requirements.
+- **Affected specs**: [test_harness_spec.md](./spec_L3/test_harness_spec.md)
+- **Notes**: **2026-07-10**: `legacy_baseline` получил `#![cfg(feature = "legacy-baseline")]` + `[[test]] required-features`; heatmap example — `required-features = ["mvp-cpu-replay"]`; явная матрица в Cargo.toml comments и [night_phase_production_transfer.md](./night_phase_production_transfer.md) §1. Спека test-harness ещё не обновлена.
 
 ---
 
@@ -137,14 +174,15 @@
 
 ### REV-IPC-001: Разделение владения C-ABI структурами SHM (`ShmHeader`, `ShmState`, `EphysShm`)
 - **ID**: REV-IPC-001
-- **Status**: Open
+- **Status**: Resolved (specs updated)
 - **Priority**: P1
 - **Owner candidate**: `layout`
 - **Source**: [ipc_spec.md](./spec_L2/ipc_spec.md#L257) (§12.1) vs [boot_spec.md](./spec_L6/boot_spec.md#L353) (§8.3) vs [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L264) (§11.1)
 - **Question / Problem**: Спецификация `ipc` описывает C-ABI структуры разделяемой памяти (`ShmHeader`, `ShmState`, `EphysShm`), но по общей архитектурной конвенции все бинарные layouts должны владеться крейтом `layout`.
 - **Why it matters**: Размытие границ владения приводит к дублированию DTO структур между `layout` и `ipc`.
 - **Affected specs**: [ipc_spec.md](./spec_L2/ipc_spec.md), [layout_spec.md](./spec_L1/layout_spec.md), [boot_spec.md](./spec_L6/boot_spec.md), [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
-- **Notes**: Перенести бинарные описания структур заголовков в `layout`, а в `ipc` оставить управление жизненным циклом и кольцевыми буферами.
+- **Notes**: **Resolved (2026-07-10)**: Перенесено бинарное описание заголовков и расчет смещений планов SHM на уровень спецификации `layout`. Крейт `ipc` осуществляет только системные операции, не владея логической разметкой байтов. *Остаточный риск (residual)*: кодовая реализация в Rust (`crates/layout` и `crates/ipc`) отложена до PR-03+ (PR-05).
+
 
 ### REV-TOPOLOGY-006: Владение и разметка артефактов Ghost-связей (`.gxi`, `.gxo`, `.ghosts`)
 - **ID**: REV-TOPOLOGY-006
@@ -1027,14 +1065,15 @@
   - *Resolution*: Утвержден полный переход на целочисленную fixed-point fixed-scale арифметику (Q16 формат, тип `i64`). Веса `GrowthParams` переводятся во внутреннее fixed-point представление на AOT-границе, а горячий выбор направления Moore neighborhood выполняется исключительно в целых числах. Вещественная математика, тригонометрия и нормализация векторов исключены из горячего рантайма. Для tie-break используется лексикографический Moore-индекс. Дополнительно: в рамках micro-hardening реализована строгая Shift-Left валидация GrowthParams на config-границе, а также добавлены защитные проверки на этапе Q16-конверсии весов (сброс в InvalidGrowthParameter при NaN/Inf/overflow) и checked-арифметика score_q в горячем цикле роста (сброс в CapacityOverflow).
 
 
-
 #### [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md)
 *Source items: 7 / Registered items: 7*
 
 - **REV-WEAVER-001**: Разграничение Владения `ShmHeader` и `ShmState`
-  - *Status*: Open | *Priority*: P0 | *Owner*: `ipc` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L264)
+  - *Status*: Resolved (specs updated) | *Priority*: P0 | *Owner*: `layout` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L264)
   - *Question / Problem*: - *Контекст*: Структуры заголовков и автомата состояний используются при подключении.
     - *Вопрос*: В каком крейте (`layout` или `ipc`) должны монопольно зафиксироваться структуры `ShmHeader` и представление живого состояния?
+  - *Resolution*: Решено. Монопольное владение `ShmHeader` и структурой состояний передано крейту `layout` (REV-IPC-001 / Pass 2.3).
+
 
 - **REV-WEAVER-002**: Локализация Изменяемой Рабочей Копии Геометрии Аксонов (.paths)
   - *Status*: Open | *Priority*: P2 | *Owner*: `weaver-daemon` | *Duplicate Of*: - | *Source*: [weaver_daemon_spec.md](./spec_L4/weaver_daemon_spec.md#L268)

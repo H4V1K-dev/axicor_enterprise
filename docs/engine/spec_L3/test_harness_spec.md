@@ -2,7 +2,6 @@
 
 > Версия спеки: v2.2
 > Дата: 2026-06-30  
-> Статус: Approved / Ready for Implementation (Architecture Pass 2.2) / Synchronized with compute-api v2.2, compute-cpu v2.2
 
 ---
 

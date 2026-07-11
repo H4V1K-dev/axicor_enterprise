@@ -23,3 +23,6 @@ pub type VariantId = u8;
 
 /// Discrete coordinate of voxel grid (0..1023).
 pub type VoxelCoord = u32;
+
+/// FNV-1a hash value for protocol zones and configuration naming.
+pub type ZoneHash = u32;

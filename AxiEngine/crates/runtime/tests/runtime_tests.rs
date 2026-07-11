@@ -161,6 +161,7 @@ fn make_test_runtime_config() -> LocalRuntimeConfig {
         num_virtual_axons: 0,
         input_words_per_tick: 1,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     }
 }
 
@@ -406,6 +407,7 @@ fn test_runtime_stage_a_compute_error_to_faulted() {
         num_virtual_axons: 10,
         input_words_per_tick: 0,
         mapped_soma_ids: vec![0, 1],
+        plasticity_enabled: true,
     };
 
     let mut runtime = LocalRuntime::new(engine, config).unwrap();
@@ -461,4 +463,21 @@ fn test_runtime_run_batch_with_ticks() {
     assert_eq!(runtime.stats().current_tick, 8);
 
     let _ = remove_file(path);
+}
+
+#[test]
+fn test_runtime_prune_threshold_validation() {
+    use runtime::local::prune_threshold_for_night;
+
+    // -1 err
+    let err_res = prune_threshold_for_night(-1);
+    assert!(err_res.is_err());
+
+    // 0 ok
+    let ok_res = prune_threshold_for_night(0);
+    assert_eq!(ok_res.unwrap(), 0);
+
+    // 10 ok
+    let ok_res2 = prune_threshold_for_night(10);
+    assert_eq!(ok_res2.unwrap(), 10);
 }

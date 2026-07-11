@@ -1,0 +1,31 @@
+[package]
+name = "weaver-daemon"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "Orchestrator and executor for Night Phase spatial growth and synaptogenesis tasks"
+
+[lib]
+name = "weaver_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "weaver-daemon"
+path = "src/main.rs"
+
+[dependencies]
+types = { path = "../types" }
+layout = { path = "../layout" }
+ipc = { path = "../ipc" }
+wire = { path = "../wire" }
+topology = { path = "../topology" }
+thiserror = "=1.0.69"
+anyhow = "=1.0.86"
+tracing = "=0.1.40"
+tracing-subscriber = "=0.3.18"
+rayon = "=1.11.0"
+clap = { version = "=4.5.4", features = ["derive"] }
+bytemuck = { version = "=1.25.0", default-features = false, features = ["derive"] }
+
+[dev-dependencies]
+static_assertions = "=1.1.0"

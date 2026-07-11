@@ -1,8 +1,7 @@
 # spec_compute
 
-> Версия спеки: v2.2
-> Дата: 2026-06-30  
-> Статус: Approved v2.2 / Ready for Implementation (Architecture Pass 2.2)
+> Версия спеки: v2.3  
+> Дата: 2026-07-10  
 
 ---
 
@@ -24,7 +23,7 @@
 
 | Крейт | Что используется | Зачем |
 |---|---|---|
-| `compute-api` (Слой 3) | `ComputeBackend`, `BackendKind`, `BackendCapabilities`, `VramHandle`, `ShardAllocSpec`, `ShardUpload`, `DayBatchCmd`, `BatchResult`, `ShardSnapshotMut`, `ComputeApiError` | Аппаратно-независимый HAL контракт бэкендов вычислений, дескрипторы ресурсов и DTO вызовов. |
+| `compute-api` (Слой 3) | `ComputeBackend`, `BackendKind`, `BackendCapabilities`, `VramHandle`, `ShardAllocSpec`, `ShardUpload`, `DayBatchCmd`, `BatchResult`, `ShardSnapshotMut`, `BackendMaintenanceMut`, `BackendMaintenanceRef`, `ComputeApiError` | Аппаратно-независимый HAL контракт бэкендов вычислений, дескрипторы ресурсов и DTO вызовов. |
 | `compute-cpu` (Слой 3, optional) | `CpuBackend` | Резервный или базовый многопоточный CPU-вычислитель. |
 | `compute-cuda` (Слой 3, optional) | `CudaBackend` | Высокопроизводительный вычислитель для видеокарт NVIDIA CUDA (в Stage 1 зарезервирован под фиче-флагом). |
 | `compute-hip` (Слой 3, optional) | `HipBackend` | Вычислитель для видеокарт AMD ROCm/HIP (в Stage 1 зарезервирован под фиче-флагом). |
@@ -34,7 +33,7 @@
 | Крейт / Компонент | Роль в системе и взаимодействие |
 |---|---|
 | `boot` (Слой 6) | Передает подготовленные байтовые блобы в `compute` для аллокации и первоначальной загрузки VRAM через поэтапный API без вызова сырого FFI. |
-| `runtime` (Слой 6) | Управляет выполнением горячего цикла (hot path), вызывая метод `run_day_batch` структуры `ShardEngine` на каждый батч тиков. |
+| `runtime` (Слой 6) | Управляет выполнением горячего цикла (hot path), вызывая метод `run_day_batch` структуры `ShardEngine` на каждый батч тиков. Также управляет фазами обслуживания, переводя `ShardEngine` в Maintenance и вызывая export/import. |
 
 ### §2.3. Внешние зависимости
 
@@ -57,8 +56,8 @@
 
 | Модуль / Крейт | Монопольная Зона Владения (Single Source of Truth) | Строгие Запреты (Что категорически запрещено в крейте) |
 |---|---|---|
-| **`compute`** (Слой 3) | **Фасад Вычислений и Реестр Бэкендов**: Публичный фасад `ShardEngine`, автоматический выбор бэкенда (`BackendPreference`), feature-gated подключение бэкендов, связка `VramHandle` с выбранным `ComputeBackend` (в `Box<dyn ComputeBackend>`), управление автоматом состояний жизненного цикла (`Created`/`Allocated`/`Running`/`TornDown`), делегирование задач и предоставление безопасного высокоуровневого API для `boot` и `runtime`. | Запрещено объявление базовых DTO и трейтов (владелец `compute-api`), реализация CUDA/HIP/CPU ядер и FFI-символов (владельцы конкретные бэкенды), утечка сырых указателей (`*mut u8`), парсинг файлов архивов и конфигов (`vfs`/`config`), планирование потоков рантайма и IPC (`runtime`/`ipc`), а также расчёт физических формул (`physics`). |
-| **`compute-api`** (Слой 3) | **HAL Контракт**: Публичный трейт `ComputeBackend`, `VramHandle`, DTO вызовов и базовые ошибки `ComputeApiError`. | Запрещена логика автовыбора бэкендов и хранение ресурсов шарда. |
+| **`compute`** (Слой 3) | **Фасад Вычислений и Реестр Бэкендов**: Публичный фасад `ShardEngine`, автоматический выбор бэкенда (`BackendPreference`), feature-gated подключение бэкендов, связка `VramHandle` с выбранным `ComputeBackend` (в `Box<dyn ComputeBackend>`), управление автоматом состояний жизненного цикла (`Created`/`Allocated`/`Running`/`Maintenance`/`TornDown`), делегирование задач и предоставление безопасного высокоуровневого API для `boot` и `runtime`. | Запрещено объявление базовых DTO и трейтов (владелец `compute-api`), реализация CUDA/HIP/CPU ядер и FFI-символов (владельцы конкретные бэкенды), утечка сырых указателей (`*mut u8`), парсинг файлов архивов и конфигов (`vfs`/`config`), планирование потоков рантайма и IPC (`runtime`/`ipc`), а также расчёт физических формул (`physics`). |
+| **`compute-api`** (Слой 3) | **HAL Контракт**: Публичный трейт `ComputeBackend`, `VramHandle`, DTO вызовов, DTO обслуживания и базовые ошибки `ComputeApiError`. | Запрещена логика автовыбора бэкендов и хранение ресурсов шарда. |
 | **Бэкенды** (`compute-cuda`/`hip`/`cpu`) | **Физическая Аллокация и Ядра**: Код ядер, вендорские FFI вызовы, управление асинхронными стримами. | Запрещена прямая публикация бэкендов в `runtime` в обход фасада `compute`. |
 
 ---
@@ -100,25 +99,58 @@ pub enum BackendPreference {
 ```mermaid
 stateDiagram-v2
     [*] --> Created
-    Created --> Allocated
-    Allocated --> Running
-    Running --> Running
+    Created --> Allocated: alloc_shard
+    Allocated --> Running: upload_shard
+    Running --> Running: run_day_batch / debug_snapshot
+    Running --> Maintenance: enter_maintenance
+    Maintenance --> Maintenance: export / import
+    Maintenance --> Running: exit_maintenance
     Allocated --> Created: free_shard
     Running --> Created: free_shard
-    Allocated --> TornDown
-    Running --> TornDown
-    Created --> TornDown
+    Maintenance --> Created: free_shard
+    Created --> TornDown: teardown
+    Allocated --> TornDown: teardown
+    Running --> TornDown: teardown
+    Maintenance --> TornDown: teardown
     TornDown --> [*]
+```
+
+Определены 5 состояний жизненного цикла:
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleState {
+    Created,
+    Allocated,
+    Running,
+    Maintenance,
+    TornDown,
+}
 ```
 
 - **`Created`**: Экземпляр инициализирован (`new`), бэкенд выбран, VRAM не выделена (`handle == None`).
 - **`Allocated`**: Буферы VRAM успешно аллоцированы через `alloc_shard`, получен `Some(VramHandle)`.
-- **`Running`**: Состояние инициализировано данными (`upload_shard`), шард готов к автономному выполнению горячего цикла.
+- **`Running`**: Состояние инициализировано данными (`upload_shard`), шард готов к автономному выполнению горячего цикла симуляции.
+- **`Maintenance`**: Шард переведен в режим обслуживания для выполнения ночной фазы (Night Phase). В этом состоянии заблокирован запуск батчей симуляции, но разрешены экспорт/импорт состояния.
 - **`TornDown`**: Память VRAM явно освобождена, дескриптор сброшен в `None`, контекст бэкенда деинициализирован.
 
-Любая попытка вызова метода вне допустимого состояния мгновенно отклоняется с ошибкой `ComputeError::InvalidLifecycleState { current, expected }`:
-- Вызов `run_day_batch` или `debug_snapshot` разрешен **строго в состоянии `Running`** (до вызова `upload_shard` или после перехода в `TornDown`/`Created` они возвращают `InvalidLifecycleState`).
-- Вызов `free_shard` разрешен в состояниях `Allocated` или `Running` (переводит `handle` в `None` и переводит `ShardEngine` в `Created`). Вызов в состояниях `Created` или `TornDown` возвращает `InvalidLifecycleState`.
+Флаг сбоя импорта `import_poisoned: bool` служит защитным механизмом автомата. Он взводится в `true`, если вызов `import_maintenance_state` завершился ошибкой бэкенда, и сбрасывается в `false` при успешном импорте, деаллокации (`free_shard`) или деинициализации (`teardown`). При `import_poisoned == true` метод `exit_maintenance` блокирует переход в состояние `Running`, возвращая ошибку `InvalidLifecycleState`.
+
+Любая попытка вызова метода вне допустимого состояния мгновенно отклоняется с ошибкой `ComputeError::InvalidLifecycleState { current, expected }`.
+
+#### §5.2.1. Матрица Переходов Жизненного Цикла (Transition Matrix)
+
+| Метод | Исходное состояние | Новое состояние | При отказе / Ошибке |
+|---|---|---|---|
+| `alloc_shard` | `Created` | `Allocated` | Остается `Created` |
+| `upload_shard` | `Allocated` | `Running` | Остается `Allocated` |
+| `run_day_batch` | `Running` | `Running` | При сбое устройства → `TornDown`/остается `Running` |
+| `debug_snapshot` | `Running` | `Running` | Отклоняется в любых других состояниях |
+| `enter_maintenance`| `Running` | `Maintenance` | Отклоняется из любых других состояний |
+| `export_maintenance_state`| `Maintenance`| `Maintenance`| Отклоняется из других состояний |
+| `import_maintenance_state`| `Maintenance`| `Maintenance`| При сбое импорта остается в `Maintenance` с флагом сбоя (`import_poisoned = true`) |
+| `exit_maintenance` | `Maintenance`| `Running` | Отклоняется, если `import_poisoned` равен `true` |
+| `free_shard` | `Allocated`, `Running`, `Maintenance` | `Created` | Отклоняется из `Created`, `TornDown` (сбрасывает `import_poisoned` в `false`) |
+| `teardown` | Любое, кроме `TornDown` | `TornDown` | Идемпотентен, не вызывает ошибок (сбрасывает `import_poisoned` в `false`) |
 
 ### §5.3. Поэтапный API `ShardEngine` (Staged API)
 Для точного соответствия фазам загрузочного пайплайна модуля `boot` и вызовам рантайма, `ShardEngine` предоставляет стандартизированный API без использования сырых указателей (`*mut u8`):
@@ -129,6 +161,7 @@ pub struct ShardEngine {
     handle: Option<VramHandle>,
     state: LifecycleState,
     capabilities: BackendCapabilities,
+    import_poisoned: bool,
 }
 
 impl ShardEngine {
@@ -146,8 +179,20 @@ impl ShardEngine {
 
     /// Делегирование отладочной выгрузки полного состояния (state_blob/axons_blob) на сторону хоста (состояние Running)
     pub fn debug_snapshot(&mut self, snapshot: ShardSnapshotMut<'_>) -> Result<(), ComputeError>;
+
+    /// Перевод шарда в режим обслуживания (Переход Running -> Maintenance)
+    pub fn enter_maintenance(&mut self) -> Result<(), ComputeError>;
+
+    /// Экспорт рабочего состояния на хост (Состояние Maintenance)
+    pub fn export_maintenance_state(&mut self, out: BackendMaintenanceMut<'_>) -> Result<(), ComputeError>;
+
+    /// Импорт обновленного состояния с хоста на устройство (Состояние Maintenance)
+    pub fn import_maintenance_state(&mut self, src: BackendMaintenanceRef<'_>) -> Result<(), ComputeError>;
+
+    /// Возврат шарда в рабочий режим симуляции (Переход Maintenance -> Running)
+    pub fn exit_maintenance(&mut self) -> Result<(), ComputeError>;
     
-    /// Освобождение ресурсов VRAM конкретного шарда (Переход Allocated/Running -> Created)
+    /// Освобождение ресурсов VRAM конкретного шарда (Переход Allocated/Running/Maintenance -> Created)
     pub fn free_shard(&mut self) -> Result<(), ComputeError>;
 
     /// Деинициализация бэкенда и очистка ресурсов (Переход в TornDown). Метод является идемпотентным.
@@ -160,6 +205,7 @@ impl ShardEngine {
     pub fn backend_kind(&self) -> BackendKind;
     pub fn capabilities(&self) -> BackendCapabilities;
     pub fn handle(&self) -> Option<VramHandle>;
+    pub fn import_poisoned(&self) -> bool;
 }
 ```
 
@@ -197,7 +243,7 @@ pub enum ComputeError {
 ## §8. Golden Tests / Обязательная Матрица Тестирования
 
 1. **Детерминизм Автовыбора Бэкенда (`test_auto_backend_selection_priority`)**: Проверка порядка приоритетов CUDA -> HIP -> CPU.
-2. **Разграничение Ошибок Недоступности и Сборки (`test_explicit_backend_error_policy`)**: Проверка возврата `FeatureNotCompiled` и `BackendUnavailable` без тихого переключения на CPU.
+2. **Разграничение Ошибок Недоступности и Сборки (`test_explicit_backend_error_policy`)**: Проверка возврата `FeatureNotCompiled` and `BackendUnavailable` без тихого переключения на CPU.
 3. **Работа CPU по умолчанию (`test_cpu_fallback_when_gpu_disabled`)**: Проверка успешной работы CPU-пути при отсутствии GPU.
 4. **Абстракция Рантайма от Типа Бэкенда (`test_runtime_batch_execution_transparency`)**: Выполнение батча тиков через `run_day_batch` без знания рантайма о конкретном железе.
 5. **Поэтапная Загрузка через Фасад без FFI (`test_boot_staged_allocation_without_raw_ffi`)**: Проверка последовательного вызова `alloc_shard` и `upload_shard` модулем `boot` без сырого FFI.
@@ -209,6 +255,16 @@ pub enum ComputeError {
 11. **Проверка Вызовов на Mock-Бэкенде (`test_mock_backend_verification`)**: Проверка последовательности вызовов и геометрии загружаемых данных через Mock-бэкенд.
 12. **Инвариант отсутствия Send/Sync (`test_shard_engine_not_send_sync`)**: Проверка компиляции, исключающая возможность передачи `ShardEngine` между потоками.
 13. **Делегирование Snapshot API (`test_debug_snapshot_delegation`)**: Проверка успешного снятия полного снэпшота памяти через вызов `debug_snapshot` на фасаде в состоянии `Running`.
+14. **Жизненный Цикл Maintenance (`test_maintenance_lifecycle_transitions`)**:
+    - Переход в `Maintenance` разрешен только из `Running`.
+    - Повторный вызов `enter_maintenance` в состоянии `Maintenance` отклоняется с ошибкой `InvalidLifecycleState`.
+    - Вызовы `run_day_batch` и `debug_snapshot` в состоянии `Maintenance` возвращают `InvalidLifecycleState`.
+    - Экспорт (`export_maintenance_state`) и импорт (`import_maintenance_state`) разрешены только в `Maintenance`.
+    - Выход (`exit_maintenance`) разрешён только из `Maintenance` (переход в `Running`); вызов из других состояний возвращает `InvalidLifecycleState`.
+15. **Очистка и Teardown из Maintenance (`test_free_and_teardown_from_maintenance`)**:
+    - Вызовы `free_shard` и `teardown` корректно обрабатываются в состоянии `Maintenance` и переводят автомат в `Created` и `TornDown` соответственно (сбрасывая `import_poisoned` в `false`).
+16. **Блокировка выхода при ошибке импорта (`test_exit_maintenance_blocked_on_failed_import`)**:
+    - Если импорт состояния вернул ошибку, взводится флаг `import_poisoned`, переход `exit_maintenance` блокируется, автомат остается в Maintenance, а дневной цикл симуляции не может быть продолжен до восстановления целостности.
 
 ---
 

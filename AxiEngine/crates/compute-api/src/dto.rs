@@ -82,3 +82,21 @@ pub struct ShardSnapshotMut<'a> {
     /// Target mutable slice for the `.axons` dump blob.
     pub axons_blob: &'a mut [u8],
 }
+
+/// Mutable host byte slices for exporting simulation state during maintenance.
+#[derive(Debug)]
+pub struct BackendMaintenanceMut<'a> {
+    /// Target mutable slice for the `.state` dump blob.
+    pub state_blob: &'a mut [u8],
+    /// Target mutable slice for the `.axons` dump blob.
+    pub axons_blob: &'a mut [u8],
+}
+
+/// Immutable host byte slices for importing simulation state during maintenance.
+#[derive(Debug)]
+pub struct BackendMaintenanceRef<'a> {
+    /// Target immutable slice for the `.state` dump blob.
+    pub state_blob: &'a [u8],
+    /// Target immutable slice for the `.axons` dump blob.
+    pub axons_blob: &'a [u8],
+}

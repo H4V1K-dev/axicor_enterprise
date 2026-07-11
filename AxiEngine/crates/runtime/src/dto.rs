@@ -19,6 +19,8 @@ pub struct LocalRuntimeConfig {
     pub input_words_per_tick: u32,
     /// Soma indices mapped to output monitoring targets.
     pub mapped_soma_ids: Vec<u32>,
+    /// Whether synaptic plasticity is enabled.
+    pub plasticity_enabled: bool,
 }
 
 /// Lifecycle states of the local runtime orchestrator.
@@ -77,4 +79,46 @@ pub struct RuntimeBatchReport {
     pub tick_base: u64,
     /// Total ticks executed in this step.
     pub ticks_executed: u32,
+}
+
+/// Durable host state copy and coordinates storage for Day/Night orchestration.
+#[derive(Debug, Clone)]
+pub struct HostWorkingState {
+    /// Durable host copy of somatic and dendritic state blob (export/import target).
+    pub state_blob: Vec<u8>,
+    /// Durable host copy of axons burst heads blob (export/import target).
+    pub axons_blob: Vec<u8>,
+    /// Durable axon paths coordinate coordinates list. NEVER zero-wiped for "fresh night".
+    pub paths_blob: Vec<u8>,
+    /// Count of aligned soma neurons.
+    pub padded_n: u32,
+    /// Total count of active axons.
+    pub total_axons: u32,
+    /// Total count of ghost axons.
+    pub total_ghosts: u32,
+}
+
+/// Night phase execution parameters.
+#[derive(Debug, Clone)]
+pub struct NightJobParams {
+    /// Unique shard identification index.
+    pub shard_id: u32,
+    /// Unique configuration/layout identifier hash.
+    pub zone_hash: u32,
+    /// Epoch identifier index for this night.
+    pub night_epoch: u64,
+    /// Seed bytes for stochastic operations.
+    pub master_seed: [u8; 32],
+    /// Pruning threshold (in Mass Domain, i32, checked >= 0 and converted to u32).
+    pub prune_threshold: i32,
+    /// Maximum sprout count permitted.
+    pub max_sprouts: u32,
+    /// Maximum synaptic growth distance.
+    pub w_distance: u32,
+    /// Scaling parameter for distance cost.
+    pub w_power: u32,
+    /// Scaling parameter for exploration noise.
+    pub w_explore: u32,
+    /// Initial synaptic weight value.
+    pub initial_synapse_weight: i32,
 }

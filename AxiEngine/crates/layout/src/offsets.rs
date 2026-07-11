@@ -92,3 +92,88 @@ pub const fn calculate_paths_file_size(total_axons: usize) -> usize {
     let matrix_offset = calculate_paths_matrix_offset(total_axons);
     matrix_offset + total_axons * MAX_SEGMENTS_PER_AXON * 4
 }
+
+/// Circular buffer spike propagation heads file size helper using checked math.
+#[inline]
+pub fn calculate_axons_blob_size(total_axons: u32) -> Option<usize> {
+    let header_size: usize = 16;
+    let head_size = core::mem::size_of::<crate::burst::BurstHeads8>();
+    (total_axons as usize)
+        .checked_mul(head_size)
+        .and_then(|body| body.checked_add(header_size))
+}
+
+/// Mutable view over host-side Night Phase buffers and geometry paths working copies.
+pub struct NightWorkingViewMut<'a> {
+    /// Count of aligned soma neurons.
+    pub padded_n: u32,
+    /// Total count of active axons.
+    pub total_axons: u32,
+    /// Total count of ghost axons.
+    pub total_ghosts: u32,
+    /// Mutable byte slice of the SoA somatic/dendritic state.
+    pub state_blob: &'a mut [u8],
+    /// Mutable byte slice of the circular axon burst heads.
+    pub axons_blob: &'a mut [u8],
+    /// Optional mutable working copy of the 3D axon paths.
+    pub paths_blob: Option<&'a mut [u8]>,
+    /// Calculated physical offsets for all planes inside state_blob.
+    pub offsets: StateOffsets,
+}
+
+/// Immutable reference view over host-side Night Phase buffers and geometry paths working copies.
+#[derive(Clone, Copy)]
+pub struct NightWorkingViewRef<'a> {
+    /// Count of aligned soma neurons.
+    pub padded_n: u32,
+    /// Total count of active axons.
+    pub total_axons: u32,
+    /// Total count of ghost axons.
+    pub total_ghosts: u32,
+    /// Immutable byte slice of the SoA somatic/dendritic state.
+    pub state_blob: &'a [u8],
+    /// Immutable byte slice of the circular axon burst heads.
+    pub axons_blob: &'a [u8],
+    /// Optional immutable working copy of the 3D axon paths.
+    pub paths_blob: Option<&'a [u8]>,
+    /// Calculated physical offsets for all planes inside state_blob.
+    pub offsets: StateOffsets,
+}
+
+/// Validates memory bounds and physical sizes of Night Phase working view buffers.
+pub fn validate_night_working_view(
+    state_len: usize,
+    axons_len: usize,
+    paths_len: Option<usize>,
+    padded_n: u32,
+    total_axons: u32,
+) -> Result<(), crate::error::LayoutError> {
+    let expected_state = calculate_state_blob_size(padded_n as usize);
+    if state_len != expected_state {
+        return Err(crate::error::LayoutError::SizeMismatch {
+            expected: expected_state,
+            actual: state_len,
+        });
+    }
+
+    let expected_axons =
+        calculate_axons_blob_size(total_axons).ok_or(crate::error::LayoutError::InvalidShape)?;
+    if axons_len != expected_axons {
+        return Err(crate::error::LayoutError::SizeMismatch {
+            expected: expected_axons,
+            actual: axons_len,
+        });
+    }
+
+    if let Some(actual_paths_len) = paths_len {
+        let expected_paths = calculate_paths_file_size(total_axons as usize);
+        if actual_paths_len != expected_paths {
+            return Err(crate::error::LayoutError::SizeMismatch {
+                expected: expected_paths,
+                actual: actual_paths_len,
+            });
+        }
+    }
+
+    Ok(())
+}

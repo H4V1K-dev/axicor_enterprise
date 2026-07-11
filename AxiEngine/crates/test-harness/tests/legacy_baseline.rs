@@ -1,3 +1,5 @@
+#![cfg(feature = "legacy-baseline")]
+
 use baker::{bake_local_shard, pack_local_shard_artifacts, LocalShardBakeInput};
 use boot::{bootstrap_local_shard_engine, LocalShardComputeInput};
 use config::{LayerConfig, NeuronTypeDistribution, ShardConfig, ShardDimensions, ShardSettings};
@@ -390,6 +392,7 @@ fn run_scenario_decomp(
         num_virtual_axons: 32,
         input_words_per_tick: 1,
         mapped_soma_ids: mapped_somas,
+        plasticity_enabled: true,
     };
     let mut runtime =
         LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
@@ -738,6 +741,7 @@ fn test_legacy_connectivity_damping() {
             num_virtual_axons: 32,
             input_words_per_tick: 1,
             mapped_soma_ids: mapped_somas,
+            plasticity_enabled: true,
         };
         let mut runtime =
             LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
@@ -937,6 +941,7 @@ fn test_legacy_stability_band() {
                 num_virtual_axons: 32,
                 input_words_per_tick: 1,
                 mapped_soma_ids: mapped_somas,
+                plasticity_enabled: true,
             };
             let mut runtime =
                 LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");
@@ -1143,6 +1148,7 @@ fn test_legacy_representative_traces() {
             num_virtual_axons: 32,
             input_words_per_tick: 1,
             mapped_soma_ids: mapped_somas,
+            plasticity_enabled: true,
         };
         let mut runtime =
             LocalRuntime::new(engine, runtime_config).expect("Failed to create LocalRuntime");

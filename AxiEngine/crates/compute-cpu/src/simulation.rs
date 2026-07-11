@@ -263,61 +263,63 @@ pub fn run_day_batch(
             }
 
             // Stage 6: GSOP Plasticity Pass (All-to-All STDP)
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..padded_n {
-                let flags = types::SomaFlags(soma_flags[i]);
-                if !flags.spiking() {
-                    continue;
-                }
-
-                let type_id = flags.type_id() as usize;
-                let variant = &resource.variant_table[type_id.min(layout::VARIANT_LUT_LEN - 1)];
-                let burst_count = flags.burst_count();
-
-                let mut inertia_curve = [0i32; 8];
-                for (k, val) in variant.inertia_curve.iter().enumerate() {
-                    inertia_curve[k] = *val as i32;
-                }
-
-                for d in 0..layout::MAX_DENDRITES {
-                    let slot_idx = d * padded_n + i;
-                    let raw_target = dendrite_targets[slot_idx];
-                    if types::PackedTarget(raw_target).is_inactive() {
+            if physics::is_plasticity_enabled() {
+                #[allow(clippy::needless_range_loop)]
+                for i in 0..padded_n {
+                    let flags = types::SomaFlags(soma_flags[i]);
+                    if !flags.spiking() {
                         continue;
                     }
 
-                    if let Some((axon_id, seg_idx)) = types::PackedTarget(raw_target).unpack() {
-                        let a_id = axon_id as usize;
-                        if a_id < total_axons {
-                            let base = a_id * 8;
-                            let heads = [
-                                axon_heads[base],
-                                axon_heads[base + 1],
-                                axon_heads[base + 2],
-                                axon_heads[base + 3],
-                                axon_heads[base + 4],
-                                axon_heads[base + 5],
-                                axon_heads[base + 6],
-                                axon_heads[base + 7],
-                            ];
-                            let w = dendrite_weights[slot_idx];
-                            let fat = dendrite_timers[slot_idx];
-                            let w_new = physics::apply_gsop_plasticity(
-                                w,
-                                &heads,
-                                seg_idx,
-                                variant.signal_propagation_length as u32,
-                                fat,
-                                variant.fatigue_capacity,
-                                variant.gsop_potentiation as i32,
-                                variant.gsop_depression as i32,
-                                cmd.dopamine as i32,
-                                variant.d1_affinity as i32,
-                                variant.d2_affinity as i32,
-                                burst_count as u32,
-                                &inertia_curve,
-                            );
-                            dendrite_weights[slot_idx] = w_new;
+                    let type_id = flags.type_id() as usize;
+                    let variant = &resource.variant_table[type_id.min(layout::VARIANT_LUT_LEN - 1)];
+                    let burst_count = flags.burst_count();
+
+                    let mut inertia_curve = [0i32; 8];
+                    for (k, val) in variant.inertia_curve.iter().enumerate() {
+                        inertia_curve[k] = *val as i32;
+                    }
+
+                    for d in 0..layout::MAX_DENDRITES {
+                        let slot_idx = d * padded_n + i;
+                        let raw_target = dendrite_targets[slot_idx];
+                        if types::PackedTarget(raw_target).is_inactive() {
+                            continue;
+                        }
+
+                        if let Some((axon_id, seg_idx)) = types::PackedTarget(raw_target).unpack() {
+                            let a_id = axon_id as usize;
+                            if a_id < total_axons {
+                                let base = a_id * 8;
+                                let heads = [
+                                    axon_heads[base],
+                                    axon_heads[base + 1],
+                                    axon_heads[base + 2],
+                                    axon_heads[base + 3],
+                                    axon_heads[base + 4],
+                                    axon_heads[base + 5],
+                                    axon_heads[base + 6],
+                                    axon_heads[base + 7],
+                                ];
+                                let w = dendrite_weights[slot_idx];
+                                let fat = dendrite_timers[slot_idx];
+                                let w_new = physics::apply_gsop_plasticity(
+                                    w,
+                                    &heads,
+                                    seg_idx,
+                                    variant.signal_propagation_length as u32,
+                                    fat,
+                                    variant.fatigue_capacity,
+                                    variant.gsop_potentiation as i32,
+                                    variant.gsop_depression as i32,
+                                    cmd.dopamine as i32,
+                                    variant.d1_affinity as i32,
+                                    variant.d2_affinity as i32,
+                                    burst_count as u32,
+                                    &inertia_curve,
+                                );
+                                dendrite_weights[slot_idx] = w_new;
+                            }
                         }
                     }
                 }

@@ -8,6 +8,9 @@ license.workspace = true
 compute = { path = "../compute" }
 compute-api = { path = "../compute-api" }
 types = { path = "../types" }
+layout = { path = "../layout" }
+weaver-daemon = { path = "../weaver-daemon" }
+physics = { path = "../physics" }
 thiserror = "=1.0.69"
 
 [dev-dependencies]

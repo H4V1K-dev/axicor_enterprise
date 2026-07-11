@@ -1546,3 +1546,110 @@ fn test_cpu_soma_order_independence() {
     // After spiking, Soma 1 voltage is reset to: rest_potential (0) - ahp_amplitude (200) = -200
     assert_eq!(v2[1], -200, "Soma 1 voltage should be reset post-spike");
 }
+
+#[test]
+fn test_cpu_maintenance_roundtrip() {
+    let mut backend = CpuBackend::new(CpuBackendConfig {
+        thread_count: Some(1),
+    })
+    .unwrap();
+    let spec = ShardAllocSpec {
+        padded_n: 64,
+        total_axons: 10,
+        total_ghosts: 0,
+        virtual_offset: 0,
+    };
+    let handle = backend.alloc_shard(spec).unwrap();
+    let (state_blob, axons_blob) = create_test_blobs(64, 10);
+    let variants = dummy_variants();
+
+    backend
+        .upload_shard(
+            handle,
+            ShardUpload {
+                state_blob: &state_blob,
+                axons_blob: &axons_blob,
+                variant_table: &variants,
+            },
+        )
+        .unwrap();
+
+    let state_size = layout::calculate_state_blob_size(64);
+    let axons_size = validation::expected_axons_blob_size(10).unwrap();
+
+    let mut state_exp = vec![0u8; state_size];
+    let mut axons_exp = vec![0u8; axons_size];
+
+    // 1. Export maintenance state
+    backend
+        .export_maintenance_state(
+            handle,
+            BackendMaintenanceMut {
+                state_blob: &mut state_exp,
+                axons_blob: &mut axons_exp,
+            },
+        )
+        .unwrap();
+
+    // Verify it matches what we uploaded
+    assert_eq!(state_exp, state_blob);
+    assert_eq!(axons_exp, axons_blob);
+
+    // 2. Modify state_exp
+    let offsets = layout::compute_state_offsets(64);
+    {
+        let voltage_slice = bytemuck::cast_slice_mut::<u8, i32>(
+            &mut state_exp[offsets.off_voltage..offsets.off_flags],
+        );
+        voltage_slice[0] = 5000;
+    }
+
+    // 3. Import maintenance state
+    backend
+        .import_maintenance_state(
+            handle,
+            BackendMaintenanceRef {
+                state_blob: &state_exp,
+                axons_blob: &axons_exp,
+            },
+        )
+        .unwrap();
+
+    // 4. Verify via debug_snapshot that voltage is now 5000
+    let mut snap_state = vec![0u8; state_size];
+    let mut snap_axons = vec![0u8; axons_size];
+    backend
+        .debug_snapshot(
+            handle,
+            ShardSnapshotMut {
+                state_blob: &mut snap_state,
+                axons_blob: &mut snap_axons,
+            },
+        )
+        .unwrap();
+
+    let voltage_slice =
+        bytemuck::cast_slice::<u8, i32>(&snap_state[offsets.off_voltage..offsets.off_flags]);
+    assert_eq!(voltage_slice[0], 5000);
+
+    // 5. Test size mismatch rejection
+    let mut bad_state_exp = vec![0u8; state_size + 1];
+    let res = backend.export_maintenance_state(
+        handle,
+        BackendMaintenanceMut {
+            state_blob: &mut bad_state_exp,
+            axons_blob: &mut axons_exp,
+        },
+    );
+    assert_eq!(res, Err(ComputeApiError::SizeMismatch));
+
+    let bad_state_ref = vec![0u8; state_size - 1];
+    let res = backend.import_maintenance_state(
+        handle,
+        BackendMaintenanceRef {
+            state_blob: &bad_state_ref,
+            axons_blob: &axons_exp,
+        },
+    );
+    assert_eq!(res, Err(ComputeApiError::SizeMismatch));
+}

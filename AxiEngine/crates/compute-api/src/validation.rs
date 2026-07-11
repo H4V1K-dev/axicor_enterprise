@@ -1,20 +1,18 @@
 //! Validation helpers for compute backend DTO inspection and verification.
 
-use crate::dto::{DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload};
+use crate::dto::{
+    BackendMaintenanceMut, BackendMaintenanceRef, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut,
+    ShardUpload,
+};
 use crate::error::ComputeApiError;
 
 /// Computes the expected binary blob physical size for an `.axons` file given the axon count.
 ///
-/// Formula: `16 + total_axons * size_of::<layout::BurstHeads8>()`.
+/// Delegates to layout crate for size formula.
 /// Overflow returns `Err(ComputeApiError::InvalidShape)`.
 #[inline]
 pub fn expected_axons_blob_size(total_axons: u32) -> Result<usize, ComputeApiError> {
-    let header_size: usize = 16;
-    let head_size = core::mem::size_of::<layout::BurstHeads8>();
-    (total_axons as usize)
-        .checked_mul(head_size)
-        .and_then(|body| body.checked_add(header_size))
-        .ok_or(ComputeApiError::InvalidShape)
+    layout::calculate_axons_blob_size(total_axons).ok_or(ComputeApiError::InvalidShape)
 }
 
 /// Validates simulation shard allocation specification parameters.
@@ -43,6 +41,42 @@ pub fn validate_upload(
     }
     let expected_axons = expected_axons_blob_size(spec.total_axons)?;
     if upload.axons_blob.len() != expected_axons {
+        return Err(ComputeApiError::SizeMismatch);
+    }
+    Ok(())
+}
+
+/// Validates maintenance export buffer sizes against allocation specifications.
+#[inline]
+pub fn validate_maintenance_export(
+    spec: &ShardAllocSpec,
+    maintenance: &BackendMaintenanceMut<'_>,
+) -> Result<(), ComputeApiError> {
+    validate_alloc_spec(spec)?;
+    let expected_state = layout::calculate_state_blob_size(spec.padded_n as usize);
+    if maintenance.state_blob.len() != expected_state {
+        return Err(ComputeApiError::SizeMismatch);
+    }
+    let expected_axons = expected_axons_blob_size(spec.total_axons)?;
+    if maintenance.axons_blob.len() != expected_axons {
+        return Err(ComputeApiError::SizeMismatch);
+    }
+    Ok(())
+}
+
+/// Validates maintenance import buffer sizes against allocation specifications.
+#[inline]
+pub fn validate_maintenance_import(
+    spec: &ShardAllocSpec,
+    maintenance: &BackendMaintenanceRef<'_>,
+) -> Result<(), ComputeApiError> {
+    validate_alloc_spec(spec)?;
+    let expected_state = layout::calculate_state_blob_size(spec.padded_n as usize);
+    if maintenance.state_blob.len() != expected_state {
+        return Err(ComputeApiError::SizeMismatch);
+    }
+    let expected_axons = expected_axons_blob_size(spec.total_axons)?;
+    if maintenance.axons_blob.len() != expected_axons {
         return Err(ComputeApiError::SizeMismatch);
     }
     Ok(())

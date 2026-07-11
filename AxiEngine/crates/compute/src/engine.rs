@@ -4,8 +4,8 @@ use crate::error::ComputeError;
 use crate::lifecycle::LifecycleState;
 use crate::preference::BackendPreference;
 use compute_api::{
-    BackendCapabilities, BackendKind, BatchResult, ComputeBackend, DayBatchCmd, ShardAllocSpec,
-    ShardSnapshotMut, ShardUpload, VramHandle,
+    BackendCapabilities, BackendKind, BackendMaintenanceMut, BackendMaintenanceRef, BatchResult,
+    ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload, VramHandle,
 };
 
 /// The primary executor facade representing a simulation execution shard.
@@ -14,6 +14,7 @@ pub struct ShardEngine {
     handle: Option<VramHandle>,
     state: LifecycleState,
     capabilities: BackendCapabilities,
+    import_poisoned: bool,
     _marker: std::marker::PhantomData<std::rc::Rc<()>>,
 }
 
@@ -120,6 +121,7 @@ impl ShardEngine {
             handle: None,
             state: LifecycleState::Created,
             capabilities,
+            import_poisoned: false,
             _marker: std::marker::PhantomData,
         })
     }
@@ -187,12 +189,83 @@ impl ShardEngine {
         Ok(())
     }
 
-    /// Frees resources allocated for this shard.
-    pub fn free_shard(&mut self) -> Result<(), ComputeError> {
-        if self.state != LifecycleState::Allocated && self.state != LifecycleState::Running {
+    /// Puts the compute engine into Maintenance mode for Night Phase operations.
+    pub fn enter_maintenance(&mut self) -> Result<(), ComputeError> {
+        if self.state != LifecycleState::Running {
             return Err(ComputeError::InvalidLifecycleState {
                 current: self.state,
-                expected: "Allocated or Running",
+                expected: "Running",
+            });
+        }
+        self.state = LifecycleState::Maintenance;
+        Ok(())
+    }
+
+    /// Exports the current simulation state from VRAM to host memory buffers for maintenance.
+    pub fn export_maintenance_state(
+        &mut self,
+        maintenance: BackendMaintenanceMut<'_>,
+    ) -> Result<(), ComputeError> {
+        if self.state != LifecycleState::Maintenance {
+            return Err(ComputeError::InvalidLifecycleState {
+                current: self.state,
+                expected: "Maintenance",
+            });
+        }
+        let handle = self.handle.ok_or(ComputeError::InvalidLifecycleState {
+            current: self.state,
+            expected: "Some(VramHandle)",
+        })?;
+        self.backend.export_maintenance_state(handle, maintenance)?;
+        Ok(())
+    }
+
+    /// Imports the updated simulation state from host memory buffers back into VRAM.
+    pub fn import_maintenance_state(
+        &mut self,
+        maintenance: BackendMaintenanceRef<'_>,
+    ) -> Result<(), ComputeError> {
+        if self.state != LifecycleState::Maintenance {
+            return Err(ComputeError::InvalidLifecycleState {
+                current: self.state,
+                expected: "Maintenance",
+            });
+        }
+        let handle = self.handle.ok_or(ComputeError::InvalidLifecycleState {
+            current: self.state,
+            expected: "Some(VramHandle)",
+        })?;
+        if let Err(e) = self.backend.import_maintenance_state(handle, maintenance) {
+            self.import_poisoned = true;
+            return Err(ComputeError::ApiError(e));
+        }
+        Ok(())
+    }
+
+    /// Exits maintenance mode and resumes simulation execution.
+    pub fn exit_maintenance(&mut self) -> Result<(), ComputeError> {
+        if self.state != LifecycleState::Maintenance {
+            return Err(ComputeError::InvalidLifecycleState {
+                current: self.state,
+                expected: "Maintenance",
+            });
+        }
+        if self.import_poisoned {
+            return Err(ComputeError::ImportPoisoned);
+        }
+        self.state = LifecycleState::Running;
+        Ok(())
+    }
+
+    /// Frees resources allocated for this shard.
+    pub fn free_shard(&mut self) -> Result<(), ComputeError> {
+        if self.state != LifecycleState::Allocated
+            && self.state != LifecycleState::Running
+            && self.state != LifecycleState::Maintenance
+        {
+            return Err(ComputeError::InvalidLifecycleState {
+                current: self.state,
+                expected: "Allocated, Running, or Maintenance",
             });
         }
         let handle = self.handle.ok_or(ComputeError::InvalidLifecycleState {
@@ -201,6 +274,7 @@ impl ShardEngine {
         })?;
         self.backend.free_shard(handle)?;
         self.handle = None;
+        self.import_poisoned = false; // Reset poison flag on free
         self.state = LifecycleState::Created;
         Ok(())
     }
@@ -212,6 +286,7 @@ impl ShardEngine {
         }
         self.backend.teardown()?;
         self.handle = None;
+        self.import_poisoned = false; // Reset poison flag on teardown
         self.state = LifecycleState::TornDown;
         Ok(())
     }
@@ -253,8 +328,9 @@ impl ShardEngine {
 mod tests {
     use super::*;
     use compute_api::{
-        BackendCapabilities, BackendKind, BatchResult, ComputeApiError, ComputeBackend,
-        DayBatchCmd, ShardAllocSpec, ShardUpload, VramHandle,
+        BackendCapabilities, BackendKind, BackendMaintenanceMut, BackendMaintenanceRef,
+        BatchResult, ComputeApiError, ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardUpload,
+        VramHandle,
     };
     use std::num::NonZeroU64;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -263,6 +339,7 @@ mod tests {
     struct FailingBackend {
         fail_free: bool,
         fail_teardown: bool,
+        fail_import: bool,
         dispatch_count: Arc<AtomicU32>,
     }
 
@@ -328,6 +405,26 @@ mod tests {
                 Ok(())
             }
         }
+
+        fn export_maintenance_state(
+            &mut self,
+            _handle: VramHandle,
+            _maintenance: BackendMaintenanceMut<'_>,
+        ) -> Result<(), ComputeApiError> {
+            Ok(())
+        }
+
+        fn import_maintenance_state(
+            &mut self,
+            _handle: VramHandle,
+            _maintenance: BackendMaintenanceRef<'_>,
+        ) -> Result<(), ComputeApiError> {
+            if self.fail_import {
+                Err(ComputeApiError::DeviceLost)
+            } else {
+                Ok(())
+            }
+        }
     }
 
     #[test]
@@ -336,6 +433,7 @@ mod tests {
         let backend = Box::new(FailingBackend {
             fail_free: true,
             fail_teardown: false,
+            fail_import: false,
             dispatch_count: dispatch,
         });
 
@@ -355,6 +453,7 @@ mod tests {
                 alignment_bytes: 64,
                 pinned_host_required: false,
             },
+            import_poisoned: false,
             _marker: std::marker::PhantomData,
         };
 
@@ -370,6 +469,7 @@ mod tests {
         let backend = Box::new(FailingBackend {
             fail_free: false,
             fail_teardown: true,
+            fail_import: false,
             dispatch_count: dispatch,
         });
 
@@ -389,6 +489,7 @@ mod tests {
                 alignment_bytes: 64,
                 pinned_host_required: false,
             },
+            import_poisoned: false,
             _marker: std::marker::PhantomData,
         };
 
@@ -404,6 +505,7 @@ mod tests {
         let backend = Box::new(FailingBackend {
             fail_free: false,
             fail_teardown: false,
+            fail_import: false,
             dispatch_count: dispatch.clone(),
         });
 
@@ -423,6 +525,7 @@ mod tests {
                 alignment_bytes: 64,
                 pinned_host_required: false,
             },
+            import_poisoned: false,
             _marker: std::marker::PhantomData,
         };
 
@@ -448,5 +551,52 @@ mod tests {
 
         engine.run_day_batch(cmd).unwrap();
         assert_eq!(dispatch.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_maintenance_import_poisoning() {
+        let dispatch = Arc::new(AtomicU32::new(0));
+        let backend = Box::new(FailingBackend {
+            fail_free: false,
+            fail_teardown: false,
+            fail_import: true,
+            dispatch_count: dispatch,
+        });
+
+        let mut engine = ShardEngine {
+            backend,
+            handle: Some(VramHandle::from_raw_parts(
+                BackendKind::Mock,
+                NonZeroU64::new(42).unwrap(),
+                1,
+            )),
+            state: LifecycleState::Maintenance,
+            capabilities: BackendCapabilities {
+                lane_count: 1,
+                supports_async: false,
+                supports_ephys: false,
+                max_batch_ticks: 1000,
+                alignment_bytes: 64,
+                pinned_host_required: false,
+            },
+            import_poisoned: false,
+            _marker: std::marker::PhantomData,
+        };
+
+        let mut state_buf = vec![0u8; 10];
+        let mut axons_buf = vec![0u8; 10];
+        let maint_ref = BackendMaintenanceRef {
+            state_blob: &mut state_buf,
+            axons_blob: &mut axons_buf,
+        };
+
+        assert!(engine.import_maintenance_state(maint_ref).is_err());
+        assert!(engine.import_poisoned);
+        assert_eq!(engine.exit_maintenance(), Err(ComputeError::ImportPoisoned));
+
+        // free_shard should reset import_poisoned flag
+        let res = engine.free_shard();
+        assert!(res.is_ok());
+        assert!(!engine.import_poisoned);
     }
 }

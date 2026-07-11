@@ -9,6 +9,8 @@ pub enum LifecycleState {
     Allocated,
     /// Shard data uploaded, ready for simulation execution.
     Running,
+    /// Context in maintenance mode for connectome synaptogenesis updates.
+    Maintenance,
     /// Context torn down, resources cleared.
     TornDown,
 }

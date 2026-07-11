@@ -24,3 +24,17 @@ pub use gsop::{
     apply_gsop_plasticity, apply_synaptic_fatigue, fatigue_after_spike, fatigue_available,
     inertia_rank, recover_fatigue, weight_to_charge,
 };
+
+use core::sync::atomic::{AtomicBool, Ordering};
+
+static PLASTICITY_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Sets whether synaptic weight updates (plasticity) are globally enabled.
+pub fn set_plasticity_enabled(enabled: bool) {
+    PLASTICITY_ENABLED.store(enabled, Ordering::SeqCst);
+}
+
+/// Returns whether synaptic weight updates (plasticity) are globally enabled.
+pub fn is_plasticity_enabled() -> bool {
+    PLASTICITY_ENABLED.load(Ordering::SeqCst)
+}

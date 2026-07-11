@@ -1,8 +1,7 @@
 # spec_compute_api
 
-> Версия спеки: 2.2  
-> Дата: 2026-06-29  
-> Статус: Approved / Ready for Implementation (Architecture Pass 2.2)
+> Версия спеки: 2.3  
+> Дата: 2026-07-10  
 
 ---
 
@@ -14,7 +13,7 @@
 | **Слой** | Слой 3 — Абстракция Вычислений (Compute Hardware Abstraction Layer / HAL) |
 | **Тип** | Library (`lib`) |
 | **no_std** | Да (`true`) — строго изолированный легкий контрактный крейт без динамических аллокаций (`no_std` / `no_alloc`) |
-| **Описание** | Аппаратно-независимый HAL-контракт вычислительных бэкендов (CPU, CUDA, HIP, Mock) для движка `AxiEngine`. Крейт определяет объектно-безопасный трейт `ComputeBackend`, непрозрачные дескрипторы VRAM (`VramHandle`), структуры команд DTO (`DayBatchCmd`), DTO результатов (`BatchResult`), отладочные снимки состояния (`ShardSnapshotMut`) и типизированную иерархию ошибок (`ComputeApiError`). `compute-api` не владеет C-ABI макетами памяти, физическими формулами симуляции и низкоуровневыми FFI-вызовами конкретных ускорителей. |
+| **Описание** | Аппаратно-независимый HAL-контракт вычислительных бэкендов (CPU, CUDA, HIP, Mock) для движка `AxiEngine`. Крейт определяет объектно-безопасный трейт `ComputeBackend`, непрозрачные дескрипторы VRAM (`VramHandle`), структуры команд DTO (`DayBatchCmd`), DTO результатов (`BatchResult`), отладочные снимки состояния (`ShardSnapshotMut`), структуры обслуживания (`BackendMaintenanceMut`, `BackendMaintenanceRef`) и типизированную иерархию ошибок (`ComputeApiError`). `compute-api` не владеет C-ABI макетами памяти, физическими формулами симуляции и низкоуровневыми FFI-вызовами конкретных ускорителей. |
 
 ---
 
@@ -39,6 +38,9 @@
 | `compute-cuda` (Слой 3) | Реализация вычислительного бэкенда для ускорителей NVIDIA CUDA. |
 | `compute-hip` (Слой 3) | Реализация вычислительного бэкенда для ускорителей AMD ROCm/HIP. |
 | `test-harness` (Слой 3) | Тестовый комплекс для верификации контракта и снимков состояний (`debug_snapshot`). |
+
+> [!NOTE]
+> Weaver (демон биологических шагов и топологии) напрямую **не зависит** от крейта `compute-api`. Weaver работает с хост-резидентными структурами и не использует HAL-интерфейсы ускорителей.
 
 ### §2.3. Внешние зависимости
 
@@ -184,6 +186,42 @@ pub struct ShardSnapshotMut<'a> {
 }
 ```
 
+### §4.7. Структуры Обслуживания Бэкенда (Backend Maintenance DTOs)
+Используются для моста переноса данных между хостом и устройством в период фазы обслуживания (Maintenance):
+```rust
+/// Буферы для выгрузки (экспорта) состояния устройства на хост.
+#[derive(Debug)]
+pub struct BackendMaintenanceMut<'a> {
+    pub state_blob: &'a mut [u8],
+    pub axons_blob: &'a mut [u8],
+}
+
+/// Буферы для загрузки (импорта) состояния с хоста на устройство.
+#[derive(Debug)]
+pub struct BackendMaintenanceRef<'a> {
+    pub state_blob: &'a [u8],
+    pub axons_blob: &'a [u8],
+}
+```
+*Примечание*: Буфер путей аксонов (`paths_blob`) отсутствует в HAL-контракте обслуживания, так как пути являются хост-резидентными данными и никогда не загружаются на физические ускорители (устройства).
+
+Размеры буферов обслуживания рассчитываются на основе геометрии шарда с использованием формул из `layout`:
+- `state_blob`: `layout::calculate_state_blob_size(padded_n)`
+- `axons_blob`: `expected_axons_blob_size(total_axons)`
+
+Функция `expected_axons_blob_size` возвращает ожидаемый размер байтового буфера аксонов в зависимости от их количества:
+```rust
+pub fn expected_axons_blob_size(total_axons: u32) -> Result<usize, ComputeApiError> {
+    // Функция является тонкой оберткой над layout::calculate_axons_blob_size (введенным в T002b).
+    // Любой сбой переполнения или None преобразуется в ComputeApiError::InvalidShape.
+
+    let num_axons = total_axons as usize;
+    num_axons.checked_mul(32)
+        .and_then(|axons_size| axons_size.checked_add(16))
+        .ok_or(ComputeApiError::InvalidShape)
+}
+```
+
 ---
 
 ## §5. Требования к Трейту Бэкенда (Trait Requirements)
@@ -206,6 +244,18 @@ pub trait ComputeBackend {
     fn debug_snapshot(&mut self, _handle: VramHandle, _snapshot: ShardSnapshotMut<'_>) -> Result<(), ComputeApiError> {
         Err(ComputeApiError::UnsupportedFeature)
     }
+
+    /// Экспорт текущего рабочего состояния (state + axons) во внешние host-буферы в режиме Maintenance.
+    /// Возвращает UnsupportedFeature по умолчанию.
+    fn export_maintenance_state(&mut self, _handle: VramHandle, _out: BackendMaintenanceMut<'_>) -> Result<(), ComputeApiError> {
+        Err(ComputeApiError::UnsupportedFeature)
+    }
+
+    /// Импорт измененного рабочего состояния (state + axons) из host-буферов в режиме Maintenance.
+    /// Возвращает UnsupportedFeature по умолчанию.
+    fn import_maintenance_state(&mut self, _handle: VramHandle, _src: BackendMaintenanceRef<'_>) -> Result<(), ComputeApiError> {
+        Err(ComputeApiError::UnsupportedFeature)
+    }
 }
 ```
 
@@ -216,6 +266,9 @@ pub trait ComputeBackend {
 4. **Синхронность Выполнения в v2.1**: Метод `run_day_batch` является блокирующим синхронным вызовом. Управление возвращается только после полного завершения всех тиков батча и готовности выходных буферов.
 5. **Батчевая Диспетчеризация (Batch-Level Dispatch)**: Вызов метода выполнения производится единоразово на весь батч тиков (`sync_batch_ticks`), а не на каждый тик отдельно.
 6. **Явный Жизненный Цикл Ресурсов**: Ресурсы создаются и уничтожаются через методы `alloc_shard` / `free_shard` / `teardown`.
+7. **Разделение Диагностики и Обслуживания**: Метод `debug_snapshot` предназначен исключительно для диагностических целей в рамках тестового окружения (`test-harness`). Рабочий экспорт и импорт состояния шарда на хост осуществляется методами `export_maintenance_state` и `import_maintenance_state`.
+8. **Отсутствие Биологических Политик в HAL**: В HAL-методах бэкенда запрещено выполнение любых операций биологических политик (уплотнение синапсов, сортировка, спраутинг, прунинг). Weaver (планировщик биологических шагов) не зависит от `compute-api`.
+9. **Синхронное копирование в v1 (memcpy/DMA)**: Методы `export_maintenance_state` и `import_maintenance_state` в v1 всегда выполняют синхронный перенос байт (host memcpy для CPU бэкенда, синхронный DMA H2D/D2H для ускорителей). Использование zero-copy монопольного заимствования через `Box<dyn ComputeBackend>` в v1 запрещено.
 
 ---
 
@@ -228,7 +281,7 @@ pub trait ComputeBackend {
 3. **State Blob Size**: Размер `upload.state_blob.len()` должен строго совпадать с расчитанным размером состояния из `layout::calculate_state_blob_size(padded_n)`.
 4. **Axons Blob Size**: Размер `upload.axons_blob.len()` валидируется на соответствие полному размеру файла аксонов по формуле `16 + total_axons * core::mem::size_of::<layout::BurstHeads8>()` (т.е. `16 + total_axons * 32`).
 5. **v_seg Range**: Значение `cmd.v_seg` проверяется на физический диапазон `1 <= v_seg <= 255`. Значение передается уже посчитанным из `physics`.
-6. **Spike Array Lengths**: Длины массивов `cmd.incoming_spike_counts.len()` и `cmd.output_spike_counts.len()` должны быть строго равны `cmd.sync_batch_ticks`.
+6. **Spike Array Lengths**: Длины массивов `cmd.incoming_spike_counts.len()` and `cmd.output_spike_counts.len()` должны быть строго равны `cmd.sync_batch_ticks`.
 7. **Incoming Spikes Validation**:
    - Если `cmd.incoming_spikes.is_some()`, то длина среза `incoming_spikes.unwrap().len()` должна быть не менее `cmd.sync_batch_ticks * cmd.max_spikes_per_tick`.
    - Если `cmd.incoming_spikes.is_none()`, то все элементы массива `cmd.incoming_spike_counts` должны быть строго равны `0`.
@@ -236,6 +289,56 @@ pub trait ComputeBackend {
 9. **Input Bitmask Bounds**: Длина `cmd.input_bitmask` (при наличии `Some`) должна быть не менее `cmd.input_words_per_tick * cmd.sync_batch_ticks`.
 10. **Mapped Soma IDs**: Длина `cmd.mapped_soma_ids` должна быть строго равна `cmd.num_outputs`.
 11. **Handle Validation**: Использование недействительного, ранее освобожденного или чужого дескриптора должно мгновенно возвращать ошибку `InvalidHandle` или `ForeignHandle` без попыток разыменования памяти.
+12. **Размер Буфера Экспорта Обслуживания (Maintenance Export)**: Длина `out.state_blob.len()` должна быть строго равна `layout::calculate_state_blob_size(padded_n)`, а `out.axons_blob.len()` — `expected_axons_blob_size(total_axons)` (которая должна возвращать `Ok`).
+13. **Размер Буфера Импорта Обслуживания (Maintenance Import)**: Длина `src.state_blob.len()` должна быть строго равна `layout::calculate_state_blob_size(padded_n)`, а `src.axons_blob.len()` — `expected_axons_blob_size(total_axons)` (которая должна возвращать `Ok`).
+
+### §6.1. Публичные Функции Валидации Обслуживания (Maintenance Validation APIs)
+Для обеспечения унифицированной проверки буферов обслуживания во всех бэкендах, `compute-api` предоставляет следующие публичные функции:
+
+```rust
+pub fn validate_maintenance_export(
+    spec: &ShardAllocSpec,
+    out: &BackendMaintenanceMut<'_>,
+) -> Result<(), ComputeApiError> {
+    // 1. Валидация выравнивания и геометрии
+    if spec.padded_n % 64 != 0 {
+        return Err(ComputeApiError::AlignmentViolation);
+    }
+    // 2. Валидация размера блоба состояния
+    let expected_state = layout::calculate_state_blob_size(spec.padded_n);
+    if out.state_blob.len() != expected_state {
+        return Err(ComputeApiError::SizeMismatch);
+    }
+    // 3. Валидация размера блоба аксонов
+    let expected_axons = expected_axons_blob_size(spec.total_axons)?;
+    if out.axons_blob.len() != expected_axons {
+        return Err(ComputeApiError::SizeMismatch);
+    }
+    Ok(())
+}
+
+pub fn validate_maintenance_import(
+    spec: &ShardAllocSpec,
+    src: &BackendMaintenanceRef<'_>,
+) -> Result<(), ComputeApiError> {
+    // 1. Валидация выравнивания и геометрии
+    if spec.padded_n % 64 != 0 {
+        return Err(ComputeApiError::AlignmentViolation);
+    }
+    // 2. Валидация размера блоба состояния
+    let expected_state = layout::calculate_state_blob_size(spec.padded_n);
+    if src.state_blob.len() != expected_state {
+        return Err(ComputeApiError::SizeMismatch);
+    }
+    // 3. Валидация размера блоба аксонов
+    let expected_axons = expected_axons_blob_size(spec.total_axons)?;
+    if src.axons_blob.len() != expected_axons {
+        return Err(ComputeApiError::SizeMismatch);
+    }
+    Ok(())
+}
+```
+*Примечание*: Данные методы осуществляют проверки размерностей и структуры C-ABI. Сбои валидации возвращают ошибки `SizeMismatch` или `InvalidShape`, в отличие от функции `validate_snapshot_buffers` для диагностических снимков состояния, которая оперирует границами отладчика и возвращает `InvalidDebugProbeBounds`.
 
 ---
 
@@ -274,7 +377,7 @@ pub enum ComputeApiError {
 - **INV-COMPUTE-API-001**: Трейт бэкенда `ComputeBackend` является объектно-безопасным (`Object Safe`) для использования через `Box<dyn ComputeBackend>`.
 - **INV-COMPUTE-API-002**: Публичный API адресации VRAM использует непрозрачные дескрипторы `VramHandle` с приватными полями и фабричным методом `from_raw_parts`.
 - **INV-COMPUTE-API-003**: Выделение и освобождение памяти VRAM выполняется через явные методы `alloc_shard` и `free_shard`.
-- **INV-COMPUTE-API-004**: Все публичные методы бэкендов возвращают `Result<T, ComputeApiError>` и гарантируют отсутствие паник.
+- **INV-COMPUTE-API-004**: Все публичные методы бэкендов возвращают `Result<T, ComputeApiError>` and гарантируют отсутствие паник.
 - **INV-COMPUTE-API-005**: Передача невалидного или освобожденного `VramHandle` мгновенно бракуется без обращения к C-ABI.
 - **INV-COMPUTE-API-006**: Диспетчеризация вычислений выполняется пакетами на уровне батчей (`DayBatchCmd`), без вызова трейта на каждый отдельный тик.
 - **INV-COMPUTE-API-007**: Временные границы срезов памяти внутри DTO жестко ограничены временами жизни кредитов Rust.
@@ -298,6 +401,10 @@ pub enum ComputeApiError {
 11. **Гарантия Отсутствия Паник (`test_api_returns_result_never_panics`)**: Проверка возврата `Result` при любых некорректных параметрах рантайма.
 12. **Автономность Реализации Mock-Бэкенда (`test_mock_backend_implementation`)**: Проверка полной реализации трейта `ComputeBackend` на Mock-бэкенде без внешних CUDA/HIP библиотек.
 13. **Отсутствие Вендорских Флагов (`test_no_vendor_feature_flags`)**: Гарантия сборки крейта без флагов компиляции.
+14. **Поведение `export_maintenance_state` по умолчанию (`test_default_export_maintenance_returns_unsupported`)**: Проверка возврата `Err(ComputeApiError::UnsupportedFeature)` базовым методом трейта.
+15. **Поведение `import_maintenance_state` по умолчанию (`test_default_import_maintenance_returns_unsupported`)**: Проверка возврата `Err(ComputeApiError::UnsupportedFeature)` базовым методом трейта.
+16. **Валидация буферов экспорта обслуживания (`test_validate_maintenance_export_buffers`)**: Проверка валидации размеров буферов в `BackendMaintenanceMut`.
+17. **Валидация буферов импорта обслуживания (`test_validate_maintenance_import_buffers`)**: Проверка валидации размеров буферов в `BackendMaintenanceRef`.
 
 ---
 
@@ -325,3 +432,5 @@ pub enum ComputeApiError {
    - *Решение*: В v2.1 допускается только полная загрузка `ShardUpload`. Частичная загрузка аксонов является будущим расширением. Полный размер файла аксонов валидируется по формуле `16 + total_axons * 32`.
 10. **[RESOLVED] Передача таблицы вариантов нейронов `variant_table` в `ShardUpload` (REV-COMPUTE-CUDA-002 / Pass 2.2)**:
     - *Решение*: В DTO `ShardUpload` добавлено фиксированное заимствованное поле `variant_table: &'a [layout::VariantParameters; layout::VARIANT_LUT_LEN]`. Структура `ShardUpload` предоставляет временное заимствованное представление (`borrowed view`) строго на время выполнения метода `upload_shard`. Каждый бэкенд обязан либо синхронно перенести таблицу в память устройства (`GPU Constant Memory`), либо скопировать её во внутреннее backend-owned хранилище ресурса шарда. Сохранять и удерживать ссылку из `ShardUpload` внутри бэкенда или ресурса после завершения вызова `upload_shard` категорически запрещено.
+11. **[RESOLVED] Добавление контракта обслуживания для интеграции Night Phase (REV-MAINT-001)**:
+    - *Решение*: В трейт `ComputeBackend` добавлен метод `export_maintenance_state` и `import_maintenance_state`, работающие в режиме жизненного цикла `Maintenance`. Состояние устройства передается через структуры `BackendMaintenanceMut` и `BackendMaintenanceRef`, содержащие исключительно `state_blob` и `axons_blob`. Пути аксонов (`paths_blob`) не входят в HAL-интерфейс, так как они никогда не загружаются на вычислительное устройство.

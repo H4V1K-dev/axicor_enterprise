@@ -2,7 +2,6 @@
 
 > Версия спеки: 2.2  
 > Дата: 2026-06-29  
-> Статус: Approved / Ready for Implementation (Architecture Pass 2)
 
 ---
 

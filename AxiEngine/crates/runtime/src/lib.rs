@@ -7,7 +7,8 @@ pub mod error;
 pub mod local;
 
 pub use dto::{
-    LocalRuntimeConfig, RuntimeBatchInput, RuntimeBatchReport, RuntimeState, RuntimeStats,
+    HostWorkingState, LocalRuntimeConfig, NightJobParams, RuntimeBatchInput, RuntimeBatchReport,
+    RuntimeState, RuntimeStats,
 };
 pub use error::RuntimeError;
 pub use local::LocalRuntime;
