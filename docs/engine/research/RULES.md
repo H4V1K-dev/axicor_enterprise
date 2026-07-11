@@ -4,6 +4,21 @@ Status: active rules for AxiEngine biological calibration research.
 
 These rules exist to keep experiments reproducible after a year, not to produce paperwork.
 
+**Parameter provenance:** see §0. Project skill: `.grok/skills/axi-research/`.
+
+## 0. Parameter provenance (hard rule)
+
+Numeric experimental parameters are not free invention.
+
+1. **Prior research / archive report / profile TOML / engine spec / explicit task table** — cite path (and commit if known).
+2. If missing → **unknown**. Do not invent values to make a test pass.
+3. Fallback only: **biological approximation**, labeled `hypothesis / uncalibrated` in the report.
+4. Mass domain vs charge domain must stay consistent (`weight >> 16`; charge config written as mass uses `<< 16`).
+5. No uncited parameter may enter a Learning Proof / microcircuit runner. Stop and ask rather than guess.
+6. Post-hoc weakening of acceptance thresholds after seeing results is forbidden. Null/failed outcomes are valid evidence.
+
+Agent/executor instructions live in `artifacts/agent-tasks/`, not inside research README bodies.
+
 ## 1. Directory Contract
 
 The research root must stay small:
