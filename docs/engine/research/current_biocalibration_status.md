@@ -121,8 +121,9 @@ Status: active research index, not a final report.
 | Порядок | Исследование | Статус | Gate |
 | :--- | :--- | :--- | :--- |
 | LP-entry | **Learning Proof L000 entry** | **ready** | Night in-proc frozen; dossier |
-| LP-0 | Frozen / plasticity controllability | **partial pass / running** | freeze/unfreeze works; multi-seed + charge-domain electrical parity still open |
-| LP-1…LP-4 | causality → retention → reward → task | blocked on honest LP-0 close or accepted caveats | monоспека gate matrix |
+| LP-0 | Frozen / plasticity controllability | **partial / accepted caveats** | freeze/unfreeze mass writes |
+| LP-1 | Plasticity causality (correlated vs control) | **completed w/ caveats** | relative $\Delta w$ bias on toy fixture; see LP-1 README |
+| LP-2…LP-4 | retention → reward → task | next: **LP-2** | monоспека gate matrix |
 | LP-5 | Night structural contribution | blocked on LP-1…4 | only after base weight learning |
 
 ## 8. Активные и следующие исследования
@@ -133,7 +134,7 @@ Status: active research index, not a final report.
 - **Why**: без evidence-first ответа дальнейшие runtime modes / process SM / CUDA — строительство вслепую.
 - **L000 verdict**: program **READY** (2026-07-11). Freeze commit `b904a9255ca715d974f6dde50311c4e02a655909`.
 - **Program SoT**: `artifacts/agent-tasks/LEARNING_PROOF_MONOSPEC.md` rev 0.3
-- **Next**: accept LP-0 caveats → **LP-1 causality** (correlated vs control). Not Night sprout planner.
+- **Next**: LP-2 retention.
 
 ### [Active / partial] LP-0: Frozen / Plasticity Controllability (`archive/_active/learning_proof_lp0/`)
 
@@ -146,6 +147,14 @@ Status: active research index, not a final report.
 - **API:** `LocalRuntimeConfig.plasticity_enabled` → process-global `physics::set_plasticity_enabled` → Stage 6 skip in `compute-cpu`.
 - **Outputs:** [README](archive/_active/learning_proof_lp0/README.md); `test-harness` test `lp0_controllability_tests`.
 - **Command:** `cargo test -p test-harness --test lp0_controllability_tests --features full-chain-probe`
+
+### [Completed w/ caveats] LP-1: Plasticity Causality (`archive/_active/learning_proof_lp1/`)
+
+- **Вопрос:** Усиливает ли production GSOP/STDP коррелированный eligible-путь сильнее сопоставимого control-пути при фиксированной topology?
+- **Итоговый вердикт (SUPPORTED C1 toy / caveats):** relative mass $\Delta w_{\text{corr}}=+1663 > \Delta w_{\text{ctrl}}=+592$ on seeds 42/100/2026; Dale/bounds green. Orchestrator caveats: identical seed numerics (pseudo multi-seed); control still potencies (+592); toy N; mass-domain only.
+- **Outputs:** [README](archive/_active/learning_proof_lp1/README.md); `test-harness` test `lp1_causality_tests`.
+- **Command:** `cargo test -p test-harness --test lp1_causality_tests --features full-chain-probe`
+- **Next:** LP-2 retention.
 
 
 
