@@ -131,12 +131,13 @@ Status: active research index, not a final report.
 
 ## 8. Активные и следующие исследования
 
-### [Running] GSOP / DA transfer audit (archive/_active/gsop_da_transfer_audit/)
+### [Decision complete + T015 landed] GSOP / DA transfer audit (archive/_active/gsop_da_transfer_audit/)
 
-- **Вопрос**: Почему калиброванный GSOP+DA не двигает task-level choice (C4)? Transfer/rule mismatch vs scale vs event balance (wash/fatigue/DA delivery)?
-- **Текущие гейты**: **H1 SUPPORTED** (slot-math mismatch vs legacy; missing inactive LTD is a candidate mechanism, not proven C4 cause). **H2 REJECTED** under delayed-post synthetic schedule (Wash Index = 0; LTD count = 0; unmatched Δmass = 0). H2 does not establish C4 causation and does not rule out wash under overlapping pre/post.
-- **Next**: H3 fatigue dominance under overlapping post-in-window schedule; frozen v1.4 rates; no pot/DA scale.
-- **Outputs**: [report](archive/_active/gsop_da_transfer_audit/reports/gsop_da_transfer_audit.md), [narrative](archive/_active/gsop_da_transfer_audit/narrative.md).
+- **Диагноз**: H1–H3 — inactive без LTD, не wash, fatigue@DA=50 не убивает LTP. H4 отменён.
+- **Production**: **T015 landed** — competitive/inactive LTD в `apply_gsop_plasticity` (нет causal hit → `base_ltd`). Proof: `test_competitive_depression_proof`.
+- **C4** по-прежнему REJECTED (behavioral re-probe ещё не делали).
+- **Next**: один network-level probe дифференциации весов под новым правилом; не H-ladder.
+- **Outputs**: [README](archive/_active/gsop_da_transfer_audit/README.md), [report](archive/_active/gsop_da_transfer_audit/reports/gsop_da_transfer_audit.md).
 
 ### [Next Gate] Night phase activity counters review package v0.4
 

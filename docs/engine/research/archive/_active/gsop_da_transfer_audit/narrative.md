@@ -35,6 +35,14 @@ Furthermore, we found that:
 
 Thus, under this delayed-post fixture, flat or weakly differentiated trajectories are **not** explained by LTP/LTD cancellation. Remaining live candidates include damped LTP magnitude, missing competitive LTD (H1), fatigue dominance under overlapping spikes (H3), DA delivery timing (H4), and mass→charge scale (H5). C4 cause remains multi-factor until a later gate bridges to behavior.
 
-## Next Discriminating Step (Phase H3: Fatigue Dominance Audit)
+## Phase H3: Fatigue Dominance Audit
 
-Because the postsynaptic spikes in the H2 fixture occurred long after presynaptic inputs had ended, fatigue had recovered by post time and anti-causal LTD was not exercised. The next authorized gate is **Phase H3 (Fatigue Dominance Audit)** under an overlapping pre/post schedule (e.g. posts at ticks 5, 10, 15), still with frozen rates — not pot/DA scaling.
+To test whether fatigue can accumulate and dominate the weight trajectory under rapid, overlapping firing conditions, we stochastically simulated a modified schedule (**Phase H3**) with postsynaptic spikes occurring during the input window (ticks 5, 10, and 15).
+
+The empirical results rejected the fatigue dominance hypothesis under the Normal condition. Although fatigue accumulated to a high level (mean `9.63` ticks at postsynaptic spikes) and generated significant LTD updates (1,009 LTD events vs. 426 LTP events), the dopamine-boosted LTP overcame the fatigue penalty, resulting in a net weight potentiation (Net Change = +101,644, Mean Net Change = +145.21).
+
+However, in the **DA-off condition ($DA=0$)**, the fatigue penalty and anti-causal LTD completely dominated, driving weights to net depression (Net Change = -67,674, Mean Net Change = -96.68). Under this fixture, dopamine changes the **sign** of net updates; that is a secondary training concern, not a reason to open another open-ended audit ladder.
+
+## Decision: stop H-gates; T015 competitive LTD landed
+
+H1–H3 closed the diagnosis. **T015** changed production `apply_gsop_plasticity`: no causal hit → full competitive `base_ltd` (unit proof green). C4 is still not re-run. Next is one **network-level** weight differentiation probe under the new rule—not another H-ladder.

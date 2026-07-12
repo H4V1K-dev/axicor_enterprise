@@ -218,4 +218,110 @@ Secondary observations (not substitute C4 evidence): matched LTP is small in cha
 **Phase H3: Fatigue Dominance Audit**  
 Since H2 showed that LTD is 0 when postsynaptic spikes are delayed, we will proceed to H3 to audit fatigue penalties and net updates under a postsynaptic spike schedule that occurs *during* the presynaptic input window (e.g. postsynaptic spikes at ticks 5, 10, 15), where fatigue is actively accumulated.
 
+---
+
+## Phase H3: Fatigue Dominance under Overlapping Pre/Post
+
+### 1. Preregistration
+
+#### Research Question
+Under an overlapping presynaptic and postsynaptic spike schedule (where postsynaptic spikes occur inside the input window), does the accumulated dendritic fatigue penalty dominate the net weight update ($\Delta$mass), and how does it change the matched vs. unmatched weight balance?
+
+#### Prior Model and Competing Explanations
+- **Prior Model:** When postsynaptic spikes occur during the presynaptic input window, presynaptic spikes build up dendritic fatigue. At the time of the postsynaptic spike, the high fatigue level ($fat > 0$) causes a fatigue penalty to be subtracted from the weight, dominating the net update and driving weight changes negative.
+- **Competing Explanations:**
+  1. **Fatigue Dominance:** The fatigue penalty dominates the update, driving matched synapses to net depression ($\sum \text{net\_mass} < 0$) despite causal spikes.
+  2. **Residual LTP Wins:** Causal LTP is larger than the fatigue penalty, resulting in positive net updates ($\sum \text{net\_mass} > 0$).
+  3. **Anti-Causal LTD Appears:** Spikes occurring after a postsynaptic spike (anti-causal window) also contribute to weight depression, cooperating with the fatigue penalty.
+
+#### Experimental Fixture and Inputs
+We adapt the H2 fixture with the following modification:
+- **Postsynaptic Firing:** The postsynaptic spikes occur at ticks **5, 10, and 15**, which overlap directly with the presynaptic input window (ticks 0..20).
+- All other parameters (7 matched synapses with $P_{\text{spike}} = 0.11$ in 0..20, 5 unmatched synapses, initial weight `3500 << 16`, fatigue capacity 18, cost 50, recovery 1/tick) remain identical.
+
+##### Parameter Provenance Table
+
+| Parameter | Value | Unit / Domain | Source / Reference |
+|---|---|---|---|
+| L4 `gsop_potentiation` | `240` | Mass Domain | Winner L4 GSOP / LP4 |
+| L4 `gsop_depression` | `68` | Mass Domain | Winner L4 GSOP / LP4 |
+| L4 `fatigue_capacity` | `18` | Ticks | Winner L4 GSOP / LP4 |
+| Fatigue spike cost | `50` | Ticks | Production constants |
+| Fatigue recovery rate | `1` | Ticks / tick | Production constants |
+| dopamine | `0` and `50` | Neuromod Scale | LP C3/C4 |
+| Initial Mass ($w$) | `3500 << 16` | Mass Domain | LP4 / v1.4 |
+| Signal propagation length | `20` | Ticks | modernized profile |
+| Dendrite Segment Index | `10` | Segment Position | Typical L4 segment |
+
+#### Primary Metrics
+- **LTP-Positive Count:** Number of slot updates where $\Delta\text{mass} > 0$.
+- **LTD-Negative Count:** Number of slot updates where $\Delta\text{mass} < 0$.
+- **Summed LTP mass change ($\sum \text{LTP}$):** Cumulative positive mass changes.
+- **Summed LTD mass change ($\sum \text{LTD}$):** Cumulative negative mass changes.
+- **Summed Net Mass change ($\sum \text{net\_mass}$):** Cumulative net signed change in mass.
+- **Mean Fatigue at Postsynaptic Spikes:** Average fatigue value recorded for matched synapses at ticks 5, 10, and 15.
+- **Wash Index:** $1 - \frac{|\sum \text{net\_mass}|}{\sum \text{LTP} + \sum |\text{LTD}|}$
+- **Synapse-Class Net Change:** Mean $\Delta\text{mass}$ on matched vs. unmatched synapses.
+
+#### Success and Rejection Criteria
+- **SUPPORTED (Fatigue Dominance):** Matched synapses show negative net signed change ($\sum \text{net\_mass} < 0$) AND mean fatigue at postsynaptic ticks is $> 5$ ticks.
+- **REJECTED (Fatigue Dominance):** Matched synapses show positive net signed change ($\sum \text{net\_mass} > 0$).
+
+#### Runner and Reproducible Command
+- **Runner:** `AxiEngine/crates/physics/tests/physics_tests.rs` under function `test_gsop_h3_fatigue_dominance`.
+- **Command:** `cargo test -p physics --test physics_tests test_gsop_h3_fatigue_dominance -- --nocapture`
+
+#### Known Limitations
+- H3 evaluates the fatigue penalty balance at a single-neuron level under a synthetic overlapping pre/post schedule. It does not establish C4 behavior recovery or authorize production rewrites.
+
+---
+
+## H3 Results and Analysis
+
+The Phase H3 fatigue dominance audit was executed successfully. The empirical results across 100 independent trials are summarized in the table below:
+
+| Condition | Synapse Class | LTP Count | LTD Count | Sum LTP | Sum LTD | Net Change | Wash Index | Mean Fatigue | Mean Net Change |
+|---|---|---|---|---|---|---|---|---|---|
+| Normal | Matched | 426 | 1009 | 134873 | -33229 | 101644 | 0.3953 | 9.63 | 145.21 |
+| Normal | Unmatched | 0 | 0 | 0 | 0 | 0 | 0.0000 | 0.00 | 0.00 |
+| DA-off | Matched | 397 | 1038 | 60686 | -128360 | -67674 | 0.6420 | 9.63 | -96.68 |
+| DA-off | Unmatched | 0 | 0 | 0 | 0 | 0 | 0.0000 | 0.00 | 0.00 |
+| Plasticity-off | Matched | 0 | 0 | 0 | 0 | 0 | 0.0000 | 9.63 | 0.00 |
+| Plasticity-off | Unmatched | 0 | 0 | 0 | 0 | 0 | 0.0000 | 0.00 | 0.00 |
+
+### Analysis of Findings
+
+1. **Active Fatigue Accumulation (Mean Fatigue = 9.63):**
+   Under the overlapping postsynaptic schedule (ticks 5, 10, 15), presynaptic spikes successfully drove dendritic fatigue to an average level of `9.63` ticks (out of `18` capacity) at the time of postsynaptic spikes.
+2. **Dopamine Modulates Net Update Direction:**
+   - In the **DA-off condition ($DA=0$)**, matched synapses underwent net depression (Net Change = -67,674, Mean Net Change = -96.68). The fatigue penalty and anti-causal LTD completely dominated, driving weights down.
+   - In the **Normal condition ($DA=50$)**, matched synapses underwent net potentiation (Net Change = +101,644, Mean Net Change = +145.21). Causal LTP, boosted by dopamine, overcame the fatigue penalty.
+3. **No Wash under Overlapping Spikes:**
+   The Wash Index in the Normal condition was `0.3953` (less than the `0.50` wash threshold), indicating that while both LTP and LTD events occurred, they did not cancel out.
+
+### Verdict
+
+Hypothesis **H3 is REJECTED** under the Normal condition. Although fatigue accumulates during overlapping activity and generates significant LTD updates, the dopamine-boosted causal LTP remains strong enough to overcome the fatigue penalty, resulting in positive net weight updates (Net Change > 0). 
+
+However, the fact that Net Change flips to negative under DA-off (-67,674) shows that dopamine neuromodulation is the critical switch controlling the direction of plasticity under realistic, high-fatigue firing regimes.
+
+### Claim Boundary
+- H3 establishes that under overlapping pre/post schedules with winner GSOP rates, fatigue does not prevent net potentiation under normal dopamine levels.
+- H3 does not establish that task-level learning is resolved or that production GSOP updates are authorized.
+
+---
+
+## Program decision (stop research ladder)
+
+**H4 cancelled. H5 deferred.**
+
+| Priority | Action | Status |
+|---|---|---|
+| P0 | Production competitive / inactive-slot LTD | **DONE (T015)** — `apply_gsop_plasticity`; `test_competitive_depression_proof` |
+| P1 | Network-level matched vs unmatched mass under frozen rates | **Next** |
+| P2 | Optional C4-like re-run | Only after P1 shows real differentiation |
+| — | Do **not** invent pot/DA scale to fake learning | forbidden |
+
+Historical H1–H3 text above describes **pre-T015** production behavior where inactive Δmass was 0.
+
 

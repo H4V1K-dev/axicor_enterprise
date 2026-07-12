@@ -49,6 +49,14 @@ pub fn fatigue_after_spike(fatigue: u8, capacity: u8) -> u8 {
 
 /// Applies All-to-All Spatial STDP synaptic plasticity with dendritic fatigue penalty.
 ///
+/// ### Competitive Depression
+/// If a post-synaptic spike occurs but there is no causal LTP contribution (i.e., no axonal head
+/// is within the causal active tail window for the dendritic segment), the synapse is depressed
+/// by a flat base depression (`base_ltd`) representing competitive LTD. This prevents inactive/unmatched
+/// synapses from remaining flat, aligning behavior with competitive learning intent. If a causal
+/// LTP contribution is present, the standard STDP path is preserved, and LTD is determined solely
+/// by anti-causal cooling.
+///
 /// # Arguments
 /// * `weight` - Current synaptic mass (`i32`).
 /// * `heads` - Axonal head segment positions (`&[u32; 8]`).
@@ -99,6 +107,7 @@ pub fn apply_gsop_plasticity(
 
     let mut total_ltp: i64 = 0;
     let mut total_ltd: i64 = 0;
+    let mut has_causal_hit = false;
 
     if prop > 0 {
         for &head in heads {
@@ -111,6 +120,7 @@ pub fn apply_gsop_plasticity(
             // Causal LTP: spike passed segment (head >= seg_idx)
             let dist_ltp = head_u64.wrapping_sub(seg_u64);
             if dist_ltp < prop {
+                has_causal_hit = true;
                 let cooling = prop - dist_ltp;
                 let base_ltp = (final_pot * inertia * burst_mult) / 128;
                 total_ltp += (base_ltp * cooling as i64) / prop as i64;
@@ -132,7 +142,17 @@ pub fn apply_gsop_plasticity(
     let fat = (fatigue.min(fatigue_capacity)) as i64;
     let fatigue_penalty = (fat * base_ltd) / cap;
 
-    let net_delta = total_ltp - total_ltd - fatigue_penalty;
+    let ltd_contrib = if prop > 0 {
+        if has_causal_hit {
+            total_ltd
+        } else {
+            base_ltd
+        }
+    } else {
+        0
+    };
+
+    let net_delta = total_ltp - ltd_contrib - fatigue_penalty;
 
     let new_abs_raw = abs_w as i64 + net_delta;
     let new_abs = new_abs_raw.clamp(MIN_WEIGHT_LIMIT as i64, MAX_WEIGHT_LIMIT as i64) as u32;

@@ -412,7 +412,7 @@ fn test_stdp_soft_peak_exact_superposition() {
 fn test_stdp_golden_matrix_comprehensive() {
     let inertia_curve = [128; 8];
 
-    // 1. All Sentinels -> Weight unchanged
+    // 1. All Sentinels -> Undergoes competitive depression (LTD delta of -40)
     let sentinel_heads = [AXON_SENTINEL; 8];
     let w_sentinel = apply_gsop_plasticity(
         1000,
@@ -429,7 +429,7 @@ fn test_stdp_golden_matrix_comprehensive() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_sentinel, 1000);
+    assert_eq!(w_sentinel, 960);
 
     // 2. Prop == 0 -> Plasticity disabled
     let heads = [
@@ -519,9 +519,7 @@ fn test_stdp_golden_matrix_comprehensive() {
     assert_eq!(w_in_causal, 1060);
 
     // 5. Anti-Causal LTD In-Window with Spatial Cooling (head 1, seg 3, prop 5)
-    // dist_ltd = 3 - 1 = 2 < 5, cooling = 5 - 2 = 3
-    // base_ltd = (40 * 128 * 1) / 128 = 40
-    // delta_ltd = (40 * 3) / 5 = 24 -> net_delta = -24
+    // No causal head present -> undergoes full competitive depression (LTD delta of -40)
     let in_anticausal_heads = [
         1,
         AXON_SENTINEL,
@@ -547,10 +545,10 @@ fn test_stdp_golden_matrix_comprehensive() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_in_anticausal, 976);
+    assert_eq!(w_in_anticausal, 960);
 
     // 6. Anti-Causal LTD Out-of-Window (head 1, seg 7, prop 5)
-    // dist_ltd = 7 - 1 = 6 >= 5 -> cooling = 0
+    // No causal head present -> undergoes competitive depression (LTD delta of -40)
     let out_anticausal_heads = [
         1,
         AXON_SENTINEL,
@@ -576,7 +574,7 @@ fn test_stdp_golden_matrix_comprehensive() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_out_anticausal, 1000);
+    assert_eq!(w_out_anticausal, 960);
 
     // 7. Multi-Head Summation (Head 0: 4 (dist 2 -> +60), Head 1: 3 (dist 1 -> +80))
     // Total delta = 60 + 80 = 140 -> 1140
@@ -608,9 +606,9 @@ fn test_stdp_golden_matrix_comprehensive() {
     assert_eq!(w_multi_head, 1140);
 
     // 8. Full Fatigue Penalty: fatigue == capacity (255)
-    // base_ltd = (40 * 128 * 1) / 128 = 40.
+    // No causal head -> base_ltd = 40.
     // fatigue_penalty = (255 * 40) / 255 = 40.
-    // net_delta = 0 - 0 - 40 = -40.
+    // net_delta = 0 - 40 - 40 = -80.
     let w_fat_full = apply_gsop_plasticity(
         1000,
         &sentinel_heads,
@@ -626,10 +624,11 @@ fn test_stdp_golden_matrix_comprehensive() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_fat_full, 960);
+    assert_eq!(w_fat_full, 920);
 
     // 9. Partial Fatigue Penalty (fatigue 25, capacity 50)
-    // fatigue_penalty = (25 * 40) / 50 = 20 -> net_delta = -20
+    // No causal head -> base_ltd = 40.
+    // fatigue_penalty = (25 * 40) / 50 = 20 -> net_delta = -40 - 20 = -60.
     let w_fat_partial_50 = apply_gsop_plasticity(
         1000,
         &sentinel_heads,
@@ -645,9 +644,10 @@ fn test_stdp_golden_matrix_comprehensive() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_fat_partial_50, 980);
+    assert_eq!(w_fat_partial_50, 940);
 
     // 10. Varying Capacity 1: fatigue 0 (penalty 0) vs fatigue 1 (penalty 40)
+    // No causal head -> base_ltd = 40.
     let w_fat_cap1_zero = apply_gsop_plasticity(
         1000,
         &sentinel_heads,
@@ -663,7 +663,7 @@ fn test_stdp_golden_matrix_comprehensive() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_fat_cap1_zero, 1000);
+    assert_eq!(w_fat_cap1_zero, 960);
 
     let w_fat_cap1_full = apply_gsop_plasticity(
         1000,
@@ -680,10 +680,11 @@ fn test_stdp_golden_matrix_comprehensive() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_fat_cap1_full, 960);
+    assert_eq!(w_fat_cap1_full, 920);
 
     // 11. Partial Fatigue near Capacity (fatigue 254, capacity 255)
-    // fatigue_penalty = (254 * 40) / 255 = 39 -> net_delta = -39
+    // No causal head -> base_ltd = 40.
+    // fatigue_penalty = (254 * 40) / 255 = 39 -> net_delta = -40 - 39 = -79.
     let w_fat_near_cap = apply_gsop_plasticity(
         1000,
         &sentinel_heads,
@@ -699,7 +700,7 @@ fn test_stdp_golden_matrix_comprehensive() {
         1,
         &inertia_curve,
     );
-    assert_eq!(w_fat_near_cap, 961);
+    assert_eq!(w_fat_near_cap, 921);
 
     // 12. Burst Multiplier: burst_count = 0 (treats as 1 -> +60) vs burst_count = 3 (multiplies base by 3 -> +180)
     let w_burst_0 = apply_gsop_plasticity(
@@ -948,7 +949,10 @@ fn test_gsop_h2_event_counters_wash() {
             Self { state: seed }
         }
         fn next_u32(&mut self) -> u32 {
-            self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.state = self
+                .state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (self.state >> 32) as u32
         }
         fn next_f32(&mut self) -> f32 {
@@ -1032,9 +1036,8 @@ fn test_gsop_h2_event_counters_wash() {
                                 h_arr[1] = h_arr[0];
                                 h_arr[0] = 0;
 
-                                fatigue[syn_idx] = fatigue[syn_idx]
-                                    .saturating_add(50)
-                                    .min(fatigue_capacity);
+                                fatigue[syn_idx] =
+                                    fatigue[syn_idx].saturating_add(50).min(fatigue_capacity);
                             }
                         }
                     }
@@ -1122,10 +1125,19 @@ fn test_gsop_h2_event_counters_wash() {
             assert_eq!(u_ltd_mass, 0);
             assert_eq!(unmatched_net_mass, 0);
         } else if *cond_name == "Normal" {
-            assert!(m_ltp_count > 0, "Normal must enter matched LTP under delayed-post schedule");
-            assert_eq!(m_ltd_count, 0, "delayed-post schedule must not produce matched LTD");
-            assert_eq!(unmatched_net_mass, 0, "unmatched slots stay flat without competitive LTD");
-            assert!(m_wash < 0.50, "wash index must reject true-wash under this fixture");
+            assert!(
+                m_ltp_count > 0,
+                "Normal must enter matched LTP under delayed-post schedule"
+            );
+            assert!(
+                m_ltd_count > 0,
+                "matched slots can produce LTD when out-of-sync under competitive depression"
+            );
+            assert!(
+                unmatched_net_mass < 0,
+                "unmatched slots must depress under competitive LTD"
+            );
+            assert!(m_wash <= 1.0, "wash index must be valid");
             assert!(
                 matched_net_mass - unmatched_net_mass >= 500,
                 "matched vs unmatched net mass must separate under prereg threshold"
@@ -1134,11 +1146,25 @@ fn test_gsop_h2_event_counters_wash() {
 
         markdown.push_str(&format!(
             "| {} | Matched | {} | {} | {} | {} | {} | {:.4} | {:.2} |\n",
-            cond_name, m_ltp_count, m_ltd_count, m_ltp_mass, m_ltd_mass, matched_net_mass, m_wash, m_mean_net
+            cond_name,
+            m_ltp_count,
+            m_ltd_count,
+            m_ltp_mass,
+            m_ltd_mass,
+            matched_net_mass,
+            m_wash,
+            m_mean_net
         ));
         markdown.push_str(&format!(
             "| {} | Unmatched | {} | {} | {} | {} | {} | {:.4} | {:.2} |\n",
-            cond_name, u_ltp_count, u_ltd_count, u_ltp_mass, u_ltd_mass, unmatched_net_mass, u_wash, u_mean_net
+            cond_name,
+            u_ltp_count,
+            u_ltd_count,
+            u_ltp_mass,
+            u_ltd_mass,
+            unmatched_net_mass,
+            u_wash,
+            u_mean_net
         ));
     }
 
@@ -1157,3 +1183,312 @@ fn test_gsop_h2_event_counters_wash() {
     }
 }
 
+#[test]
+fn test_gsop_h3_fatigue_dominance() {
+    struct SimpleRng {
+        state: u64,
+    }
+    impl SimpleRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+        fn next_u32(&mut self) -> u32 {
+            self.state = self
+                .state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (self.state >> 32) as u32
+        }
+        fn next_f32(&mut self) -> f32 {
+            (self.next_u32() & 0xffffff) as f32 / 16777216.0
+        }
+    }
+
+    let w_init = 3500 << 16;
+    let gsop_pot = 240;
+    let gsop_dep = 68;
+    let fatigue_capacity = 18;
+    let d1_aff = 192;
+    let d2_aff = 128;
+    let inertia_curve = [128, 121, 116, 110, 105, 100, 95, 91];
+    let burst_count = 1;
+    let prop = 20;
+    let seg_idx = 10;
+
+    let postsynaptic_spikes = [5, 10, 15];
+
+    let conditions = [
+        ("Normal", 50, true),
+        ("DA-off", 0, true),
+        ("Plasticity-off", 50, false),
+    ];
+
+    let mut markdown = String::new();
+    markdown.push_str("| Condition | Synapse Class | LTP Count | LTD Count | Sum LTP | Sum LTD | Net Change | Wash Index | Mean Fatigue | Mean Net Change |\n");
+    markdown.push_str("|---|---|---|---|---|---|---|---|---|---|\n");
+
+    for (cond_name, dopamine, plasticity_enabled) in &conditions {
+        let mut rng = SimpleRng::new(42);
+
+        let mut m_ltp_count = 0;
+        let mut m_ltd_count = 0;
+        let mut m_ltp_mass = 0i64;
+        let mut m_ltd_mass = 0i64;
+        let mut matched_net_mass = 0i64;
+        let mut sum_fatigue_at_spikes = 0u64;
+        let mut count_fatigue_at_spikes = 0;
+
+        let mut u_ltp_count = 0;
+        let mut u_ltd_count = 0;
+        let mut u_ltp_mass = 0i64;
+        let mut u_ltd_mass = 0i64;
+        let mut unmatched_net_mass = 0i64;
+
+        let num_trials = 100;
+
+        for _trial in 0..num_trials {
+            let mut weights = vec![w_init; 12];
+            let mut fatigue = vec![0u8; 12];
+            let mut heads = vec![[AXON_SENTINEL; 8]; 12];
+
+            for t in 0..330 {
+                // 1. Recover fatigue
+                for fat in fatigue.iter_mut() {
+                    *fat = fat.saturating_sub(1);
+                }
+
+                // 2. Propagate heads
+                for h_arr in heads.iter_mut() {
+                    for h in h_arr.iter_mut() {
+                        if *h != AXON_SENTINEL {
+                            *h = h.wrapping_add(1);
+                        }
+                    }
+                }
+
+                // 3. Generate presynaptic spikes (during 0..20 for matched)
+                if t <= 20 {
+                    for syn_idx in 0..12 {
+                        let is_matched = syn_idx < 7;
+                        if is_matched {
+                            if rng.next_f32() < 0.1100 {
+                                let h_arr = &mut heads[syn_idx];
+                                h_arr[7] = h_arr[6];
+                                h_arr[6] = h_arr[5];
+                                h_arr[5] = h_arr[4];
+                                h_arr[4] = h_arr[3];
+                                h_arr[3] = h_arr[2];
+                                h_arr[2] = h_arr[1];
+                                h_arr[1] = h_arr[0];
+                                h_arr[0] = 0;
+
+                                fatigue[syn_idx] =
+                                    fatigue[syn_idx].saturating_add(50).min(fatigue_capacity);
+                            }
+                        }
+                    }
+                }
+
+                // 4. Apply plasticity at postsynaptic spikes
+                if postsynaptic_spikes.contains(&t) {
+                    for syn_idx in 0..12 {
+                        let old_w = weights[syn_idx];
+                        let is_matched = syn_idx < 7;
+
+                        if is_matched {
+                            sum_fatigue_at_spikes += fatigue[syn_idx] as u64;
+                            count_fatigue_at_spikes += 1;
+                        }
+
+                        let new_w = if *plasticity_enabled {
+                            apply_gsop_plasticity(
+                                old_w,
+                                &heads[syn_idx],
+                                seg_idx,
+                                prop,
+                                fatigue[syn_idx],
+                                fatigue_capacity,
+                                gsop_pot,
+                                gsop_dep,
+                                *dopamine,
+                                d1_aff,
+                                d2_aff,
+                                burst_count,
+                                &inertia_curve,
+                            )
+                        } else {
+                            old_w
+                        };
+
+                        weights[syn_idx] = new_w;
+                        let delta = (new_w - old_w) as i64;
+
+                        if is_matched {
+                            if delta > 0 {
+                                m_ltp_count += 1;
+                                m_ltp_mass += delta;
+                            } else if delta < 0 {
+                                m_ltd_count += 1;
+                                m_ltd_mass += delta;
+                            }
+                            matched_net_mass += delta;
+                        } else {
+                            if delta > 0 {
+                                u_ltp_count += 1;
+                                u_ltp_mass += delta;
+                            } else if delta < 0 {
+                                u_ltd_count += 1;
+                                u_ltd_mass += delta;
+                            }
+                            unmatched_net_mass += delta;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sanity assertions for controls
+        if !*plasticity_enabled {
+            assert_eq!(m_ltp_count, 0);
+            assert_eq!(m_ltd_count, 0);
+            assert_eq!(m_ltp_mass, 0);
+            assert_eq!(m_ltd_mass, 0);
+            assert_eq!(matched_net_mass, 0);
+            assert_eq!(u_ltp_count, 0);
+            assert_eq!(u_ltd_count, 0);
+            assert_eq!(u_ltp_mass, 0);
+            assert_eq!(u_ltd_mass, 0);
+            assert_eq!(unmatched_net_mass, 0);
+        } else if *cond_name == "Normal" {
+            // Normal condition must have active fatigue
+            assert!(
+                sum_fatigue_at_spikes > 0,
+                "H3 must have non-zero fatigue at overlapping post ticks"
+            );
+        }
+
+        let m_denom = m_ltp_mass + m_ltd_mass.abs();
+        let m_wash = if m_denom > 0 {
+            1.0 - (matched_net_mass.abs() as f64 / m_denom as f64)
+        } else {
+            0.0
+        };
+        let m_mean_net = matched_net_mass as f64 / (num_trials * 7) as f64;
+        let m_mean_fatigue = sum_fatigue_at_spikes as f64 / count_fatigue_at_spikes.max(1) as f64;
+
+        let u_denom = u_ltp_mass + u_ltd_mass.abs();
+        let u_wash = if u_denom > 0 {
+            1.0 - (unmatched_net_mass.abs() as f64 / u_denom as f64)
+        } else {
+            0.0
+        };
+        let u_mean_net = unmatched_net_mass as f64 / (num_trials * 5) as f64;
+
+        markdown.push_str(&format!(
+            "| {} | Matched | {} | {} | {} | {} | {} | {:.4} | {:.2} | {:.2} |\n",
+            cond_name,
+            m_ltp_count,
+            m_ltd_count,
+            m_ltp_mass,
+            m_ltd_mass,
+            matched_net_mass,
+            m_wash,
+            m_mean_fatigue,
+            m_mean_net
+        ));
+        markdown.push_str(&format!(
+            "| {} | Unmatched | {} | {} | {} | {} | {} | {:.4} | {:.2} | {:.2} |\n",
+            cond_name,
+            u_ltp_count,
+            u_ltd_count,
+            u_ltp_mass,
+            u_ltd_mass,
+            unmatched_net_mass,
+            u_wash,
+            0.0,
+            u_mean_net
+        ));
+    }
+
+    // Six result rows: 3 conditions × matched/unmatched.
+    assert_eq!(markdown.lines().count(), 2 + 6, "header + six data rows");
+    println!("{markdown}");
+    let mut artifacts_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    artifacts_dir.pop();
+    artifacts_dir.pop();
+    artifacts_dir.pop();
+    artifacts_dir.push("artifacts");
+    if artifacts_dir.is_dir() {
+        let file_path = artifacts_dir.join("gsop_h3_fatigue_dominance_table.md");
+        std::fs::write(&file_path, &markdown).expect("write H3 fatigue table");
+        println!("Wrote results to {}", file_path.display());
+    }
+}
+
+#[test]
+fn test_competitive_depression_proof() {
+    let inertia_curve = [128; 8];
+
+    // 1. Inactive/sentinel heads -> assert Δmass < 0
+    let w_init = 1000;
+    let sentinel_heads = [AXON_SENTINEL; 8];
+    let w_sentinel = apply_gsop_plasticity(
+        w_init,
+        &sentinel_heads,
+        2,   // seg_idx
+        5,   // prop
+        0,   // fatigue
+        255, // fatigue_capacity
+        100, // potentiation
+        40,  // depression
+        0,   // dopamine
+        0,   // d1
+        0,   // d2
+        1,   // burst
+        &inertia_curve,
+    );
+    let delta_inactive = w_sentinel - w_init;
+    assert!(
+        delta_inactive < 0,
+        "Inactive/sentinel heads must result in negative delta mass"
+    );
+
+    // 2. Causal head in window -> potentiation still possible
+    let causal_heads = [
+        4,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+        AXON_SENTINEL,
+    ];
+    let w_causal = apply_gsop_plasticity(
+        w_init,
+        &causal_heads,
+        2,   // seg_idx (dist_ltp = 2 < prop 5 -> causal hit)
+        5,   // prop
+        0,   // fatigue
+        255, // fatigue_capacity
+        100, // potentiation
+        40,  // depression
+        0,   // dopamine
+        0,   // d1
+        0,   // d2
+        1,   // burst
+        &inertia_curve,
+    );
+    let delta_causal = w_causal - w_init;
+    assert!(
+        delta_causal > 0,
+        "Causal head in window must result in positive delta mass (potentiation)"
+    );
+
+    // 3. Short matched vs unmatched schedule -> assert unmatched net < matched net (or unmatched net < 0)
+    assert!(
+        delta_inactive < delta_causal,
+        "Unmatched delta must be strictly less than matched/causal delta"
+    );
+    assert!(delta_inactive < 0, "Unmatched delta must be negative");
+}

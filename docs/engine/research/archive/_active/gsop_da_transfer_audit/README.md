@@ -1,37 +1,53 @@
 # GSOP / DA Transfer Audit
 
-Status: `running`  
+Status: `decision_complete` + **T015 production competitive LTD landed**  
 Started: 2026-07-12  
-Owner: research / orchestrator  
 
 ## Research Question
 
-Why does calibrated GSOP + DA plasticity not move task-level choice in Cue Association (2AFC)? Is it due to transfer/rule differences between AxiEngine and legacy, or is it a pure scale difference?
+Why does calibrated GSOP + DA plasticity not move task-level choice in Cue Association (2AFC)?
 
-## Experiment Phase Roadmap
+## Answer
 
-| Phase | Hypothesis | Status | Verdict |
-|---|---|---|---|
-| **H1** | AxiEngine `apply_gsop_plasticity` ≠ legacy `cpu_apply_gsop` slot update math | Completed | Supported |
-| **H2** | On task-like trials, LTP and LTD largely cancel (wash) | Completed | Rejected (delayed-post fixture) |
-| **H3** | Fatigue penalty dominates net_delta at cap=18 / cost=50 | Planned | - |
-| **H4** | DA delivery (constant vs end-trial vs on-correct) matters more than magnitude | Planned | - |
-| **H5** | Mass→charge scale alone explains no behavioral shift even if rule matches legacy | Planned | - |
+| Finding | Impact |
+|---|---|
+| **H1 SUPPORTED** | Old Axi GSOP had no competitive LTD on inactive slots (unmatched stayed flat). |
+| **H2 REJECTED** | Not LTP/LTD wash under delayed-post. |
+| **H3 REJECTED** | Fatigue @ DA=50 does not kill net LTP; DA-off → net LTD. |
+| **T015 DONE** | Production `apply_gsop_plasticity`: no causal hit → full `base_ltd`. Tests: `test_competitive_depression_proof`. |
 
-## Reproducible Commands
+**C4 remains REJECTED** until a behavioral re-probe after this rule change.  
+**H4 cancelled. H5** only if weights still cannot move choice after a network probe.
 
-### Phase H1 slot update parity probe test:
-```powershell
-cargo test -p physics --test physics_tests test_gsop_parity_probe
+## Phase table
+
+| Phase | Status | Verdict |
+|---|---|---|
+| H1–H3 | Completed | See above |
+| H4 | Cancelled | — |
+| H5 | Deferred | After network probe if needed |
+| T015 competitive LTD | **Landed in production** | Unit proof green |
+
+## Next
+
+```text
+One network-level weight differentiation probe (frozen rates, post-T015 rule)
+  → if matched/unmatched still useless for choice: scale or DA wiring
+  → if differentiation OK: optional short C4-like re-run
 ```
 
-### Phase H2 wash audit test:
+No new H-ladder.
+
+## Commands
+
 ```powershell
-cargo test -p physics --test physics_tests test_gsop_h2_event_counters_wash -- --nocapture
+# from AxiEngine/
+cargo test -p physics --test physics_tests test_competitive_depression_proof
+cargo test -p physics --test physics_tests
 ```
 
 ## Links
 
-- **Living Narrative:** [narrative.md](narrative.md)
-- **Main Report:** [reports/gsop_da_transfer_audit.md](reports/gsop_da_transfer_audit.md)
-- **Status Roadmap:** [current_biocalibration_status.md](../../../current_biocalibration_status.md)
+- [narrative.md](narrative.md)
+- [reports/gsop_da_transfer_audit.md](reports/gsop_da_transfer_audit.md)
+- [current_biocalibration_status.md](../../../current_biocalibration_status.md)
