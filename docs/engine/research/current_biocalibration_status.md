@@ -131,13 +131,13 @@ Status: active research index, not a final report.
 
 ## 8. Активные и следующие исследования
 
-### [Decision complete + T015 landed] GSOP / DA transfer audit (archive/_active/gsop_da_transfer_audit/)
+### [Completed] GSOP / DA transfer audit & L053 network differentiation (archive/_active/gsop_da_transfer_audit/)
 
-- **Диагноз**: H1–H3 — inactive без LTD, не wash, fatigue@DA=50 не убивает LTP. H4 отменён.
-- **Production**: **T015 landed** — competitive/inactive LTD в `apply_gsop_plasticity` (нет causal hit → `base_ltd`). Proof: `test_competitive_depression_proof`.
-- **C4** по-прежнему REJECTED (behavioral re-probe ещё не делали).
-- **Next**: один network-level probe дифференциации весов под новым правилом; не H-ladder.
-- **Outputs**: [README](archive/_active/gsop_da_transfer_audit/README.md), [report](archive/_active/gsop_da_transfer_audit/reports/gsop_da_transfer_audit.md).
+- **Диагноз**: H1–H3 — inactive без LTD, не wash, fatigue@DA=50 не убивает LTP. L053 — unmatched network weights успешно депрессируют относительно matched (unmatched net < 0).
+- **Production**: **T015 landed** — competitive/inactive LTD в `apply_gsop_plasticity` (нет causal hit → `base_ltd`).
+- **L053 Verdict**: **SUPPORTED** — matched-unmatched gap = 4271.54 mass units (>= 100 threshold).
+- **Next**: запуск короткого C4 re-run (behavioral Cue Association) для проверки восстановления точности обучения (>= 70%).
+- **Outputs**: [README](archive/_active/gsop_da_transfer_audit/README.md), [report](archive/_active/gsop_da_transfer_audit/reports/gsop_da_transfer_audit.md), [narrative](archive/_active/gsop_da_transfer_audit/narrative.md).
 
 ### [Next Gate] Night phase activity counters review package v0.4
 

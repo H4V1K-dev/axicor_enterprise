@@ -46,3 +46,7 @@ However, in the **DA-off condition ($DA=0$)**, the fatigue penalty and anti-caus
 ## Decision: stop H-gates; T015 competitive LTD landed
 
 H1–H3 closed the diagnosis. **T015** changed production `apply_gsop_plasticity`: no causal hit → full competitive `base_ltd` (unit proof green). C4 is still not re-run. Next is one **network-level** weight differentiation probe under the new rule—not another H-ladder.
+
+## Phase L053: Network Weight Differentiation Probe (Post-T015)
+
+To bridge the gap between function-level unit tests and complete behavior, we conducted a network-level check (**Phase L053**). We adapted the LP4 task learning microcircuit topology using 7 matched and 5 unmatched virtual-to-L4 synapses under frozen rates and dynamic dopamine delivery. Our goal is to determine if unmatched synapses undergo net depression during active training ticks (unmatched net < 0) and if a clear matched-unmatched differentiation gap is established under the new rule.

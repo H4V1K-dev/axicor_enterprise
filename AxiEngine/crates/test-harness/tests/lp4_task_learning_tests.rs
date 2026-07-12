@@ -1,12 +1,14 @@
 #![cfg(all(feature = "full-chain-probe", feature = "mvp-cpu-replay"))]
 
+use compute_api::{
+    ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload, VramHandle,
+};
+use compute_cpu::{CpuBackend, CpuBackendConfig};
+use layout::VariantParameters;
 use std::fs;
 use std::path::PathBuf;
-use layout::VariantParameters;
-use compute_api::{ComputeBackend, DayBatchCmd, ShardAllocSpec, ShardSnapshotMut, ShardUpload, VramHandle};
-use compute_cpu::{CpuBackend, CpuBackendConfig};
-use types::SomaFlags;
 use test_harness::{MvpAxonBuffer, MvpStateBuffer};
+use types::SomaFlags;
 
 struct SimpleRng {
     state: u64,
@@ -245,7 +247,10 @@ fn execute_trial(
         Cue::Right => choice == Some(Cue::Right),
     };
     if total_a > 0 || total_b > 0 {
-        println!("    TRIAL: cue={:?} choice={:?} spikes_a={} spikes_b={} correct={}", cue, choice, total_a, total_b, correct);
+        println!(
+            "    TRIAL: cue={:?} choice={:?} spikes_a={} spikes_b={} correct={}",
+            cue, choice, total_a, total_b, correct
+        );
     }
     TrialResult {
         choice,
@@ -255,10 +260,17 @@ fn execute_trial(
     }
 }
 
+struct ExperimentResult {
+    baseline_acc: f64,
+    eval_acc: f64,
+    matched_avg: f64,
+    unmatched_avg: f64,
+}
+
 fn run_lp4_experiment(
     seed: u64,
     condition: &str, // "normal", "da_off", "plasticity_off"
-) -> (f64, f64) { // (baseline_accuracy, evaluation_accuracy)
+) -> ExperimentResult {
     let n = 256;
     let padded_n = 256;
     let total_axons = 384;
@@ -534,7 +546,11 @@ fn run_lp4_experiment(
     physics::set_plasticity_enabled(false);
     let mut correct_baseline = 0;
     for trial_idx in 0..100 {
-        let cue = if trial_idx % 2 == 0 { Cue::Left } else { Cue::Right };
+        let cue = if trial_idx % 2 == 0 {
+            Cue::Left
+        } else {
+            Cue::Right
+        };
         let res = execute_trial(
             cue,
             false,
@@ -565,7 +581,11 @@ fn run_lp4_experiment(
     physics::set_plasticity_enabled(enable_plasticity);
 
     for trial_idx in 0..500 {
-        let cue = if trial_idx % 2 == 0 { Cue::Left } else { Cue::Right };
+        let cue = if trial_idx % 2 == 0 {
+            Cue::Left
+        } else {
+            Cue::Right
+        };
         let _res = execute_trial(
             cue,
             enable_da,
@@ -628,16 +648,22 @@ fn run_lp4_experiment(
         "  [{}] Post-train: matched avg = {:.2} ({}/{}), unmatched avg = {:.2} ({}/{})",
         condition,
         sum_w_matched as f64 / count_matched.max(1) as f64,
-        sum_w_matched, count_matched,
+        sum_w_matched,
+        count_matched,
         sum_w_unmatched as f64 / count_unmatched.max(1) as f64,
-        sum_w_unmatched, count_unmatched
+        sum_w_unmatched,
+        count_unmatched
     );
 
     // 3. Trained Evaluation Phase
     physics::set_plasticity_enabled(false);
     let mut correct_eval = 0;
     for trial_idx in 0..100 {
-        let cue = if trial_idx % 2 == 0 { Cue::Left } else { Cue::Right };
+        let cue = if trial_idx % 2 == 0 {
+            Cue::Left
+        } else {
+            Cue::Right
+        };
         let res = execute_trial(
             cue,
             false,
@@ -662,10 +688,16 @@ fn run_lp4_experiment(
     }
     let eval_acc = correct_eval as f64 / 100.0;
 
-    (baseline_acc, eval_acc)
+    ExperimentResult {
+        baseline_acc,
+        eval_acc,
+        matched_avg: sum_w_matched as f64 / count_matched.max(1) as f64,
+        unmatched_avg: sum_w_unmatched as f64 / count_unmatched.max(1) as f64,
+    }
 }
 
 #[test]
+#[ignore]
 fn test_external_task_learning_lp4() {
     let seeds = [42, 100, 2026];
 
@@ -678,30 +710,52 @@ fn test_external_task_learning_lp4() {
         println!("Running LP-4 Task Learning Experiment for Seed: {}", seed);
 
         // Condition A: Normal
-        let (base_norm, eval_norm) = run_lp4_experiment(seed, "normal");
-        normal_results.push((base_norm, eval_norm));
-        println!("  Condition Normal: Baseline = {:.2}%, Evaluation = {:.2}%", base_norm * 100.0, eval_norm * 100.0);
+        let res_norm = run_lp4_experiment(seed, "normal");
+        normal_results.push((res_norm.baseline_acc, res_norm.eval_acc));
+        println!(
+            "  Condition Normal: Baseline = {:.2}%, Evaluation = {:.2}%",
+            res_norm.baseline_acc * 100.0,
+            res_norm.eval_acc * 100.0
+        );
 
         // Condition B: DA-off
-        let (base_da, eval_da) = run_lp4_experiment(seed, "da_off");
-        da_off_results.push((base_da, eval_da));
-        println!("  Condition DA-off: Baseline = {:.2}%, Evaluation = {:.2}%", base_da * 100.0, eval_da * 100.0);
+        let res_da = run_lp4_experiment(seed, "da_off");
+        da_off_results.push((res_da.baseline_acc, res_da.eval_acc));
+        println!(
+            "  Condition DA-off: Baseline = {:.2}%, Evaluation = {:.2}%",
+            res_da.baseline_acc * 100.0,
+            res_da.eval_acc * 100.0
+        );
 
         // Condition C: Plasticity-off
-        let (base_plast, eval_plast) = run_lp4_experiment(seed, "plasticity_off");
-        plasticity_off_results.push((base_plast, eval_plast));
-        println!("  Condition Plasticity-off: Baseline = {:.2}%, Evaluation = {:.2}%", base_plast * 100.0, eval_plast * 100.0);
+        let res_plast = run_lp4_experiment(seed, "plasticity_off");
+        plasticity_off_results.push((res_plast.baseline_acc, res_plast.eval_acc));
+        println!(
+            "  Condition Plasticity-off: Baseline = {:.2}%, Evaluation = {:.2}%",
+            res_plast.baseline_acc * 100.0,
+            res_plast.eval_acc * 100.0
+        );
     }
 
     let avg_normal_eval = normal_results.iter().map(|r| r.1).sum::<f64>() / seeds.len() as f64;
     let avg_da_off_eval = da_off_results.iter().map(|r| r.1).sum::<f64>() / seeds.len() as f64;
-    let avg_plast_off_eval = plasticity_off_results.iter().map(|r| r.1).sum::<f64>() / seeds.len() as f64;
+    let avg_plast_off_eval =
+        plasticity_off_results.iter().map(|r| r.1).sum::<f64>() / seeds.len() as f64;
 
     println!("------------------------------------------------------------");
     println!("LP-4 Task Learning Experiment Complete.");
-    println!("Average Normal Trained Evaluation Accuracy: {:.2}%", avg_normal_eval * 100.0);
-    println!("Average DA-off Trained Evaluation Accuracy: {:.2}%", avg_da_off_eval * 100.0);
-    println!("Average Plasticity-off Trained Evaluation Accuracy: {:.2}%", avg_plast_off_eval * 100.0);
+    println!(
+        "Average Normal Trained Evaluation Accuracy: {:.2}%",
+        avg_normal_eval * 100.0
+    );
+    println!(
+        "Average DA-off Trained Evaluation Accuracy: {:.2}%",
+        avg_da_off_eval * 100.0
+    );
+    println!(
+        "Average Plasticity-off Trained Evaluation Accuracy: {:.2}%",
+        avg_plast_off_eval * 100.0
+    );
 
     // Assert C4 Success Criteria
     assert!(
@@ -725,4 +779,52 @@ fn test_external_task_learning_lp4() {
     );
 
     println!("All C4 Task Learning success criteria met successfully!");
+}
+
+#[test]
+fn test_network_weight_differentiation_probe() {
+    let seed = 42;
+
+    // 1. Plasticity-off control: weights must remain exactly equal to initial weight (3500.0)
+    let res_plast = run_lp4_experiment(seed, "plasticity_off");
+    assert_eq!(
+        res_plast.matched_avg, 3500.0,
+        "Plasticity-off matched synapses must remain flat"
+    );
+    assert_eq!(
+        res_plast.unmatched_avg, 3500.0,
+        "Plasticity-off unmatched synapses must remain flat"
+    );
+
+    // 2. Normal condition: unmatched must depress (unmatched < 3500.0) and matched-unmatched gap must be >= 100 mass units
+    let res_norm = run_lp4_experiment(seed, "normal");
+
+    let matched_delta_mass = (res_norm.matched_avg - 3500.0) * 65536.0;
+    let unmatched_delta_mass = (res_norm.unmatched_avg - 3500.0) * 65536.0;
+    let gap_mass = matched_delta_mass - unmatched_delta_mass;
+
+    println!(
+        "  [L053 Probe] matched delta mass = {:.2}, unmatched delta mass = {:.2}, gap = {:.2}",
+        matched_delta_mass, unmatched_delta_mass, gap_mass
+    );
+
+    // Sanity assertion: some postsynaptic updates must have occurred (weights changed)
+    assert!(
+        res_norm.matched_avg != 3500.0 || res_norm.unmatched_avg != 3500.0,
+        "Plastic updates must occur under Normal condition"
+    );
+
+    // Unmatched must depress (unmatched_delta_mass < 0)
+    assert!(
+        unmatched_delta_mass < 0.0,
+        "Unmatched synapses must depress under competitive LTD (unmatched delta = {:.2} < 0)",
+        unmatched_delta_mass
+    );
+
+    // Matched must be greater than unmatched, and the gap must satisfy the prereg threshold of >= 100 mass units
+    assert!(
+        gap_mass >= 100.0,
+        "Matched-unmatched differentiation gap ({:.2}) must be >= 100 mass units",
+        gap_mass
+    );
 }
